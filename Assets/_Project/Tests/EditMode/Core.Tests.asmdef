@@ -3,6 +3,7 @@
     "rootNamespace": "Marco.Core.Tests",
     "references": [
         "Core",
+        "Presentation",
         "UnityEngine.TestRunner",
         "UnityEditor.TestRunner"
     ],

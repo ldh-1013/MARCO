@@ -2,7 +2,8 @@
     "name": "Presentation",
     "rootNamespace": "Marco.Presentation",
     "references": [
-        "Core"
+        "Core",
+        "Unity.InputSystem"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

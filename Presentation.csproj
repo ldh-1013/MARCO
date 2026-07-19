@@ -54,6 +54,10 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Assets\_Project\Presentation\Palette\ColorPalette.cs" />
+    <Compile Include="Assets\_Project\Presentation\Player\FirstPersonController.cs" />
+    <Compile Include="Assets\_Project\Presentation\SoundPulse\LocalPulsePipeline.cs" />
+    <Compile Include="Assets\_Project\Presentation\SoundPulse\LocalPulsePipelineBehaviour.cs" />
+    <Compile Include="Assets\_Project\Presentation\SoundPulse\PhysicsOcclusionProbe.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Assets\_Project\Presentation\Presentation.asmdef" />
@@ -1245,6 +1249,10 @@
     </Reference>
     <Reference Include="System.Text.Json">
       <HintPath>C:\Program Files\Unity\Hub\Editor\6000.5.4f1\Editor\Data\BCLExtensions\TargetingPacks\netstandard2.1\ref\System.Text.Json.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="Unity.InputSystem">
+      <HintPath>Library\ScriptAssemblies\Unity.InputSystem.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="UnityEditor.UI">

@@ -53,6 +53,8 @@
     <Analyzer Include="C:\Program Files\Unity\Hub\Editor\6000.5.4f1\Editor\Data\BCLExtensions\TargetingPacks\netstandard2.1\analyzers\dotnet\roslyn4.0\cs\System.Text.Json.SourceGeneration.dll" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Assets\_Project\Core\Locomotion\LocomotionConfig.cs" />
+    <Compile Include="Assets\_Project\Core\SoundPulse\ActivePulseTracker.cs" />
     <Compile Include="Assets\_Project\Core\SoundPulse\SoundPulseResolver.cs" />
     <Compile Include="Assets\_Project\Core\Objectives\Valve.cs" />
     <Compile Include="Assets\_Project\Core\GameFlow\GameFlowState.cs" />
@@ -61,11 +63,13 @@
     <Compile Include="Assets\_Project\Core\SoundPulse\PerceivedPulse.cs" />
     <Compile Include="Assets\_Project\Core\SoundPulse\SoundType.cs" />
     <Compile Include="Assets\_Project\Core\Objectives\RoundResult.cs" />
+    <Compile Include="Assets\_Project\Core\Locomotion\LocomotionSimulator.cs" />
     <Compile Include="Assets\_Project\Core\SoundPulse\IOcclusionProbe.cs" />
     <Compile Include="Assets\_Project\Core\SoundPulse\SoundPulse.cs" />
     <Compile Include="Assets\_Project\Core\SoundPulse\DirectionOctant.cs" />
     <Compile Include="Assets\_Project\Core\GameFlow\GameFlowManager.cs" />
     <Compile Include="Assets\_Project\Core\Role\RoleType.cs" />
+    <Compile Include="Assets\_Project\Core\Locomotion\MovementState.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Assets\_Project\Core\Core.asmdef" />
