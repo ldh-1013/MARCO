@@ -49,12 +49,21 @@ namespace Marco.Presentation.Sound
         }
 
         /// <summary>
-        /// FirstPersonController.FootstepPulseEmitted 이벤트 데이터를 §5.5 SoundPulse로
-        /// 변환해 트래커에 올린다. 판정은 다음 Tick에서 이뤄진다(T7 의미론 그대로).
+        /// §5.1 표의 어떤 소리든 §5.5 SoundPulse로 변환해 트래커에 올린다.
+        /// 판정은 다음 Tick에서 이뤄진다(T7 의미론 그대로).
+        /// </summary>
+        public int EmitPulse(SoundType type, float radius, float duration, Vector3 position, float timestamp)
+        {
+            return _tracker.AddPulse(new SoundPulse(_sourcePlayerId, position, radius, duration, type, timestamp));
+        }
+
+        /// <summary>
+        /// FirstPersonController.FootstepPulseEmitted 이벤트용 진입점.
+        /// 발소리도 §5.1의 한 등급일 뿐이라 <see cref="EmitPulse"/>에 그대로 위임한다.
         /// </summary>
         public int OnFootstepPulse(SoundType type, float radius, float duration, Vector3 position, float timestamp)
         {
-            return _tracker.AddPulse(new SoundPulse(_sourcePlayerId, position, radius, duration, type, timestamp));
+            return EmitPulse(type, radius, duration, position, timestamp);
         }
 
         /// <summary>매 프레임 호출. 재판정 주기(0.25s) 게이팅은 트래커 내부 책임이다.</summary>

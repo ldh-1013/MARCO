@@ -25,7 +25,6 @@ namespace Marco.Presentation.Sound
         private const int MaxHits = 32;
 
         private static readonly RaycastHit[] HitBuffer = new RaycastHit[MaxHits];
-        private readonly List<string> _hitTags = new List<string>(MaxHits);
         private readonly int _layerMask;
 
         public PhysicsOcclusionProbe()
@@ -45,32 +44,54 @@ namespace Marco.Presentation.Sound
             int hitCount = Physics.RaycastNonAlloc(
                 new Ray(from, delta / distance), HitBuffer, distance, _layerMask, QueryTriggerInteraction.Ignore);
 
-            _hitTags.Clear();
+            // Component.tag 게터는 호출마다 문자열을 새로 할당한다(Unity의 알려진 GC 원인).
+            // 재판정이 초당 수십 회 도는 경로라 CompareTag로 태그 비교를 무할당 처리한다.
+            var accumulator = default(OcclusionAccumulator);
             for (int i = 0; i < hitCount; i++)
-                _hitTags.Add(HitBuffer[i].collider.tag);
+            {
+                Collider collider = HitBuffer[i].collider;
+                accumulator.Add(
+                    isHardBlocker: collider.CompareTag(HardBlockerTag),
+                    isWall: collider.CompareTag(WallTag));
+            }
 
-            return Classify(_hitTags);
+            return accumulator.ToResult();
         }
 
         /// <summary>
-        /// §5.6 순수 판정부: 직선상에서 맞은 콜라이더 태그 목록 → 차폐 결과.
-        /// HardBlocker가 하나라도 있으면 완전 차단, Wall은 개수만큼 감쇠(×0.5^n)에 쓰인다.
-        /// 감쇠 계산 자체는 SoundPulseResolver의 책임 — 여기서는 세기만 한다.
+        /// §5.6 판정 규칙: HardBlocker가 하나라도 있으면 완전 차단, Wall은 개수만큼
+        /// 감쇠(×0.5^n)에 쓰인다. 감쇠 계산 자체는 SoundPulseResolver의 책임 —
+        /// 여기서는 세기만 한다. Probe(무할당 경로)와 Classify(테스트 경로)가
+        /// 같은 규칙을 쓰도록 이 구조체를 공유한다.
+        /// </summary>
+        private struct OcclusionAccumulator
+        {
+            private bool _hasHardBlocker;
+            private int _wallCount;
+
+            public void Add(bool isHardBlocker, bool isWall)
+            {
+                if (isHardBlocker)
+                    _hasHardBlocker = true;
+                else if (isWall)
+                    _wallCount++;
+            }
+
+            public OcclusionResult ToResult() => new OcclusionResult(_hasHardBlocker, _wallCount);
+        }
+
+        /// <summary>
+        /// 태그 목록으로 같은 규칙을 적용하는 테스트용 진입점.
+        /// 런타임 경로(<see cref="Probe"/>)는 문자열 할당을 피하려 CompareTag를 쓰지만,
+        /// 판정 규칙 자체는 <see cref="OcclusionAccumulator"/>로 공유한다.
         /// </summary>
         public static OcclusionResult Classify(IReadOnlyList<string> hitTags)
         {
-            bool hasHardBlocker = false;
-            int wallCount = 0;
-
+            var accumulator = default(OcclusionAccumulator);
             for (int i = 0; i < hitTags.Count; i++)
-            {
-                if (hitTags[i] == HardBlockerTag)
-                    hasHardBlocker = true;
-                else if (hitTags[i] == WallTag)
-                    wallCount++;
-            }
+                accumulator.Add(hitTags[i] == HardBlockerTag, hitTags[i] == WallTag);
 
-            return new OcclusionResult(hasHardBlocker, wallCount);
+            return accumulator.ToResult();
         }
     }
 }

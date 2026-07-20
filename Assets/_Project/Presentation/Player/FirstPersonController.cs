@@ -2,6 +2,7 @@ using System;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using Marco.Core.Locomotion;
+using Marco.Core.Net;
 using Marco.Core.Role;
 using Marco.Core.Sound;
 
@@ -26,7 +27,7 @@ namespace Marco.Presentation.Player
     /// NetworkTransform(§14.2 10~20Hz)을 덧붙일 때 이 클래스는 수정하지 않는 구조.
     /// </summary>
     [RequireComponent(typeof(CharacterController))]
-    public sealed class FirstPersonController : MonoBehaviour
+    public sealed class FirstPersonController : MonoBehaviour, ILocalControlGate
     {
         [Header("역할 (역할 배정 시스템 배선 전 로컬 테스트용)")]
         [SerializeField] private RoleType _role = RoleType.Runner;
@@ -53,6 +54,65 @@ namespace Marco.Presentation.Player
         public MovementState CurrentState => _simulator?.CurrentState ?? MovementState.Idle;
         public RoleType Role => _role;
 
+        /// <summary>
+        /// 로컬 플레이어가 조종하는가. 네트워크가 없는 로컬 단독 실행에서는 아무도
+        /// <see cref="SetLocalControl"/>을 호출하지 않으므로 true로 남아, 스프린트 3~7의
+        /// 로컬 스모크 리그가 그대로 동작한다.
+        /// </summary>
+        public bool IsLocallyControlled { get; private set; } = true;
+
+        /// <summary>
+        /// Net 레이어(소유권 게이트)가 호출한다. false면 입력·카메라·커서 잠금을 모두
+        /// 놓고, 이 캐릭터는 네트워크로 받은 Transform 값으로만 움직인다.
+        /// </summary>
+        public void SetLocalControl(bool isLocallyControlled)
+        {
+            if (IsLocallyControlled == isLocallyControlled)
+                return;
+
+            IsLocallyControlled = isLocallyControlled;
+            ApplyLocalControlState();
+            PublishRegistration();
+        }
+
+        /// <summary>
+        /// 로컬 조종 캐릭터만 씬 컴포넌트들(파문 파이프라인·탈출 지점 등)의 기준이 된다.
+        /// 네트워크 스폰이라 씬에서 미리 참조를 걸 수 없으므로 여기서 등록한다.
+        /// </summary>
+        private void PublishRegistration()
+        {
+            if (IsLocallyControlled)
+                LocalPlayerRegistry.Register(this);
+            else
+                LocalPlayerRegistry.Unregister(this);
+        }
+
+        /// <summary>
+        /// 원격 캐릭터는 카메라·오디오리스너를 꺼야 한다 — 안 그러면 클라이언트마다
+        /// 카메라가 여러 개 활성화되어 화면이 섞이고 AudioListener 중복 경고가 난다.
+        /// </summary>
+        private void ApplyLocalControlState()
+        {
+            if (_cameraTransform != null)
+            {
+                var camera = _cameraTransform.GetComponent<Camera>();
+                if (camera != null)
+                    camera.enabled = IsLocallyControlled;
+
+                var listener = _cameraTransform.GetComponent<AudioListener>();
+                if (listener != null)
+                    listener.enabled = IsLocallyControlled;
+            }
+
+            ApplyCursorLock(IsLocallyControlled);
+        }
+
+        private static void ApplyCursorLock(bool locked)
+        {
+            Cursor.lockState = locked ? CursorLockMode.Locked : CursorLockMode.None;
+            Cursor.visible = !locked;
+        }
+
         private void Awake()
         {
             _characterController = GetComponent<CharacterController>();
@@ -64,18 +124,25 @@ namespace Marco.Presentation.Player
 
         private void OnEnable()
         {
-            Cursor.lockState = CursorLockMode.Locked;
-            Cursor.visible = false;
+            ApplyLocalControlState();
+            // 네트워크가 없으면 SetLocalControl이 호출되지 않으므로 여기서 등록해야
+            // 로컬 단독 실행(스프린트 3~7 스모크 리그)이 그대로 동작한다.
+            PublishRegistration();
         }
 
         private void OnDisable()
         {
-            Cursor.lockState = CursorLockMode.None;
-            Cursor.visible = true;
+            ApplyCursorLock(false);
+            LocalPlayerRegistry.Unregister(this);
         }
 
         private void Update()
         {
+            // 원격 캐릭터는 입력을 일절 받지 않는다 — 위치·회전은 네트워크 동기화가
+            // 전담하므로, 여기서 CharacterController를 건드리면 서로 싸운다.
+            if (!IsLocallyControlled)
+                return;
+
             ApplyLook();
             ApplyMovement();
         }

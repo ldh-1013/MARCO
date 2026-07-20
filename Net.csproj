@@ -57,6 +57,7 @@
     <Compile Include="Assets\_Project\Net\Transports\FishyFacepunch\FishyFacepunch.cs" />
     <Compile Include="Assets\_Project\Net\Transports\FishyFacepunch\Core\ClientHostSocket.cs" />
     <Compile Include="Assets\_Project\Net\Transports\FishyFacepunch\Core\ClientSocket.cs" />
+    <Compile Include="Assets\_Project\Net\PlayerOwnershipGate.cs" />
     <Compile Include="Assets\_Project\Net\Transports\FishyFacepunch\Core\FishyConnectionManager.cs" />
     <Compile Include="Assets\_Project\Net\Transports\FishyFacepunch\Core\ServerSocket.cs" />
     <Compile Include="Assets\_Project\Net\Transports\FishyFacepunch\Core\LocalPacket.cs" />

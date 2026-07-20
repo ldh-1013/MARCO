@@ -2,8 +2,8 @@
   <Project Path="FishNet.Runtime.csproj" />
   <Project Path="FishNet.Codegen.Cecil.csproj" />
   <Project Path="SynapseSocket.csproj" />
-  <Project Path="GameKit.Dependencies.csproj" />
   <Project Path="Presentation.csproj" />
+  <Project Path="GameKit.Dependencies.csproj" />
   <Project Path="Unity.FishNet.Codegen.csproj" />
   <Project Path="Core.csproj" />
   <Project Path="FishNet.Demos.csproj" />

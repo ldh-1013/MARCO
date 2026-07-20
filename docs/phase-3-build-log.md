@@ -18,7 +18,264 @@
 | T4 | 승패 판정 (§6.3) | ✅ 완료 (2026-07-19) | 11케이스 통과 |
 | T7 | PerceivedPulse 재판정 오케스트레이션 (GAP-3) | ✅ 완료 (2026-07-19) | 12케이스 통과 |
 
-**테스트 누계: 102케이스 전수 통과** (SoundPulseResolver 19 + GameFlow 9 + Valve 17 + WinCondition 11 + ActivePulseTracker 12 + LocomotionSimulator 18 + LocalPulsePipeline 10 + LocalPulsePipelineExpiry 6)
+**테스트 누계: 170케이스 전수 통과** (SoundPulseResolver 19 + GameFlow 9 + Valve 17 + WinCondition 11 + ActivePulseTracker 12 + LocomotionSimulator 18 + LocalPulsePipeline 10 + LocalPulsePipelineExpiry 6 + PulseVisualRegistry 14 + ValveInteractionController 15 + RoundFlow 18 + Tagging 21)
+
+---
+
+## 스프린트 7 — 태그 판정 (2026-07-19)
+
+지시서: `마르코_스프린트7_태그판정_prompt.md`. 술래가 시간 초과로만 이길 수 있던 상태를 해소. **§6.3 세 판정 분기가 모두 도달 가능해졌다.** Core 파일 무수정.
+
+### 확인부터: Core는 이미 준비돼 있었고, 사양도 명확했다
+
+지시서가 "새로 만들기 전에 기존 필드부터 확인"하라 한 대로 확인한 결과:
+
+- **`WinConditionEvaluator.Evaluate`는 이미 `allRunnersTagged`를 받고 있었다**(T4 산출물). **Core 확장이 전혀 필요 없었다.**
+- 지시서가 참조한 §14.1은 실제로는 "네트워크 스택 선정"이고, **태그 사양은 §3.1 역할 표와 §3.3 요약 도식**에 있었다. 내용은 오히려 예상보다 구체적이다:
+
+| 기획서 문구 | 위치 | 구현 |
+|---|---|---|
+| "접촉 트리거, 반경 **1.2m**, **1회 접촉 즉시 확정**" | §3.1 · §3.3 | `TagRules.TagRadiusMeters = 1.2f`, 홀드·쿨다운 없음 |
+| "태그 1회 → **메아리로 즉시 전환**" | §3.1 사망/탈락 처리 | `TaggableRunner.MarkTagged()` → `Role = Echo` |
+| 메아리는 "**태그 불가**(비활성 콜라이더)" | §3.1 메아리 열 | `TagRules.CanTag`가 Echo 대상 거부 |
+
+**재태그 쿨다운을 만들지 않은 이유**: 태그당한 즉시 메아리가 되고 메아리는 태그 불가라, 같은 대상을 두 번 태그하는 상황이 **구조적으로 성립하지 않는다.** 기획서에 쿨다운 언급이 없는 것도 이 때문으로 보이며, 스프린트 5의 GAP-9 판단 방식("명시 없으면 없는 대로")을 유지해 규칙을 창작하지 않았다.
+
+### 신규 파일
+
+| 파일 | 역할 |
+|---|---|
+| `Presentation/Tagging/TagRules.cs` | §3.1 거리·역할 규칙(순수). 1.2m 상수 포함 |
+| `Presentation/Tagging/TaggableRunner.cs` | 태그 대상 도망자 — **로컬 단독 실행용 대역**(아래 참조) |
+| `Presentation/Tagging/TagDetector.cs` | 술래 역할일 때만 1.2m 근접 판정 → 코디네이터에 보고 |
+| `Tests/EditMode/TaggingTests.cs` | 21케이스 |
+
+수정: `RoundOutcomeTracker`에 태그 집계 추가(`TryRegisterTag`/`TaggedCount`/`AreAllRunnersTagged`) — **기존 `Evaluate` 시그니처는 그대로 둬 스프린트 6 테스트 18건이 깨지지 않게 했다.** `RoundCoordinator`에 `TryRegisterTag` 추가 및 `_allRunnersTagged` → `_forceAllRunnersTagged`로 의미 정정(수동 강제용). `Game.unity`에 대역 도망자 3명 + `TagDetector` 배치.
+
+### 판정 권한 단일화 원칙 유지
+
+스프린트 6에서 확립한 **"판정은 `RoundCoordinator`만"** 원칙을 그대로 지켰다. `TagDetector`는 승패를 계산하지 않고 태그 사실만 보고하며, 역할 규칙도 `RoundOutcomeTracker`가 최종 강제한다(스프린트 5 GAP-5 처리와 동일 원칙 — 규칙을 한 곳에만 둔다).
+
+### 로컬 단독 실행용 대역 도망자 (실제 게임플레이 기능 아님)
+
+플레이어가 한 명뿐이라 "술래가 도망자를 태그한다"를 확인할 상대가 없다. 그레이박스의 밸브 큐브가 실제 밸브를 대신하듯, **씬에 놓인 `TaggableRunner` 3개가 도망자를 대신한다**(로비 인근 캡슐, 콜라이더 없음 — 이동 방해 안 함). 네트워크 스프린트에서 실제 원격 플레이어로 대체된다. 이 대역 덕분에 검증 체크리스트 1~5번을 전부 에디터에서 확인할 수 있다.
+
+### 스펙 갭 1건 신규 (GAP-13)
+
+| # | 갭 | 결정 | 근거 |
+|---|---|---|---|
+| **GAP-13** | 일부가 탈출한 상태에서 §6.3의 `allRunnersTagged`는 어떻게 읽는가 | **문자 그대로 "모든 러너가 태그됨"**. 탈출한 러너는 태그된 적이 없으므로, 누군가 탈출했다면 false | 혼재 상황이 실질적으로 문제되지 않는다 — 탈출은 §6.1상 게이트 개방(밸브 전부) 이후에만 가능하고, 그 조건이면 §6.3 첫 분기(RunnersWin)가 이미 성립해 라운드가 그 시점에 끝난다. 테스트 `EscapeWithValvesComplete_BeatsRemainingTags`가 이 우선순위를 고정 |
+
+부수 결정: 러너가 0명이면 "전원 태그"로 치지 않는다(공허한 참 방지). 탈출한 러너는 태그 불가(이미 맵을 벗어남).
+
+### §6.3 세 분기가 모두 도달 가능해졌다
+
+테스트 `AllThreeVerdictPaths_AreReachable`이 이 스프린트의 목적 자체를 고정한다:
+
+| 분기 | 조건 | 열린 시점 |
+|---|---|---|
+| `RunnersWin` | 밸브 전부 + 1인 이상 탈출 | 스프린트 6 |
+| `SeekerWin` (태그) | 전원 태그 — **시간이 남아도 즉시** | **스프린트 7 ← 이번** |
+| `SeekerWin` (시간) | 제한시간 만료 | 스프린트 6 |
+
+### 신규 테스트 21케이스
+
+거리 4건(명시값 1.2m·이내·초과·경계 포함) · 역할 5건(술래→러너 허용, 메아리 대상 거부, 잘못된 조합 3종) · 집계 5건(집계·메아리 재태그 거부·중복 방지·탈출자 태그 불가·라운드 종료 후 무시) · §6.3 판정 7건(일부 태그 시 미결·**전원 태그 즉시 승리**·러너 0명·혼재 2건·래치·**세 분기 도달성**). 총계 149 → 170.
+
+---
+
+## 스프린트 6 — 탈출 지점 + 라운드 타이머 (2026-07-19)
+
+지시서: `마르코_스프린트6_탈출타이머_prompt.md`. **게임이 처음으로 "끝난다."** 지금까지 §6.3 판정이 항상 `InProgress`였던 이유(탈출·타이머 부재)를 해소했다. Core 파일 무수정.
+
+### 확인부터: 필요한 것이 대부분 이미 있었다
+
+- **제한시간은 기획서에 명시돼 있다** — §6.2 표의 4인 행 `10분`. 지시서가 "명시값을 못 찾으면 GAP으로 기록"하라 했으나 찾았으므로 **임의값을 쓰지 않았다**. 2/3/5/6인 값도 상수로 함께 넣어 뒀다(v1.x).
+- **§6.3 판정식은 T4에서 이미 완성**(11케이스)돼 `runnersEscaped`·`timeRemainingSeconds`를 이미 받고 있었다. 이번 작업은 그 두 입력에 실제 값을 흘려보내는 배선이다.
+- **`InGame → RoundEnd`** 전이도 §15.4 전이표에 이미 있었다(9케이스).
+
+### 신규 파일
+
+| 파일 | 역할 |
+|---|---|
+| `Presentation/GameFlow/RoundTimer.cs` | §6.2 카운트다운. 만료 신호 **1회만** 발행, 음수 방지(순수) |
+| `Presentation/GameFlow/RoundOutcomeTracker.cs` | 탈출 집계 + §6.3 판정 **래치**(순수). 판정식은 Core에 위임 |
+| `Presentation/GameFlow/RoundCoordinator.cs` | 씬 글루: 밸브 수·탈출 수·남은 시간을 모아 단일 지점 판정 → `InGame→RoundEnd` 전이 |
+| `Presentation/Objectives/EscapePointTrigger.cs` | §10.1 배수로 출구 탈출 지점(거리 기반, 밸브와 동일 패턴) |
+| `Tests/EditMode/RoundFlowTests.cs` | 18케이스 |
+
+### 판정 권한을 한 곳으로 통합 (기존 코드 수정 1건)
+
+`ValveObjectiveTracker`(스프린트 5)가 자체적으로 `WinConditionEvaluator`를 호출하고 있었다. 여기에 `RoundCoordinator`가 추가되면 **두 컴포넌트가 각자 판정해 서로 다른 결론을 로그로 찍는다.** 그래서 트래커는 집계 전담(`OpenedCount`/`TotalValves`/`IsEscapeGateOpen`)으로 바꾸고 판정은 코디네이터로 일원화했다. 기능 추가가 아니라 **중복 권한 제거**다.
+
+### 스펙 갭 2건 신규 (GAP-11, GAP-12)
+
+| # | 갭 | 결정 | 근거 |
+|---|---|---|---|
+| **GAP-11** | 술래·메아리가 탈출 지점에 도달하면? §6.3은 `runnersEscaped`만 말하고 다른 역할을 언급하지 않음 | **러너만 집계** | 판정식 변수명이 `runnersEscaped`이고, §3.2상 메아리는 유령(물리 상호작용 불가), 술래는 탈출할 이유가 없다. 명시가 없으니 가장 보수적인 해석 |
+| **GAP-12** | 탈출 판정 반경 수치 미명시 | 2.0m (조정 가능) | 밸브 상호작용(GAP-10, 2.5m)보다 약간 좁게 — 탈출은 "지나가면 발동"이 아니라 "도달"이어야 한다 |
+
+**GAP 아님(기획서 명시 규칙)**: "밸브 3개 모두 Open → 배수로 게이트 Open → 탈출 가능"(§6.1)은 명시돼 있으므로 게이트가 닫힌 상태의 탈출을 코드로 차단했다. 테스트 `Escape_BeforeGateOpens_IsRejected`가 고정한다.
+
+### 구현 결정
+
+| 결정 | 근거 |
+|---|---|
+| 판정은 **한 번 결정되면 래치** | 라운드 종료는 되돌릴 수 없다. 종료 처리(전이·로그)가 1회만 일어나도록 `Evaluate`가 "이번에 새로 결정됨"을 반환 |
+| 같은 러너의 중복 탈출 집계 방지 | `HashSet<ulong>`으로 ID 관리 |
+| 탈출은 범위에 **들어온 순간** 1회 시도 | 서 있는 동안 매 프레임 시도하지 않도록 |
+| 역할·게이트 조건을 트리거가 아닌 `RoundOutcomeTracker`에서 검사 | 스프린트 5 GAP-5 처리와 같은 원칙 — 규칙을 한 곳에만 둔다 |
+| `RoundCoordinator`가 Start에서 Boot→…→InGame까지 전이 | §15.4 전이표는 순서대로만 진행 가능. 로컬 단독 실행 스캐폴딩이며, 실제로는 로비·역할 배정 시스템이 구동할 자리 |
+
+### 아직 안 열린 경로
+
+**태그 판정(§14.1)은 이번 스코프가 아니다**(사용자 우선순위 2번). 따라서 술래가 직접 이기는 경로는 여전히 닫혀 있고, 술래는 **시간 초과로만** 이길 수 있다 — 지시서가 명시한 대로 정상 상태다. `_allRunnersTagged`를 인스펙터에 남겨 §6.3의 해당 분기는 수동으로 확인할 수 있다.
+
+### 신규 테스트 18케이스
+
+타이머 5건(명시값 확인·감소·**만료 1회성**·0 고정·정지) · 탈출 집계 5건(게이트 전 거부·게이트 후 집계·비러너 2역할 거부·중복 방지·복수 러너) · §6.3 판정 7건(러너 승·시간초과 술래 승·미결·**래치**·종료 후 탈출 무시·탈출 우선순위·타이머→판정 흐름). 총계 131 → 149.
+
+---
+
+## 스프린트 5 — 밸브 E 상호작용 배선 (2026-07-19)
+
+지시서: `마르코_스프린트5_밸브E배선_prompt.md`. T3에서 완성된 Core `Valve`(17케이스)를 아무도 호출하지 않던 상태를 해소. **이번 스프린트로 "플레이어 입력 → 밸브 상태 → 승패 판정"까지 코어 게임 루프가 처음으로 닫혔다.** Core 파일 무수정(준수).
+
+### 신규 파일
+
+| 파일 | 역할 |
+|---|---|
+| `Presentation/Objectives/ValveInteractionController.cs` | E 홀드 → §6.1 상태기계 배선의 **순수 로직**(취소 규칙 포함, Unity 비의존 → 테스트 가능) |
+| `Presentation/Objectives/ValveBehaviour.cs` | 씬 밸브 오브젝트 1개당 Core `Valve` 인스턴스를 소유하는 얇은 래퍼 |
+| `Presentation/Objectives/ValveInteractor.cs` | 씬 글루: 입력 폴링·최근접 밸브 탐색·로그·§5.1 소음 발행 |
+| `Presentation/Objectives/ValveObjectiveTracker.cs` | 개방 수 집계 → §6.3 `WinConditionEvaluator` 연결 → Console 로그 |
+| `Tests/EditMode/ValveInteractionControllerTests.cs` | 15케이스 |
+
+수정: `LocalPulsePipeline`/`LocalPulsePipelineBehaviour`에 범용 `EmitPulse` 추가(발소리 전용이던 진입점을 §5.1 전 등급용으로 일반화, 기존 `OnFootstepPulse`는 위임으로 유지 — 호출부 무변경). `Game.unity`에 컴포넌트 5개 배치.
+
+### GAP-5는 Core가 이미 강제하고 있었다 — 중복 검사 안 함
+
+지시서가 확인을 요청한 항목. `Valve.cs:62`가 `RoleType.Echo`를 이미 거부하므로 **Presentation에서 역할을 다시 검사하지 않고**, Core의 거부를 `ValveInteractionEvent.Rejected`로 그대로 전달한다. 규칙이 두 곳에 흩어져 나중에 어긋나는 것을 막기 위함. 테스트 `EchoRole_IsRejectedByCore`가 이 경로를 고정한다.
+
+### 스펙 갭 2건 신규 (GAP-9, GAP-10)
+
+| # | 갭 | 결정 | 근거 |
+|---|---|---|---|
+| **GAP-9** | §6.1이 취소 조건을 `interrupt(이탈)`로만 쓰고 **구체적 트리거를 열거하지 않음** | 이탈 = ① E 키를 뗌 ② 상호작용 범위 이탈. **범위 안에서의 단순 이동은 취소하지 않는다** | 기획서에 "움직이면 취소"라는 문구가 없다. 없는 규칙을 만들지 않는 쪽을 택했다. §6.4가 "연결 끊김"을 별도 항목으로 분리한 것도 "이탈"이 상호작용 자체를 놓는 행위를 가리킨다는 근거 |
+| **GAP-10** | 밸브 **상호작용 거리 수치가 기획서 어디에도 없음** | 2.5m (인스펙터·생성자로 조정 가능) | §14.1 태그 판정 1.2m(접촉급)보다 넉넉해야 밸브 앞에 서서 누를 수 있고, 캐릭터 콜라이더 0.35m + 밸브 큐브 0.6m를 감안하면 2.5m가 "바로 옆"에 해당. 플레이테스트 조정 대상 |
+
+### §5.1 밸브 소음(12m) 연결
+
+§6.1 두 번째 줄("밸브 회전 중 소음 12m/3초 지속 발생 — 중간에 멈춰도 이미 발생한 소음은 취소되지 않음")을 구현했다. 회전 시작 시점에 회전 시간 전체를 덮는 펄스를 **한 번만** 발행하고 취소 시에는 아무것도 하지 않는다. Core `Valve`가 `RotationStarted`/`SoundRadiusMeters`를 노출해 둔 것이 정확히 이 용도였다.
+
+> 스코프 판단: 지시서의 포함 목록에 "소음"이 명시돼 있진 않았지만, §6.1 본문에 있는 동작이고 T7/T8 파이프라인이 이미 있어 연결만 하면 됐다. 이걸 빼면 밸브가 무음이 되어 §5.1의 "의도된 유인 장치" 설계가 성립하지 않는다.
+
+### 승패 판정 연결의 현재 한계
+
+`ValveObjectiveTracker`가 개방 수를 세어 §6.3 `WinConditionEvaluator`에 넘긴다. 다만 **탈출·태그·라운드 타이머가 아직 미구현**이라 판정은 대부분 `InProgress`로 남는다. 이번 스프린트에서 눈으로 확인 가능한 이정표는 §6.1 마지막 줄인 "밸브 3개 모두 Open → 배수로 게이트 Open → 탈출 가능"이며, 이를 별도 로그로 찍는다. 미구현 시스템의 판정 입력(`_runnersEscaped` 등)은 인스펙터에 노출해 수동으로 넣어보며 §6.3 분기를 확인할 수 있게 했다.
+
+### 신규 테스트 15케이스
+
+역할 제약(메아리 거부/술래 허용) · 취소 2종(GAP-9 (a)(b)) · **범위 내 이동은 취소 안 됨**(GAP-9 반대편 고정) · 범위 밖 시작 불가 · 이미 열린 밸브 무시 · 완료 후 재시작 안 됨 · 취소 후 0부터 재시작 · 진행률 추적 · §6.3 연동. 총계 116 → 131.
+
+---
+
+## 스프린트 4 — T8 파문 렌더러 / 시각화 (2026-07-19)
+
+지시서: `마르코_스프린트4_T8파문렌더러_prompt.md`. `LocalPulsePipelineBehaviour`가 델리버리를 Debug.Log로만 소비하던 것을 **실제 시각 표현으로 교체**. 판정 로직은 이미 Core에 있으므로 이번 작업은 순전히 "그 결과를 눈에 보이게 그리는 것"이다. **Core 파일 무수정**(준수).
+
+### 신규 파일 (전부 Presentation/SoundPulse/)
+
+| 파일 | 역할 |
+|---|---|
+| `PulseVisualState.cs` | 화면에 살아있는 파문 하나의 상태. `Progress01(now)`·`IsExpired(now)`로 자체 만료 판정 |
+| `PulseVisualRegistry.cs` | 델리버리 → 시각 오브젝트 수명 매핑(순수 로직, Unity 의존 없음 → 테스트 가능) |
+| `PulseVisualRenderer.cs` | 실제 렌더: LineRenderer 링 풀 + IMGUI 8방위 인디케이터, ColorPalette 연동 |
+| `Tests/EditMode/PulseVisualRegistryTests.cs` | 12케이스 |
+
+수정: `LocalPulsePipelineBehaviour.cs` — 델리버리를 렌더러로 전달(`OnDelivery`), 매 프레임 `_visuals.Tick(now)` 구동, Debug.Log는 `_logDeliveries` 토글 뒤로(기본 꺼짐), 스트레스 테스트 키 추가. `Game.unity` — `PulseSystem`에 렌더러 컴포넌트 추가 및 팔레트·카메라 배선.
+
+### GAP-2 분기가 처음으로 눈에 보인다
+
+Core가 이미 "좌표를 줄지 방향만 줄지" 판정해 넘겨주므로 Presentation은 그 판단을 다시 하지 않고 **표현만 분기**한다.
+
+| Core 판정 | 시각 표현 |
+|---|---|
+| `WorldSpaceRingVisible == true` (벽 0개) | 발생 지점에서 `PerceivedRadius`까지 확장하며 페이드아웃하는 월드스페이스 링(§5.4) |
+| `WorldSpaceRingVisible == false` (차폐) | 좌표 없이 화면 가장자리 8방위 인디케이터만(§3.4) |
+
+이것으로 **"차폐돼서 방향만 보이는 것"과 "반경 밖이라 아예 안 보이는 것"이 처음으로 시각적으로 구별된다** — 스프린트 3에서 로그만으로는 구분 불가했던 한계의 해소다.
+
+### 자연 만료는 자체 타이머로 (필수 제약)
+
+스프린트 3 버그 조사에서 확정했듯 **자연 만료 시 `Disappeared` 델리버리는 오지 않는다**(T7 의도된 설계). 따라서 렌더러는 Appeared 시점에 받은 `PerceivedDuration`으로 자체 타이머를 돌려 스스로 사라진다. `Disappeared`는 조기 소실(차폐/거리 변화) 시 즉시 제거 용도로만 쓴다. 이 계약을 `Tick_PastDuration_SelfRemovesWithoutDisappearedDelivery` 테스트가 고정한다 — 어기면 파문이 화면에 영원히 남는다.
+
+### 구현 결정
+
+| 결정 | 근거 |
+|---|---|
+| `Updated` 시 `StartTime` 보존, 반경·지속만 갱신 | 펄스는 같은 시각에 발생했고 차폐로 인지값만 바뀐 것. 타이머 재시작은 오표현 |
+| 지속시간이 줄면(차폐 감쇠) 그만큼 일찍 사라짐 | `PerceivedDuration`이 §5.6 감쇠를 이미 반영하므로 그대로 따름 |
+| 링은 단위원 1회 생성 + `localScale`로만 확장, 풀링 | §15.5 동시 30개 목표. 프레임당 정점 재계산 회피 |
+| 링 재질은 URP Unlit 런타임 생성(인스펙터 덮어쓰기 가능) | 에셋 추가 없이 동작. 가산 반투명으로 암전 맵(§16.1)에서 파문만 떠오르게 |
+| 방향 인디케이터는 IMGUI(OnGUI) | UI 시스템이 아직 없음. 기능 확인용 최소 구현이며 §12 HUD 작업 때 정식 UI로 교체 |
+| 인디케이터는 카메라 yaw를 빼서 화면 상대 각도로 표시 | `DirectionOctant`는 월드 기준(N=+z). 정면이 화면 위가 되어야 방향 힌트로 쓸모 있음 |
+| 색상은 `GetRunner(colorblind)` 고정 | 현재 발생원은 로컬 플레이어(러너)뿐. 역할별 색 분기는 역할이 네트워크로 오는 시점에 배선(§16.2) |
+| 재등장(차폐 해소) 시 타이머 재시작 | 원 발생 시각을 `PerceivedPulse`가 갖고 있지 않음. 드문 케이스이고 시각 표현상만의 오차 — 코드 주석에 명시 |
+
+### 스트레스 테스트 키
+
+`P`(인스펙터 변경 가능) 입력 시 청취점 주변에 파문 30개를 한꺼번에 생성한다. §15.5 성능 목표(동시 30개 @60fps) 체감 확인용이며, 정밀 실측(프로파일러 수치)은 T6 스코프로 남긴다.
+
+### 검증 하네스 보강
+
+`PulseVisualRenderer`가 IMGUI를 쓰면서 스크래치패드 검증 csproj에 `UnityEngine.IMGUIModule`·`UnityEngine.TextRenderingModule` 참조가 없어 컴파일이 실패했다. Unity 본체는 이 모듈들을 기본 참조하므로 **프로젝트 결함이 아니라 검증 하네스의 누락**이었고, 두 csproj(`CoreVerify`/`PresentationVerify`)에 참조를 추가해 해소했다.
+
+### 에디터 확인 체크리스트
+
+→ **`docs/수동검증_절차.md`로 분리**했다(반복 가능한 절차 문서). 요약: 파문 링 표시 · 차폐 시 방향 인디케이터 전환 · 자연 소멸 · `P` 성능 · `C` 색맹 토글.
+
+---
+
+## 스프린트 4 후속 — 성능 조사 및 수동 검증 노출 (2026-07-19)
+
+지시서: T8 에디터 검증 중 확인된 3개 항목(프레임 드롭 / 색맹 토글 미노출 / 스폰 반경 한계) 처리. 새 기능 추가 없음.
+
+### A. 성능 병목 — 코드 검토로 4건 특정, 전부 수정
+
+프로파일러를 직접 돌릴 수 없는 환경이라 **Unity의 알려진 할당·오버헤드 패턴을 근거로 코드 검토**해 특정했다. 4건 모두 T8에서 내가 새로 넣은 코드에 있었다.
+
+| # | 병목 | 왜 비싼가 | 수정 |
+|---|---|---|---|
+| 1 | `HitBuffer[i].collider.tag` (`PhysicsOcclusionProbe`) | `Component.tag` 게터는 **호출마다 문자열을 새로 할당**한다(Unity의 대표적 GC 원인). 재판정이 초당 수십 회 도는 경로 | `CompareTag()`로 무할당 비교. 판정 규칙은 `OcclusionAccumulator` 구조체로 `Probe`/`Classify` 양쪽이 공유해 중복 방지 |
+| 2 | `foreach (… in _registry.Visuals)` ×2 (`PulseVisualRenderer`) | 사전을 `IReadOnlyDictionary`로 노출해 순회하면 **struct 열거자가 박싱**돼 힙 할당. `UpdateRings`는 매 프레임, `OnGUI`는 프레임당 여러 번 | 레지스트리에 `CopyTo(List<T>)` 추가, 렌더러는 재사용 버퍼 사용. 방향 인디케이터 목록도 `Tick`에서 미리 확정해 **OnGUI는 레지스트리를 아예 건드리지 않음** |
+| 3 | `OnGUI`에 이벤트 필터 없음 | OnGUI는 프레임마다 **Layout·Repaint·모든 입력 이벤트마다** 호출된다. 실제 그려지는 건 Repaint뿐인데 전량 실행 중이었음 | `Event.current.type != EventType.Repaint`면 즉시 반환. 색·카메라 yaw·문자열도 프레임당 1회로 호이스팅 |
+| 4 | `line.material = _ringMaterial` | `Renderer.material`은 **머티리얼 사본을 인스턴스화**한다 → 링 개수만큼 사본 생성 + 배칭 불가 | `sharedMaterial`로 변경. `widthMultiplier`도 생성 시 1회 설정으로 이동 |
+
+추가로 **링 풀 프리워밍**(`_prewarmRingCount`, 기본 32)을 넣었다. 30개가 동시에 뜨는 순간 GameObject를 한꺼번에 만들면 그 프레임만 튀기 때문이다.
+
+**정직한 한계**: 위 4건은 모두 "확실히 비용이고 고치는 게 맞는" 항목이지만, **어느 것이 지배적이었는지는 프로파일러 없이는 단정할 수 없다.** 수정 후 체감 확인은 사용자의 에디터 세션에 남긴다(절차: `수동검증_절차.md` §6). 스트레스 로그에 프레임 시간(ms)을 함께 찍도록 해서 수치 비교가 가능하다.
+
+### B. 수동 검증 절차 노출
+
+`docs/수동검증_절차.md` 신규 작성. 색맹 토글은 기존 `P` 키 컨벤션을 따라 **`C` 키**를 추가했다(Console에 상태 로그, 인스펙터 경로도 병기). 자연 소멸 확인 절차도 구체적 동작으로 기술("한 걸음만 움직여 발소리 하나를 낸 뒤 멈춰서 0.4초 안에 사라지는지 관찰").
+
+### C. 스폰 반경 한계 — 렌더러 문제 아님을 코드 경로로 확인
+
+관찰된 "스폰 지점 근처에서만 보인다"는 **예상된 동작이 맞다**. 인과 경로:
+
+```
+발소리(플레이어 현재 위치, 반경 2m/6m)
+  → SoundPulseResolver.Resolve(pulse, 청취자=스폰지점 고정)
+  → straightDist > baseRadius → null 반환          ← Core의 1차 컷(SoundPulseResolver.cs:56)
+  → 델리버리 없음 → 레지스트리에 Appeared 없음 → 렌더러가 그릴 것 자체가 없음
+```
+
+렌더러는 델리버리가 있어야만 시각 오브젝트를 만들므로, 판정이 `null`이면 렌더 경로에 진입조차 하지 않는다. 이 동작은 **스프린트 3에서 이미 테스트로 고정**돼 있었다(`LocalPulsePipelineExpiryTests.SourceWalkingAwayFromFixedListener_LaterPulsesNeverAppear`). 수정 불필요 — 대신 검증 절차에 "스폰 반경 6m 이내에서 테스트할 것"을 §1로 크게 명시했다.
+
+### 신규 테스트 2케이스
+
+`CopyTo_FillsBufferWithAllVisuals`, `CopyTo_ClearsPreviousBufferContents` — 새로 만든 무할당 순회 API의 계약(특히 버퍼 재사용 시 이전 프레임 잔여물이 남지 않을 것)을 고정. 총계 114 → 116.
 
 ---
 

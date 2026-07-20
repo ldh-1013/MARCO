@@ -55,11 +55,16 @@
   <ItemGroup>
     <Compile Include="Assets\_Project\Tests\EditMode\ActivePulseTrackerTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\WinConditionEvaluatorTests.cs" />
+    <Compile Include="Assets\_Project\Tests\EditMode\ValveInteractionControllerTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\ValveTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\SoundPulseResolverTests.cs" />
+    <Compile Include="Assets\_Project\Tests\EditMode\RoundFlowTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\GameFlowManagerTests.cs" />
+    <Compile Include="Assets\_Project\Tests\EditMode\PulseVisualRegistryTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\LocomotionSimulatorTests.cs" />
+    <Compile Include="Assets\_Project\Tests\EditMode\TaggingTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\LocalPulsePipelineTests.cs" />
+    <Compile Include="Assets\_Project\Tests\EditMode\LocalControlGateTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\LocalPulsePipelineExpiryTests.cs" />
   </ItemGroup>
   <ItemGroup>

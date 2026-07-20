@@ -53,11 +53,26 @@
     <Analyzer Include="C:\Program Files\Unity\Hub\Editor\6000.5.4f1\Editor\Data\BCLExtensions\TargetingPacks\netstandard2.1\analyzers\dotnet\roslyn4.0\cs\System.Text.Json.SourceGeneration.dll" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Assets\_Project\Presentation\Objectives\ValveInteractor.cs" />
     <Compile Include="Assets\_Project\Presentation\Palette\ColorPalette.cs" />
+    <Compile Include="Assets\_Project\Presentation\Objectives\ValveObjectiveTracker.cs" />
+    <Compile Include="Assets\_Project\Presentation\SoundPulse\PulseVisualState.cs" />
+    <Compile Include="Assets\_Project\Presentation\Objectives\EscapePointTrigger.cs" />
+    <Compile Include="Assets\_Project\Presentation\Tagging\TagDetector.cs" />
+    <Compile Include="Assets\_Project\Presentation\GameFlow\RoundTimer.cs" />
     <Compile Include="Assets\_Project\Presentation\Player\FirstPersonController.cs" />
     <Compile Include="Assets\_Project\Presentation\SoundPulse\LocalPulsePipeline.cs" />
     <Compile Include="Assets\_Project\Presentation\SoundPulse\LocalPulsePipelineBehaviour.cs" />
+    <Compile Include="Assets\_Project\Presentation\Tagging\TaggableRunner.cs" />
     <Compile Include="Assets\_Project\Presentation\SoundPulse\PhysicsOcclusionProbe.cs" />
+    <Compile Include="Assets\_Project\Presentation\Objectives\ValveBehaviour.cs" />
+    <Compile Include="Assets\_Project\Presentation\GameFlow\RoundOutcomeTracker.cs" />
+    <Compile Include="Assets\_Project\Presentation\Objectives\ValveInteractionController.cs" />
+    <Compile Include="Assets\_Project\Presentation\SoundPulse\PulseVisualRenderer.cs" />
+    <Compile Include="Assets\_Project\Presentation\Player\LocalPlayerRegistry.cs" />
+    <Compile Include="Assets\_Project\Presentation\GameFlow\RoundCoordinator.cs" />
+    <Compile Include="Assets\_Project\Presentation\Tagging\TagRules.cs" />
+    <Compile Include="Assets\_Project\Presentation\SoundPulse\PulseVisualRegistry.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Assets\_Project\Presentation\Presentation.asmdef" />

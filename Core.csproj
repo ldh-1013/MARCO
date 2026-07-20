@@ -57,6 +57,7 @@
     <Compile Include="Assets\_Project\Core\SoundPulse\ActivePulseTracker.cs" />
     <Compile Include="Assets\_Project\Core\SoundPulse\SoundPulseResolver.cs" />
     <Compile Include="Assets\_Project\Core\Objectives\Valve.cs" />
+    <Compile Include="Assets\_Project\Core\Net\ILocalControlGate.cs" />
     <Compile Include="Assets\_Project\Core\GameFlow\GameFlowState.cs" />
     <Compile Include="Assets\_Project\Core\Objectives\ValveState.cs" />
     <Compile Include="Assets\_Project\Core\Objectives\WinConditionEvaluator.cs" />
