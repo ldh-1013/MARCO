@@ -603,3 +603,30 @@ M3 태스크 분해(T1~T25)에서 누락됐던 §21 M1 산출물("1인칭 컨트
 | T9~T12 | 음성 파이프라인 (7주차) | T9 일부(RMS·대역필터·연속성 검사의 순수 로직)는 에디터 없이 가능 |
 
 **Unity 에디터에서 확인할 것**: ① Game.unity가 정상 로드되고 Graybox 59오브젝트가 보이는지 ② TagManager의 Wall/HardBlocker 태그와 SoundBlocking 레이어(6)가 인식되는지 ③ Test Runner에서 68케이스 통과 재확인.
+
+---
+
+### 스프린트 9 후속 — §10 에디터 자산 작업 자동화 도구
+
+수동검증_절차.md §10-1~10-5(NetworkManager+Tugboat+PlayerSpawner 배치, Player 프리팹화, NetworkObject/NetworkTransform/PlayerOwnershipGate 부착, PlayerSpawner 배선, 씬 Player 인스턴스 제거)는 원래 사람이 GUI로 손수 해야 하는 절차였다. 이를 `Tools → MARCO → Setup Network Player` 메뉴 한 번으로 실행하는 Editor 스크립트로 대체했다.
+
+**신규 파일**
+- `Assets/_Project/Editor/NetworkPlayerSetupTool.cs` — 자동화 본체
+- `Assets/_Project/Editor/Marco.Editor.asmdef` — Editor 전용 어셈블리(`Core`/`Net`/`Presentation`/`FishNet.Runtime` 참조, `includePlatforms: ["Editor"]`)
+
+**설계 원칙(요구사항 그대로)**: `NetworkObject`의 `PrefabId`·`AssetPathHash` 등 FishNet/Unity 에디터가 생성하는 값은 스크립트가 손으로 채우지 않는다. `PrefabUtility.SaveAsPrefabAssetAndConnect`(GUI 드래그와 동일 결과)와 `PrefabUtility.EditPrefabContentsScope` 안에서의 `AddComponent`만 사용하고, 그 값들은 컴포넌트 부착·프리팹 저장 시점에 `NetworkObject.OnValidate`/`Reset`(FishNet 자체 로직, `Assets/FishNet/Runtime/Object/NetworkObject/NetworkObject.cs`)이 스스로 채우도록 맡긴다.
+
+**확인한 공개 API(사전 조사, 추측 없이 벤더 소스로 검증)**
+- `PlayerSpawner.SetPlayerPrefab(NetworkObject)` — public 세터 메서드
+- `NetworkManager.SpawnablePrefabs` — public get/set 프로퍼티(`NetworkManager.QOL.cs`)
+- `PrefabObjects.AddObject(NetworkObject, checkForDuplicates, initializeAdded)` — FishNet 공식 스폰 가능 프리팹 등록 API. `DefaultPrefabObjects`(`SinglePrefabObjects` 상속)가 구현을 제공하며 `checkForDuplicates: true`로 재실행 시 중복 등록 방지
+- `NetworkTransform._synchronizeScale`(private 직렬화 필드, 기본값 true) — §10-3 표대로 Scale만 끄기 위해 `SerializedObject`로 접근(Position/Rotation은 기본값 그대로 두므로 손대지 않음)
+- 하위 매니저(TransportManager 등)는 `NetworkManager.Awake()`가 `GetOrCreateComponent`로 런타임에 직접 생성하므로 에디터에서 미리 붙이지 않음(§10-1 원문 그대로)
+
+**멱등성(idempotent)**: 이미 존재하는 `NetworkManager`/`Tugboat`/`PlayerSpawner`/`Player.prefab`/그 위의 컴포넌트는 재사용하고, 이미 등록된 스폰 프리팹은 중복 추가하지 않는다 — 재실행해도 안전하다.
+
+**되돌리기**: 씬 오브젝트 생성·삭제는 `Undo.RegisterCreatedObjectUndo`/`Undo.AddComponent`/`Undo.DestroyObjectImmediate`로 하나의 Undo 그룹에 묶어 Ctrl+Z로 되돌릴 수 있다. 다만 프리팹·에셋 저장(`Player.prefab`, `DefaultPrefabObjects.asset`)은 에디터 Undo 대상이 아니므로, 실행 전 확인 대화상자에서 씬 백업을 명시적으로 권고한다.
+
+**문서 갱신**: `docs/수동검증_절차.md` §10을 "자동화 도구 + 에디터 GUI 절차"로 개편 — §10-0에 도구 사용법을 추가하고, 기존 §10-1~10-5는 도구가 내부적으로 수행하는 작업의 서술로 재배치(도구 실패 시 수동 대체 경로로 남김). §10-6(빌드/접속)·§10-7(검증 체크리스트)은 런타임 절차라 자동화 대상 밖이며 그대로 유지.
+
+**검증 한계**: 이번 세션은 라이브 Unity 에디터/MCP 연결이 없어 실제 메뉴 클릭 실행은 검증하지 못했다. 사용된 UnityEditor API(`PrefabUtility.SaveAsPrefabAssetAndConnect`, `PrefabUtility.EditPrefabContentsScope`, `Object.FindFirstObjectByType(FindObjectsInactive)` 등)는 모두 Unity 6000.x에서 안정적으로 지원되는 표준 API이지만, 다음 에디터 접속 시 실제 클릭 실행으로 최종 확인이 필요하다.

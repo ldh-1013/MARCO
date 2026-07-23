@@ -1,0 +1,21 @@
+{
+    "name": "Marco.Editor",
+    "rootNamespace": "Marco.EditorTools",
+    "references": [
+        "Core",
+        "Net",
+        "Presentation",
+        "FishNet.Runtime"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
