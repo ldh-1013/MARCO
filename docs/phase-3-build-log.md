@@ -18,7 +18,107 @@
 | T4 | 승패 판정 (§6.3) | ✅ 완료 (2026-07-19) | 11케이스 통과 |
 | T7 | PerceivedPulse 재판정 오케스트레이션 (GAP-3) | ✅ 완료 (2026-07-19) | 12케이스 통과 |
 
-**테스트 누계: 170케이스 전수 통과** (SoundPulseResolver 19 + GameFlow 9 + Valve 17 + WinCondition 11 + ActivePulseTracker 12 + LocomotionSimulator 18 + LocalPulsePipeline 10 + LocalPulsePipelineExpiry 6 + PulseVisualRegistry 14 + ValveInteractionController 15 + RoundFlow 18 + Tagging 21)
+**테스트 누계: 186케이스 전수 통과** (SoundPulseResolver 19 + GameFlow 9 + Valve 17 + WinCondition 11 + ActivePulseTracker 12 + LocomotionSimulator 18 + LocalPulsePipeline 10 + LocalPulsePipelineExpiry 6 + PulseVisualRegistry 14 + ValveInteractionController 15 + RoundFlow 18 + Tagging 21 + LocalControlGate 6 + PlayerIdentity 10)
+
+---
+
+## 스프린트 9 — 발생원 ID 하드코딩 제거 (네트워크 2단계 선행, 2026-07-19)
+
+지시서: `마르코_스프린트9_발생원ID_prompt.md`. 스프린트 8 완료 보고에서 직접 지적한 선행 조건. 발소리·밸브·태그·탈출이 발생원을 상수 `1`로 식별하던 것을, 실제 네트워크 소유자 ID로 교체 가능한 구조로 바꿨다. **네트워크 전파 자체는 구현하지 않는다** — "누가 발생시켰는가" 식별까지만.
+
+### 하드코딩 ID 전수 조사
+
+| 위치 | 하드코딩 | 처리 |
+|---|---|---|
+| `LocalPulsePipelineBehaviour.cs` | `const LocalSourceId = 1` | 제거 → 플레이어 `PlayerId` 읽음 |
+| `ValveInteractor.cs` | `const LocalPlayerId = 1` | 제거 → `_player.PlayerId` |
+| `EscapePointTrigger.cs` | `const LocalPlayerId = 1` | 제거 → `_player.PlayerId` |
+| `TaggableRunner.cs` | `_playerId = 100`(인스펙터, 씬 101~103) | **유지** — 대역 러너의 안정적 로컬 ID(주석 보강). 2단계에서 OwnerId로 대체 |
+
+로컬 플레이어 ID `1`이 **3개 파일에 각각 별도 const**로 흩어져 있던 게 핵심 문제였다 — 값을 바꾸려면 세 곳을 동시에 고쳐야 했고, 네트워크 시 전원이 같은 1을 참조했다.
+
+### Core 인터페이스 신설 (GAP-14와 같은 패턴)
+
+`Core/Net/IPlayerIdentity.cs` — `ulong PlayerId { get; }` + `SetPlayerId(ulong)`. `ILocalControlGate`(스프린트 8)와 완전히 같은 원리: 실제 소유자 ID는 FishNet(Net)이 알고 소비자는 Presentation에 있는데 §15.2상 서로 참조 못 하므로, Core에 계약만 두고 `GetComponentsInChildren`로 연결한다.
+
+### FishNet API 확인 (추측 없음)
+
+벤더링 소스에서 직접: `NetworkBehaviour.OwnerId`(QOL.cs:194)는 **`int`**, 소유자 없으면 `-1`(NetworkObject.QOL.cs:195). 파이프라인 전체가 `ulong`을 쓰므로, `PlayerOwnershipGate`가 **소유권 확정된 값(OwnerId ≥ 0)만 `(ulong)`로 캐스팅**해 전달한다.
+
+### 스펙 갭 1건 신규 (GAP-15)
+
+| # | 갭 | 결정 | 근거 |
+|---|---|---|---|
+| **GAP-15** | 폴백값을 무엇으로, ID 타입을 무엇으로 | 폴백 = **1**(기존 하드코딩과 동일), 타입 = **ulong** | ① 지시서 명령: 폴백을 기존 값과 동일하게 둬 로컬 워크플로우 완전 보존. ② Core 파이프라인 전체가 이미 `ulong`(SoundPulse.SourcePlayerId·Valve 조작자·RoundOutcomeTracker 집합). FishNet의 int→ulong 변환을 Net 경계에서 1회 수행 |
+
+폴백값 `1`은 `FirstPersonController.LocalFallbackPlayerId` 상수로 한 곳에 모았고, 흩어져 있던 3개 const를 이 하나로 대체했다. `LocalPulsePipeline`(순수 클래스)만 Presentation 상수를 참조할 수 없어 초기값 1을 직접 갖지만, **두 값이 같아야 함을 테스트가 고정**한다(`LocalFallbackId_IsExactlyOne`).
+
+### 신규·수정 파일
+
+| 계층 | 파일 | 내용 |
+|---|---|---|
+| Core (신규) | `Net/IPlayerIdentity.cs` | `PlayerId`/`SetPlayerId` 계약 |
+| Presentation | `Player/FirstPersonController.cs` | `IPlayerIdentity` 구현. `LocalFallbackPlayerId=1` 상수, `PlayerId` 기본 폴백 |
+| Presentation | `SoundPulse/LocalPulsePipeline(.Behaviour).cs` | const 제거, `SourcePlayerId` 세터 + 바인딩 시 플레이어 ID 반영 |
+| Presentation | `Objectives/ValveInteractor.cs`·`EscapePointTrigger.cs` | const 제거 → `_player.PlayerId` |
+| Presentation | `Tagging/TaggableRunner.cs` | 주석만 보강(로컬 대역 ID 유지) |
+| Net | `PlayerOwnershipGate.cs` | `IPlayerIdentity`도 찾아 `(ulong)OwnerId` 전달 |
+| 테스트 (신규) | `Tests/EditMode/PlayerIdentityTests.cs` | 10케이스 |
+
+### 검증
+
+**186케이스 전수 통과**(기존 176 무손상 + 신규 10). Core·**Net 어셈블리 재컴파일** 에러 0. 씬 미변경(인스펙터 옛 `_playerId` 필드가 남아 있어도 무해 — 런타임에 무시되거나 대역 러너용으로 유지). 테스트는 폴백값 정확성(=1)·인터페이스 경유·OwnerId 캐스팅 값 보존·발소리 파이프라인이 실제로 그 ID로 GAP-1 본인 판정하는지까지 확인.
+
+### 2단계 착수 조건 — 이제 충족됨
+
+발소리·밸브·태그·탈출이 전부 `IPlayerIdentity`에서 발생원을 읽으므로, 2단계에서 실제 원격 플레이어가 접속하면 각자 다른 OwnerId로 이벤트를 구분할 수 있다. 남은 것은 **이벤트 전파 자체**(현재 로컬 스모크 리그로만 도는 것을 서버 권위 RPC로 올리는 것)와 **대역 러너를 실제 원격 플레이어로 교체**(스프린트 8 프리팹 자산 작업 완료 후).
+
+---
+
+## 스프린트 8 — 네트워크 동기화 1단계: Transform 동기화 (2026-07-19)
+
+지시서: `마르코_스프린트8_네트워크Transform_prompt.md`. 3단계 분할 중 1단계 — **실제 원격 플레이어가 서로 움직이는 걸 보는 것**까지. 발소리·밸브·태그·라운드의 네트워크 전파는 2단계, 권위 모델은 3단계로 이월.
+
+이번 세션은 **코드 계층(Step 1~3)만 구현·검증**하고, 에디터에서만 안전하게 되는 자산 작업(프리팹화·FishNet 컴포넌트 부착·스폰 배선)은 **`수동검증_절차.md §10`에 GUI 절차서로 넘겼다**(사용자 결정 (B)).
+
+### 사전 정리 — CS0618 (직전 턴 완료)
+
+지시서 §0의 `FindObjectsByType<T>(FindObjectsSortMode)` → `FindObjectsByType<T>()` 치환 4곳은 직전 턴에 완료했다. 경고 8→0, 순서 의존 없음 확인, 회귀 없음.
+
+### 핵심 설계 문제와 해결 (GAP-14)
+
+"내 캐릭터가 아니면 입력을 막아야" 하는데, 이 판단은 **FishNet 개념(Net)**이고 입력 처리는 **`FirstPersonController`(Presentation)**에 있다. 그런데 §15.2상 Net과 Presentation은 서로를 참조하지 않는다.
+
+**결정 (GAP-14)**: `IOcclusionProbe`가 Core와 Physics를 갈라놨던 것과 같은 원리를 Net-Presentation 사이에도 적용한다 — **Core에 최소 인터페이스 `ILocalControlGate`를 두고, 양쪽이 그것만 통해 연결**한다. Net은 `GetComponentsInChildren<ILocalControlGate>()`로 구체 타입(`FirstPersonController`)을 전혀 모르는 채 소유권을 전달한다.
+
+### 신규·수정 파일
+
+| 계층 | 파일 | 내용 |
+|---|---|---|
+| Core (신규) | `Core/Net/ILocalControlGate.cs` | `SetLocalControl(bool)` 단일 멤버. using 없는 순수 계약 |
+| Presentation (수정) | `Player/FirstPersonController.cs` | 인터페이스 구현. 원격이면 `Update` 조기 반환 + 카메라·AudioListener·커서락 해제. **기본값 = 로컬 조종**(네트워크 없는 실행 보존) |
+| Presentation (신규) | `Player/LocalPlayerRegistry.cs` | 지연 바인딩(아래) |
+| Net (신규) | `Net/PlayerOwnershipGate.cs` | `NetworkBehaviour`. `OnStartClient`/`OnOwnershipClient`에서 `IsOwner`를 게이트에 전달 |
+| 테스트 (신규) | `Tests/EditMode/LocalControlGateTests.cs` | 6케이스 |
+| 하네스 (신규) | `scratchpad/NetVerify.csproj` | **Net 어셈블리 최초 컴파일 검증** |
+
+### 부차 설계 문제와 해결 — 지연 바인딩
+
+플레이어가 씬 고정 오브젝트에서 **네트워크 스폰 프리팹**으로 바뀌면, 씬에 미리 놓인 컴포넌트 3개(`LocalPulsePipelineBehaviour`·`EscapePointTrigger`·`PulseVisualRenderer`)의 인스펙터 참조가 끊어진다 — 프리팹 인스턴스는 편집 시점에 없기 때문. `Awake`의 `FindAnyObjectByType` 폴백도 스폰 전이라 실패한다.
+
+`LocalPlayerRegistry`(스폰 시 등록 → 대기자 통보, 이미 있으면 즉시 콜백)로 해결했다. 세 컴포넌트를 지연 바인딩으로 전환했고, **기본값을 "로컬 조종"으로 둬 네트워크 없는 스프린트 3~7 스모크 리그가 그대로 동작**한다. 이 계약을 `DefaultState_IsLocallyControlled` 테스트가 고정한다.
+
+### FishNet API 확인 (추측 없음)
+
+벤더링 소스에서 직접 확인: `OnStartClient()`, `OnOwnershipClient(NetworkConnection)`, `IsOwner`(QOL.cs:166), `PlayerSpawner`가 `Spawns[]` 비면 프리팹 Transform 위치에서 스폰(`SetSpawnUsingPrefab`), Tugboat 기본 `Port 7770`/`localhost`. `PlayerOwnershipGate`는 실제 `FishNet.Runtime.dll`을 참조해 컴파일까지 확인했다.
+
+### 검증
+
+**176케이스 전수 통과**(기존 170 무손상 + 신규 6). Core·Presentation·**Net 어셈블리 최초 컴파일** 전부 에러 0. 하네스에 `AudioModule`·`Unity.Scripting`·`Facepunch.Steamworks.Win64` 참조를 추가(전부 Unity 본체는 기본 참조 — 프로젝트 결함 아니라 하네스 누락).
+
+### 남은 것
+
+에디터 GUI 자산 작업(§10 절차서) — NetworkManager+Tugboat+PlayerSpawner 배치, Player 프리팹화 + NetworkObject·NetworkTransform·PlayerOwnershipGate 부착, 씬 인스턴스 제거. 완료 후 에디터 검증(원격 플레이어 이동·입력 차단·카메라 단일화). **2단계(이벤트 동기화) 착수 전 확인 필요**: 발소리/밸브/태그가 현재 로컬 스모크 리그로만 도는데, 2단계에서 이를 서버 권위로 올릴 때 각 시스템의 발생원 ID(현재 하드코딩 1·100~103)를 실제 `OwnerId`로 바꾸는 작업이 선행돼야 한다.
 
 ---
 

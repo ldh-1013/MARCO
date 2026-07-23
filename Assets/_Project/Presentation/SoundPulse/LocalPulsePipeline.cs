@@ -21,8 +21,18 @@ namespace Marco.Presentation.Sound
     {
         private readonly ActivePulseTracker _tracker = new ActivePulseTracker();
         private readonly IOcclusionProbe _occlusionProbe;
-        private readonly ulong _sourcePlayerId;
         private readonly List<ListenerSnapshot> _listeners = new List<ListenerSnapshot>();
+
+        /// <summary>
+        /// 발생원 ID. 스폰·소유권 확정 타이밍 때문에 생성 시점이 아니라 발행 시점에
+        /// 최신 값을 읽어야 하므로, 생성자 고정이 아니라 세터로 갱신 가능하게 둔다.
+        /// Behaviour가 플레이어 바인딩 시 실제 신원으로 즉시 덮어쓴다.
+        ///
+        /// 초기값 1은 <c>FirstPersonController.LocalFallbackPlayerId</c>와 동일하다.
+        /// 이 순수 클래스는 Presentation 컴포넌트를 참조할 수 없어 상수를 직접 쓴다 —
+        /// 두 값은 반드시 같아야 하며, 테스트가 이를 고정한다.
+        /// </summary>
+        public ulong SourcePlayerId { get; set; } = 1;
 
         /// <summary>Appeared/Updated/Disappeared 전송 지시. 이번 스프린트 소비자는 Debug.Log뿐(T8에서 렌더러로 교체).</summary>
         public event Action<PulseDelivery> DeliveryEmitted;
@@ -32,7 +42,7 @@ namespace Marco.Presentation.Sound
         public LocalPulsePipeline(IOcclusionProbe occlusionProbe, ulong sourcePlayerId)
         {
             _occlusionProbe = occlusionProbe ?? throw new ArgumentNullException(nameof(occlusionProbe));
-            _sourcePlayerId = sourcePlayerId;
+            SourcePlayerId = sourcePlayerId;
         }
 
         /// <summary>
@@ -54,7 +64,7 @@ namespace Marco.Presentation.Sound
         /// </summary>
         public int EmitPulse(SoundType type, float radius, float duration, Vector3 position, float timestamp)
         {
-            return _tracker.AddPulse(new SoundPulse(_sourcePlayerId, position, radius, duration, type, timestamp));
+            return _tracker.AddPulse(new SoundPulse(SourcePlayerId, position, radius, duration, type, timestamp));
         }
 
         /// <summary>

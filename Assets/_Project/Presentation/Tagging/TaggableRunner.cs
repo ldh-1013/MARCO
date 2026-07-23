@@ -17,7 +17,9 @@ namespace Marco.Presentation.Tagging
     /// </summary>
     public sealed class TaggableRunner : MonoBehaviour
     {
-        [Tooltip("역할 배정 시스템 배선 전 임시 식별자. 씬 안에서 고유해야 한다.")]
+        [Tooltip("대역 도망자의 안정적 로컬 ID. 씬 안에서 고유해야 한다(현재 101~103). " +
+                 "실제 원격 러너로 교체되는 네트워크 2단계에서는 OwnerId로 대체된다. " +
+                 "로컬 플레이어(FirstPersonController) ID 1과 겹치지 않도록 100번대를 쓴다.")]
         [SerializeField] private ulong _playerId = 100;
 
         [SerializeField] private string _displayName = "도망자";

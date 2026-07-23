@@ -21,9 +21,6 @@ namespace Marco.Presentation.Objectives
     /// </summary>
     public sealed class ValveInteractor : MonoBehaviour
     {
-        /// <summary>역할 배정 시스템 배선 전 로컬 플레이어 임시 ID(파이프라인과 동일 값).</summary>
-        private const ulong LocalPlayerId = 1;
-
         [SerializeField] private FirstPersonController _player;
 
         [Tooltip("§5.1 밸브 회전 소음(12m)을 발행할 파이프라인. 비워두면 소음 없이 동작한다.")]
@@ -77,7 +74,7 @@ namespace Marco.Presentation.Objectives
             ValveBehaviour nearest = FindNearestValve(playerPosition);
 
             var input = new ValveInteractionInput(
-                LocalPlayerId,
+                _player.PlayerId,
                 _player.Role,
                 playerPosition,
                 keyboard[_interactKey].isPressed,

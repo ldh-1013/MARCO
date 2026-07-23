@@ -17,9 +17,6 @@ namespace Marco.Presentation.Objectives
     /// </summary>
     public sealed class EscapePointTrigger : MonoBehaviour
     {
-        /// <summary>역할 배정 시스템 배선 전 로컬 플레이어 임시 ID(다른 시스템과 동일 값).</summary>
-        private const ulong LocalPlayerId = 1;
-
         [SerializeField] private FirstPersonController _player;
         [SerializeField] private RoundCoordinator _roundCoordinator;
 
@@ -66,7 +63,7 @@ namespace Marco.Presentation.Objectives
 
         private void TryEscape()
         {
-            if (_roundCoordinator.TryRegisterEscape(LocalPlayerId, _player.Role))
+            if (_roundCoordinator.TryRegisterEscape(_player.PlayerId, _player.Role))
                 return;
 
             // 등록되지 않은 이유 중 플레이어가 알아야 할 것은 "게이트가 아직 닫힘"뿐이다.

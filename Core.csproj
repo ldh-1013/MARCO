@@ -67,6 +67,7 @@
     <Compile Include="Assets\_Project\Core\Locomotion\LocomotionSimulator.cs" />
     <Compile Include="Assets\_Project\Core\SoundPulse\IOcclusionProbe.cs" />
     <Compile Include="Assets\_Project\Core\SoundPulse\SoundPulse.cs" />
+    <Compile Include="Assets\_Project\Core\Net\IPlayerIdentity.cs" />
     <Compile Include="Assets\_Project\Core\SoundPulse\DirectionOctant.cs" />
     <Compile Include="Assets\_Project\Core\GameFlow\GameFlowManager.cs" />
     <Compile Include="Assets\_Project\Core\Role\RoleType.cs" />

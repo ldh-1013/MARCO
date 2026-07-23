@@ -27,8 +27,15 @@ namespace Marco.Presentation.Player
     /// NetworkTransform(§14.2 10~20Hz)을 덧붙일 때 이 클래스는 수정하지 않는 구조.
     /// </summary>
     [RequireComponent(typeof(CharacterController))]
-    public sealed class FirstPersonController : MonoBehaviour, ILocalControlGate
+    public sealed class FirstPersonController : MonoBehaviour, ILocalControlGate, IPlayerIdentity
     {
+        /// <summary>
+        /// 네트워크가 없는 로컬 단독 실행에서의 발생원 ID.
+        /// 스프린트 3~7이 각 컴포넌트에 상수 1로 박아뒀던 값과 동일하게 유지해,
+        /// Net 배선이 없을 때 기존 스모크 리그가 그대로 동작하게 한다(GAP-15).
+        /// </summary>
+        public const ulong LocalFallbackPlayerId = 1;
+
         [Header("역할 (역할 배정 시스템 배선 전 로컬 테스트용)")]
         [SerializeField] private RoleType _role = RoleType.Runner;
 
@@ -53,6 +60,15 @@ namespace Marco.Presentation.Player
 
         public MovementState CurrentState => _simulator?.CurrentState ?? MovementState.Idle;
         public RoleType Role => _role;
+
+        /// <summary>
+        /// 이 플레이어가 발생시키는 이벤트의 발생원 ID(§5.5/§6.1/§3.1).
+        /// 기본값은 로컬 폴백이고, Net 레이어가 소유권 확정 시 실제 OwnerId로 덮어쓴다.
+        /// </summary>
+        public ulong PlayerId { get; private set; } = LocalFallbackPlayerId;
+
+        /// <summary>Net 레이어(소유권 게이트)가 실제 네트워크 소유자 ID를 전달한다.</summary>
+        public void SetPlayerId(ulong playerId) => PlayerId = playerId;
 
         /// <summary>
         /// 로컬 플레이어가 조종하는가. 네트워크가 없는 로컬 단독 실행에서는 아무도

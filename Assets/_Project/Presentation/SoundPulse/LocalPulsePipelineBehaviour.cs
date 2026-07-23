@@ -20,9 +20,6 @@ namespace Marco.Presentation.Sound
     /// </summary>
     public sealed class LocalPulsePipelineBehaviour : MonoBehaviour
     {
-        /// <summary>역할 배정 시스템 배선 전 로컬 플레이어 임시 ID.</summary>
-        private const ulong LocalSourceId = 1;
-
         /// <summary>GAP-1(본인 제외) 때문에 발생원과 달라야 델리버리가 관측되는 디버그 청취자 ID.</summary>
         private const ulong DebugListenerId = 999;
 
@@ -47,7 +44,9 @@ namespace Marco.Presentation.Sound
             if (_visuals == null)
                 _visuals = FindAnyObjectByType<PulseVisualRenderer>();
 
-            _pipeline = new LocalPulsePipeline(new PhysicsOcclusionProbe(), LocalSourceId);
+            // 발생원 ID는 플레이어 바인딩 시점에 실제 값으로 덮어쓴다(BindPlayer).
+            // 그 전까지는 로컬 폴백값(1)으로 시작한다.
+            _pipeline = new LocalPulsePipeline(new PhysicsOcclusionProbe(), FirstPersonController.LocalFallbackPlayerId);
             _pipeline.DeliveryEmitted += OnDelivery;
 
             // 플레이어는 네트워크로 스폰될 수 있어 이 시점에 없을 수 있다.
@@ -67,6 +66,9 @@ namespace Marco.Presentation.Sound
 
             _player = player;
             _player.FootstepPulseEmitted += OnFootstepPulse;
+
+            // 발생원 ID를 실제 플레이어 신원으로 맞춘다(로컬이면 폴백 1, 네트워크면 OwnerId).
+            _pipeline.SourcePlayerId = _player.PlayerId;
 
             // 임시 청취점: 플레이어가 등장한 위치에 고정(러너 역할 = §5.7 배율 ×1.0이라
             // 표시 수치가 §5.1 원본값 그대로 나와 눈으로 검증하기 쉽다).

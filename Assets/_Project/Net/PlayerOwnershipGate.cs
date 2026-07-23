@@ -20,11 +20,13 @@ namespace Marco.Net
     public sealed class PlayerOwnershipGate : NetworkBehaviour
     {
         private ILocalControlGate[] _gates;
+        private IPlayerIdentity[] _identities;
 
         private void Awake()
         {
             // 인터페이스 기준으로 찾으므로 Presentation의 구체 타입을 알 필요가 없다.
             _gates = GetComponentsInChildren<ILocalControlGate>(includeInactive: true);
+            _identities = GetComponentsInChildren<IPlayerIdentity>(includeInactive: true);
         }
 
         public override void OnStartClient()
@@ -41,11 +43,22 @@ namespace Marco.Net
 
         private void PushOwnership()
         {
-            if (_gates == null)
-                return;
+            if (_gates != null)
+            {
+                for (int i = 0; i < _gates.Length; i++)
+                    _gates[i]?.SetLocalControl(IsOwner);
+            }
 
-            for (int i = 0; i < _gates.Length; i++)
-                _gates[i]?.SetLocalControl(IsOwner);
+            // 발생원 신원 배선(스프린트 9): FishNet OwnerId를 발소리·밸브·태그
+            // 파이프라인이 읽는 IPlayerIdentity로 전달한다.
+            // OwnerId는 int(소유자 없으면 -1). 파이프라인 전체가 ulong을 쓰므로
+            // 소유권이 확정된 값만 캐스팅해 넣는다(GAP-15).
+            if (_identities != null && OwnerId >= 0)
+            {
+                ulong ownerId = (ulong)OwnerId;
+                for (int i = 0; i < _identities.Length; i++)
+                    _identities[i]?.SetPlayerId(ownerId);
+            }
 
             gameObject.name = IsOwner ? "Player (Local)" : "Player (Remote)";
         }
