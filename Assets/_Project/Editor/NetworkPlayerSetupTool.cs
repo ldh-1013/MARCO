@@ -193,6 +193,14 @@ namespace Marco.EditorTools
                     root.AddComponent<PlayerOwnershipGate>();
                     Debug.Log("[NetworkPlayerSetupTool] Player 프리팹에 PlayerOwnershipGate 부착");
                 }
+
+                // ④ TagNetworkSync — 스프린트 11 서버 권위 태그. 설정할 값 없음
+                //    (Awake에서 IRoleState를 스스로 찾고, 태그 상태는 SyncVar가 관리한다).
+                if (root.GetComponent<TagNetworkSync>() == null)
+                {
+                    root.AddComponent<TagNetworkSync>();
+                    Debug.Log("[NetworkPlayerSetupTool] Player 프리팹에 TagNetworkSync 부착");
+                }
             }
 
             // EditPrefabContentsScope가 저장을 마친 뒤의 확정 에셋에서 참조를 다시 읽는다.

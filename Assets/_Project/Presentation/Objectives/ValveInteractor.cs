@@ -1,5 +1,6 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
+using Marco.Core.Net;
 using Marco.Core.Objectives;
 using Marco.Core.Role;
 using Marco.Core.Sound;
@@ -40,6 +41,9 @@ namespace Marco.Presentation.Objectives
         private float _lastProgressLogTime;
         private ValveInteractionEvent _lastEvent = ValveInteractionEvent.None;
 
+        // 스프린트 10: 네트워크 밸브에 홀드 의사를 보내는 중인 브릿지(로컬 모드면 null).
+        private IValveNetworkBridge _engagedBridge;
+
         public float Progress01 => _controller?.Progress01 ?? 0f;
 
         private void Awake()
@@ -66,23 +70,71 @@ namespace Marco.Presentation.Objectives
 
         private void Update()
         {
+            // 스프린트 10: 네트워크 모드에서 이 컴포넌트는 원격 플레이어 프록시에도 존재한다.
+            // 로컬 조종 플레이어만 입력을 폴링·전송해야 원격 프록시가 내 키보드로 밸브를
+            // 돌리는 일이 없다. 로컬 단독 실행에서는 IsLocallyControlled가 기본 true라 무해하다
+            // (FirstPersonController가 소유권 게이트로 이 값을 관리 — 스프린트 8).
+            if (!_player.IsLocallyControlled)
+                return;
+
             Keyboard keyboard = Keyboard.current;
             if (keyboard == null)
                 return;
 
             Vector3 playerPosition = _player.transform.position;
             ValveBehaviour nearest = FindNearestValve(playerPosition);
+            bool interactHeld = keyboard[_interactKey].isPressed;
+
+            // 스프린트 10: 최근접 밸브가 서버 권위(네트워크)로 관리되면, 로컬에서 Core를
+            // 직접 조작하지 않고 서버에 홀드 의사만 보낸다. 상태 확정·개방은 서버가 한다.
+            if (nearest != null && nearest.NetworkActive)
+            {
+                TickNetworked(nearest, playerPosition, interactHeld);
+                return;
+            }
+
+            // 로컬(비네트워크) 경로 — 스프린트 5 그대로. 방금 네트워크 밸브를 놓았다면 해제 신호를 보낸다.
+            ReleaseEngagedBridge();
 
             var input = new ValveInteractionInput(
                 _player.PlayerId,
                 _player.Role,
                 playerPosition,
-                keyboard[_interactKey].isPressed,
+                interactHeld,
                 nearest != null ? nearest.Valve : null,
                 nearest != null ? nearest.transform.position : Vector3.zero);
 
             ValveInteractionEvent result = _controller.Tick(input, Time.deltaTime);
             ReportEvent(result, nearest);
+        }
+
+        /// <summary>
+        /// 서버 권위 밸브에 대한 처리: 범위 판정은 클라이언트가 하되(GAP-17), 시작 여부·완료는
+        /// 서버가 결정한다. 여기서는 "E 홀드 && 범위 안" 여부만 브릿지에 전달한다.
+        /// </summary>
+        private void TickNetworked(ValveBehaviour nearest, Vector3 playerPosition, bool interactHeld)
+        {
+            bool inRange = Vector3.Distance(playerPosition, nearest.transform.position) <= _interactionRange;
+            bool held = interactHeld && inRange;
+
+            IValveNetworkBridge bridge = nearest.NetworkBridge;
+
+            // 다른 밸브로 옮겨갔으면 이전 밸브에 해제 신호를 먼저 보낸다.
+            if (_engagedBridge != null && !ReferenceEquals(_engagedBridge, bridge))
+                ReleaseEngagedBridge();
+
+            bridge.SubmitHoldIntent(_player.PlayerId, _player.Role, held);
+            _engagedBridge = held ? bridge : null;
+        }
+
+        /// <summary>진행 중이던 네트워크 홀드가 있으면 해제 의사(held=false)를 보낸다.</summary>
+        private void ReleaseEngagedBridge()
+        {
+            if (_engagedBridge == null)
+                return;
+
+            _engagedBridge.SubmitHoldIntent(_player.PlayerId, _player.Role, false);
+            _engagedBridge = null;
         }
 
         /// <summary>범위 제한은 컨트롤러가 하므로 여기서는 최근접 하나만 고른다.</summary>

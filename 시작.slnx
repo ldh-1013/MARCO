@@ -12,4 +12,5 @@
   <Project Path="Net.csproj" />
   <Project Path="Assembly-CSharp.csproj" />
   <Project Path="Marco.Editor.csproj" />
+  <Project Path="Marco.DebugTools.csproj" />
 </Solution>

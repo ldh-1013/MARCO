@@ -630,3 +630,240 @@ M3 태스크 분해(T1~T25)에서 누락됐던 §21 M1 산출물("1인칭 컨트
 **문서 갱신**: `docs/수동검증_절차.md` §10을 "자동화 도구 + 에디터 GUI 절차"로 개편 — §10-0에 도구 사용법을 추가하고, 기존 §10-1~10-5는 도구가 내부적으로 수행하는 작업의 서술로 재배치(도구 실패 시 수동 대체 경로로 남김). §10-6(빌드/접속)·§10-7(검증 체크리스트)은 런타임 절차라 자동화 대상 밖이며 그대로 유지.
 
 **검증 한계**: 이번 세션은 라이브 Unity 에디터/MCP 연결이 없어 실제 메뉴 클릭 실행은 검증하지 못했다. 사용된 UnityEditor API(`PrefabUtility.SaveAsPrefabAssetAndConnect`, `PrefabUtility.EditPrefabContentsScope`, `Object.FindFirstObjectByType(FindObjectsInactive)` 등)는 모두 Unity 6000.x에서 안정적으로 지원되는 표준 API이지만, 다음 에디터 접속 시 실제 클릭 실행으로 최종 확인이 필요하다.
+
+---
+
+### 스프린트 9 후속 2 — NetworkTestBootstrap (임시 H/J 접속 디버그 도구)
+
+로비 UI가 없는 상태에서 로컬 2-클라이언트(에디터 호스트 + 빌드 exe 클라이언트) 네트워크 테스트를 키 입력만으로 시작할 수 있게 하는 임시 도구를 추가했다(§10-6에서 안내하던 "임시 코드 스니펫을 아무 오브젝트에 붙여라" placeholder를 실제 동작하는 컴포넌트로 대체).
+
+**신규 파일**
+- `Assets/_Project/DebugTools/NetworkTestBootstrap.cs` — H(호스트)/J(참가) 키 처리 MonoBehaviour
+- `Assets/_Project/DebugTools/Marco.DebugTools.asmdef` — `Core`/`Net`/`Presentation`/`FishNet.Runtime`/`Unity.InputSystem`을 모두 참조하는 별도 어셈블리(Editor 전용이 아니라 Play 모드에서도 동작해야 하므로 `includePlatforms: []`)
+- `Game.unity`에 `NetworkTestBootstrap` 루트 오브젝트 배치(fileID `900000000000000001`~`3`, `SceneRoots`에 등록) — YAML을 직접 편집해 배치했고, fileID 중복·미해결 참조 0건을 스크립트로 재검증했다(작업 중 신규 fileID가 기존 Graybox 벽 오브젝트의 MeshFilter/MeshRenderer/BoxCollider fileID(`800000000000000100~102`)와 충돌한 적이 있어, 되돌리고 `900000000000000001~3`대로 재배정했다 — 씬 YAML을 손으로 건드릴 때 fileID 충돌 검증이 왜 필수인지 보여주는 사례)
+
+**설계 결정**
+- Net(`InstanceFinder`)과 Presentation(`LocalPlayerRegistry`)을 동시에 참조해야 해서, §15.2가 금지하는 "Net↔Presentation 직접 참조"를 어기지 않으려고 **제3의 임시 어셈블리**로 분리했다. 로비 UI가 생기면 `Assets/_Project/DebugTools/` 폴더 전체와 씬의 `NetworkTestBootstrap` 오브젝트를 삭제하면 끝나므로, Net/Presentation 자체의 경계는 건드리지 않는다
+- H = `ServerManager.StartConnection()` + `ClientManager.StartConnection()`(호스트), J = `ClientManager.StartConnection("localhost")`(클라이언트 참가) — 둘 다 FishNet 공식 API(`Assets/FishNet/Runtime/Managing/Server/ServerManager.cs`, `.../Client/ClientManager.cs`)를 벤더 소스로 확인 후 사용
+- 연결 전 화면이 완전히 비지 않도록 `Camera.main`을 임시로 켜 두고, `LocalPlayerRegistry.WhenReady()` 콜백(스프린트 8에서 만든 지연 바인딩 지점)으로 로컬 플레이어 스폰 시점에 자동으로 끈다 — 새 상태 추적 없이 기존 배선을 재사용
+- 기존 P/C 키 디버그 컨벤션(`LocalPulsePipelineBehaviour`)을 따라 New Input System(`Key` enum 필드 + `Keyboard.current`)을 쓰고, `[SerializeField] private Key _hostKey = Key.H` 형태로 키를 하드코딩하지 않았다
+
+**회귀 확인**: `Assets/_Project/Tests/EditMode/**` 전체(186케이스, TaggingTests·ValveInteractionControllerTests·ValveTests·WinConditionEvaluatorTests)를 실제 Unity/FishNet/InputSystem DLL을 참조하는 스크래치패드 하네스로 컴파일 및 실행 — **186 passed, 0 failed**. `NetworkTestBootstrap.cs`를 포함한 전체(Core+Net+Presentation+DebugTools) 컴파일도 별도로 확인해 경고 5건(기존 코드의 미사용 인스펙터 필드 경고, 이번 변경과 무관)을 제외하고 오류 0건.
+
+**문서 갱신**: `docs/수동검증_절차.md` §10-6의 "접속" 항목을 placeholder 코드 스니펫에서 실제 `NetworkTestBootstrap` 사용법(H/J 키, Game 뷰 포커스 필요성)으로 교체.
+
+---
+
+### 스프린트 9 후속 3 — Player 시각적 몸체(캡슐)
+
+원격 플레이어가 화면에 아예 보이지 않던 문제(NetworkTransform은 동기화하지만 렌더링할 메시가 없었음)를 해소하기 위해 `Assets/_Project/Prefabs/Player.prefab`에 캡슐 몸체를 추가했다. 코드 변경은 없다 — 순수 프리팹 데이터(YAML) 편집.
+
+**추가 내용**: `Player` 루트 아래 자식 `Body`(Transform + MeshFilter + MeshRenderer).
+- 메시: Unity 내장 Capsule(`fileID: 10208`)
+- 스케일 `{0.7, 0.9, 0.7}`, 로컬 위치 `{0, 0.9, 0}` — `CharacterController`(`m_Height: 1.8`, `m_Radius: 0.35`, `m_Center: {0, 0.9, 0}`)와 정확히 일치하도록 계산(내장 캡슐 기본 반경 0.5·높이 2 기준 스케일 0.35/0.5=0.7, 1.8/2=0.9). 이 스케일 값은 §9의 대역 도망자 캡슐(`Runner_A/B/C`, `{0.7, 0.9, 0.7}`)과 동일해 프로젝트 내 기존 관례와도 일치한다
+- 머티리얼: 새로 만들지 않고 기존 `GrayboxWall.mat`(URP Lit, 회색, guid `0f719196b517450bb7fd736445f7922a`) 재사용 — Unity 내장 `Default-Material`은 Standard 셰이더라 URP 프로젝트에서 마젠타(에러 색)로 렌더링될 위험이 있어 피했다
+
+**의도적으로 미구현 — 자기 시점 컬링**: 로컬 플레이어가 자기 카메라로 자기 캡슐을 보지 않게 하려면 전용 Layer + `Camera.cullingMask` 배선이 필요한데, 이번 스프린트 목표는 "원격 플레이어가 최소한 보이는지" 확인이라 범위 밖으로 뒀다(사용자 지시대로 판단을 맡아 간단한 쪽 선택). 카메라 로컬 Y(`1.62`)가 캡슐 상단(`1.8`)보다 낮아 자기 시점에서 캡슐 머리와 카메라가 겹쳐 보일 수 있음을 §10-3에 알려진 한계로 문서화했다.
+
+**검증**: `Player.prefab` YAML의 fileID 중복·미해결 참조를 스크립트로 재검증(0건). 프리팹 데이터만 바뀌었으므로 EditMode 186케이스는 그대로 재실행해 회귀 없음을 재확인(186 passed, 0 failed).
+
+**문서 갱신**: `docs/수동검증_절차.md` §10-3에 "④ Body(시각적 몸체)" 항목과 자기 시점 컬링 미구현 안내 추가.
+
+---
+
+## 스프린트 10 — 밸브 서버 권위 동기화 (네트워크 2단계 파일럿, §14.3)
+
+발소리·밸브·태그·라운드를 한 번에 네트워크로 옮기지 않고, **밸브 하나로 "서버 권위 RPC 패턴"을 먼저 확립**했다. 이후 스프린트에서 같은 골격을 태그·탈출/라운드·발소리에 반복 적용한다. 밸브를 고른 이유: 상태 변화가 이산적·저빈도라 첫 패턴 검증에 안전하다.
+
+### 신뢰 모델 (기존 클라이언트 권위 → 서버 권위)
+
+- **이전**: 클라이언트가 자기 화면에서 Core `Valve`를 직접 조작(스프린트 5, `ValveInteractionController`).
+- **이후**: 클라이언트는 **홀드 의사만** 서버에 요청(ServerRpc), 밸브를 실제로 돌렸는지는 **서버만** 결정(`ServerValveDriver`가 Core `Valve`를 구동), 확정 상태를 SyncVar로 전 클라이언트에 전파. 클라이언트는 "완료됐다"를 보낼 수단이 없어 **밸브를 즉시 열 수 없다** — 이것이 이 파일럿이 확립한 패턴의 핵심.
+
+### 수정·생성 파일
+
+**신규 (Core)**
+- `Assets/_Project/Core/Objectives/IValveHost.cs` — 밸브 오브젝트가 자신의 Core `Valve` 인스턴스를 Net에 노출하는 계약(`GetComponent<IValveHost>()`로 연결, 구체 타입 은닉). `ILocalControlGate`·`IPlayerIdentity`와 같은 패턴.
+- `Assets/_Project/Core/Net/IValveNetworkBridge.cs` — Presentation↔Net 계약. `NetworkActive`/`State`/`Progress01` 읽기 + `SubmitHoldIntent(playerId, role, held)`. Core는 FishNet을 모른다.
+- `Assets/_Project/Core/Objectives/ServerValveDriver.cs` — **순수 서버 권위 구동기**. Core `Valve`를 감싸 홀드/해제/틱을 관리하고 홀더를 추적한다. 새 규칙 없음(역할 GAP-5·상태·리셋 전부 `Valve` 재사용). FishNet·UnityEngine 미참조 → EditMode로 서버 권위 성질을 직접 검증 가능.
+
+**신규 (Net)**
+- `Assets/_Project/Net/ValveNetworkSync.cs` — `NetworkBehaviour, IValveNetworkBridge`. 클라: 홀드 의사가 바뀔 때만 `[ServerRpc(RequireOwnership=false)]`로 전송(디듀프). 서버: `OnStartServer`에서 `IValveHost`로 권위 `Valve`를 잡아 `ServerValveDriver` 생성, `Update`에서 회전 중일 때만 `Time.deltaTime`으로 틱, 상태·진행도를 `SyncVar<ValveState>`/`SyncVar<float>`로 전파. 양쪽 창에서 반영을 눈으로 확인하도록 서버(`[ValveNet:Server]`)·클라(`[ValveNet:Client]`, SyncVar OnChange) 로그를 남긴다.
+
+**신규 (Editor)**
+- `Assets/_Project/Editor/NetworkValveSetupTool.cs` — `Tools/MARCO/Setup Network Valves`. 씬의 각 `ValveBehaviour`에 `NetworkObject` + `ValveNetworkSync`를 `Undo.AddComponent`로 부착. **SceneId는 FishNet이 씬 저장 시 자동 생성**하므로 손으로 채우지 않는다(스프린트 8·9 원칙). 멱등.
+
+**수정 (Presentation)**
+- `ValveBehaviour.cs` — `IValveHost` 구현. `IsOpen`이 네트워크 활성 시 브릿지의 서버 확정 상태를 읽도록 위임(로컬이면 기존 `Valve` 그대로) → `ValveObjectiveTracker`의 개방 집계가 클라이언트에서도 그대로 맞는다.
+- `ValveInteractor.cs` — ① 최근접 밸브가 `NetworkActive`면 로컬 Core를 직접 조작하지 않고 브릿지에 홀드 의사만 전송(로컬 밸브면 기존 경로 그대로). ② **소유권 가드 추가**: 원격 플레이어 프록시가 내 키보드로 밸브를 돌리지 않도록 `_player.IsLocallyControlled`가 아니면 즉시 반환(로컬 단독 실행에선 기본 true라 무해).
+
+### 테스트 결과
+
+- **신규 12케이스** `ServerValveDriverTests` — 서버 권위 계약 고정. 핵심: `RepeatedBeginHold_WithoutServerTick_NeverOpens`(요청 1000회 폭주해도 서버 Tick 없이는 개방 불가 = §5.3 "클라이언트가 임의로 상태 변경 불가"), `ServerTick_ForFullDuration_OpensExactlyOnce`, 단일 홀더·비홀더 해제 무시·GAP-5 메아리 거부 등.
+- **회귀**: 기존 186케이스 + 신규 12 = **198 passed, 0 failed**. `ValveTests`(17)·`ValveInteractionControllerTests`(15)는 손대지 않아 로컬 클라이언트 권위 워크플로우가 그대로 보존됨을 확인.
+- 검증 방식: 스크래치패드 하네스로 Core+Net+Presentation 컴파일(0 error) + 리플렉션 러너로 198 실행.
+
+### 기획서 대응
+
+- §14.3 `ValveRotateStart/Progress/Opened | Client → Server → All | {valveId, playerId, progress}` — 이번 구현이 이 이벤트에 대응한다. 3개의 개별 RPC 대신 `홀드 의사(ServerRpc) → 서버 구동 → 상태/진행도 SyncVar 전파`로 같은 프로토콜 의도를 구현했다(SyncVar가 "All에게 전파"를 담당).
+- §14.4-3 "친구 대상 게임이므로 안티치트 과투자 금지" — 위치·역할 스푸핑 방지를 이번엔 골격만 두고 이월(GAP-16/17)한 근거.
+- §15.2 3분할 유지: Net↔Presentation 직접 참조 0, Core 인터페이스 3개로만 연결.
+
+### 스펙 갭 2건 신규 (GAP-16, GAP-17)
+
+| GAP | 쟁점 | 결정 | 근거 |
+|---|---|---|---|
+| **GAP-16** | 서버 권위 밸브의 신뢰 모델을 어떻게 설계하나 | 클라는 홀드 의사만(ServerRpc), 서버가 `ServerValveDriver`로 Core `Valve`를 검증·타이밍, `SyncVar`로 확정 상태 전파. 개방은 **서버 Tick만** 결정 → 즉시 개방 불가 | ① 이산·저빈도 이벤트라 첫 패턴 검증에 안전(발소리 같은 고빈도보다 위험 적음). ② 서버가 타이머를 소유하는 것이 서버 권위의 최소·본질적 형태. ③ **이월**: `ServerRpc`의 `caller`(FishNet 주입)와 클라가 주장한 `playerId` 대조, 역할(role)의 서버 권위화(현재 role은 로컬 직렬화 필드라 서버가 클라 주장을 신뢰 — `RoleAssigned`(§14.3) 네트워크화 시 재검증) |
+| **GAP-17** | 상호작용 거리(범위) 판정을 누가 하나 | **클라이언트**가 범위를 판정해 `held`에 반영, 서버는 역할·상태만 재검증 | 서버가 신뢰할 위치 소스가 아직 없다(NetworkTransform 위치는 있으나 밸브-플레이어 거리 서버 재계산은 파일럿 범위 밖). 위치 스푸핑 방지는 §14.4-3 방침대로 후속 과제. 지금은 "서버가 최종 결정권을 가진다"는 골격 확립이 목적 |
+
+### 확립된 패턴을 태그/탈출/발소리에 적용할 때 (다음 스프린트 선행 정보)
+
+1. **소유권 가드는 모든 입력 컴포넌트에 필요하다.** 이번에 `ValveInteractor`에 `IsLocallyControlled` 가드를 넣었듯, `TagDetector`·발소리 방출부도 네트워크화 시 원격 프록시에서 입력을 막아야 한다(현재는 로컬 단독이라 미적용).
+2. **이산 vs 고빈도**: 밸브는 SyncVar로 충분했지만, 발소리(초당 2~4개)는 §14.3대로 `SoundPulse` 이벤트를 서버 판정(§5.6) 후 리스너별 `PerceivedPulse`로 개별 전송하는 구조가 필요 — SyncVar가 아니라 `ObserversRpc`/타깃 RPC가 맞다.
+3. **진행도 SyncVar의 대역폭**: 현재 `_progress`를 서버 매 틱 세팅한다(회전 3초간 연속). 저빈도 밸브라 무해하지만, 다른 데 적용 시 "시작 타임스탬프만 보내고 클라가 로컬 보간"으로 최적화 여지 있음.
+4. **권위 상태기계의 소유권**: 밸브는 씬 NetworkObject라 서버가 자연히 권위를 갖는다. 플레이어 소유 오브젝트(태그 등)는 `RequireOwnership` 기본값(소유자만)과 씬 오브젝트(`RequireOwnership=false`)의 차이를 태스크별로 판단할 것.
+
+### 남은 작업 우선순위 제안
+
+1. **(선행 조건) 실기 검증** — 이번 세션은 라이브 에디터가 없어 FishNet IL 위빙(ServerRpc/SyncVar 코드 생성)과 2-클라이언트 실동작을 확인하지 못했다. 다음 에디터 접속 시 `Setup Network Valves` 실행 → 씬 저장 → H/J로 §수동검증 절차 수행이 **최우선**.
+2. 태그 판정 서버 권위화(같은 패턴, `PlayerTagged` §14.3) — 소유권 가드 선반영 필요.
+3. 탈출/라운드 결과 서버 권위화(`GameEnd` §14.3) — 판정을 서버 단일 지점으로.
+4. 발소리/PerceivedPulse 네트워크화 — 가장 복잡(고빈도·리스너별 차폐), 위 3개로 패턴이 굳은 뒤.
+5. 역할 배정 네트워크화(`RoleAssigned`) — GAP-16 이월분(서버 역할 재검증)의 전제.
+
+### 검증 한계
+
+라이브 Unity 에디터/MCP 연결이 없어 다음은 미검증(다음 접속 시 확인 필요): ① FishNet IL 위빙(`ServerRpc`/`SyncVar` 코드 생성) — 스크래치패드는 C# 컴파일까지만 보증. ② 씬 밸브의 NetworkObject SceneId 자동 생성. ③ 2-클라이언트 실동작(한쪽이 돌리면 다른 쪽 반영). 사용된 FishNet API(`SyncVar<T>`, `[ServerRpc(RequireOwnership=false)]`, `NetworkConnection` 주입, `OnStartServer/Network`, `IsServerStarted`/`IsSpawned`)는 전부 벤더 소스(`Assets/FishNet/`)로 확인했다.
+
+---
+
+## 스프린트 10 후속 — ValveNetworkSync NRE 수정 (실기 검증 중 발견)
+
+라이브 에디터에서 `Reserialize NetworkObjects(Prefabs+Scenes)`로 ObjectId 에러를 해결한 뒤, Play는 되지만 아직 H/J로 접속하지 않은 상태(연결 전)에서 `NullReferenceException`이 매 프레임 반복되는 문제가 보고됐다.
+
+### 원인
+
+`NetworkBehaviour.IsSpawned`/`IsServerStarted` 등은 내부적으로 `private NetworkObject _networkObjectCache` 필드를 그대로 역참조한다(`Assets/FishNet/Runtime/Object/NetworkBehaviour/NetworkBehaviour.QOL.cs`). 이 캐시는 FishNet이 해당 컴포넌트를 실제로 초기화(프리스폰 준비)할 때만 채워지므로, Play는 됐지만 아직 그 초기화가 일어나지 않은 시점(연결 전 — 로컬 단독 실행도 이 상태에 해당)에 `IsSpawned`/`IsServerStarted`를 직접 호출하면 NRE가 난다.
+
+`ValveNetworkSync.NetworkActive => IsSpawned;`가 이 패턴이었고, `ValveObjectiveTracker.Update()`가 매 프레임 `ValveBehaviour.IsOpen` → `ValveBehaviour.NetworkActive` → `ValveNetworkSync.NetworkActive`를 거치며 매 프레임 예외를 던져 Console을 도배했다. 같은 파일 안에 동일 패턴이 두 곳 더 있었다(`SubmitHoldIntent`의 `IsSpawned` 직접 호출, `Update()`의 `IsServerStarted` 직접 호출 — 후자는 `ValveNetworkSync` 자신의 `Update()`가 매 프레임 무조건 도는 경로라 트래커 유무와 무관하게도 재현 가능했다).
+
+### 수정
+
+`Assets/_Project/Net/ValveNetworkSync.cs` — `NetworkActive`에 `NetworkObject != null` 널 가드를 먼저 검사하도록 수정(`NetworkObject`는 `_networkObjectCache`를 그대로 반환하는 public 프로퍼티라, 역참조 없이 null 여부만 안전하게 읽을 수 있다):
+
+```csharp
+public bool NetworkActive => NetworkObject != null && IsSpawned;
+```
+
+그리고 `SubmitHoldIntent`·`Update()`의 직접 `IsSpawned`/`IsServerStarted` 호출을 전부 `NetworkActive` 경유로 통일해 같은 NRE가 재발하지 않도록 했다(가드 지점을 한 곳으로 모음).
+
+### 검증
+
+- Core+Net+Presentation 컴파일 0 error(스크래치패드 하네스)
+- 기존 198케이스 그대로 재실행 — **198 passed, 0 failed**(순수 null 가드 추가라 Core 로직 영향 없음, `ServerValveDriverTests`는 `ValveNetworkSync`를 직접 다루지 않으므로 신규 테스트는 추가하지 않음)
+
+### 검증 한계
+
+라이브 에디터에서 실제로 재현된 버그를 코드 리뷰 기반으로 수정했다 — 이 세션은 여전히 라이브 에디터 연결이 없어, 수정된 코드가 실제로 NRE를 없애는지는 다음 에디터 세션에서 Play(연결 전 대기 상태 유지) → Console에 예외가 더 이상 안 뜨는지 확인이 필요하다.
+
+---
+
+## 스프린트 10 후속 2 — 밸브 최소 시각 표시 (검증용 색상)
+
+서버 권위 동기화가 Console 로그로만 확인돼 검증이 불편했던 문제를, 밸브 큐브 색으로 상태를 보이게 해 해소했다. 정식 UI/셰이더가 아니라 **검증용 최소 색상 표시**다.
+
+- 닫힘=회색, 회전 중=진행률 따라 회색→노랑 보간(`Color.Lerp`), 열림=초록 고정
+
+### 수정·생성 파일
+
+- **신규** `Assets/_Project/Presentation/Objectives/ValveVisualIndicator.cs` — `ValveBehaviour`의 상태·진행률을 읽어 `MeshRenderer.material.color`를 갱신. 색 3종은 `[SerializeField]`(기본 회색/노랑/초록). 밸브가 3개뿐이라 `Renderer.material`(인스턴스 사본)을 쓴다(T8 성능 이슈는 동시 30개 링 때문이었고 무관). `OnDestroy`에서 인스턴스 사본 정리.
+- **수정** `Assets/_Project/Presentation/Objectives/ValveBehaviour.cs` — `State`/`Progress01` 표시용 프로퍼티 추가. `IsOpen`과 **같은 규칙**으로 네트워크면 서버 확정 브릿지값, 아니면 로컬 `Valve`값을 고른다 — **새 계산 없이 기존 값을 읽기만** 한다. 그래서 SyncVar로 전파된 서버 상태가 그대로 색에 반영돼 양쪽 화면이 자동 동기화된다.
+- **씬** `Assets/Scenes/Game.unity` — `Valve_Machine/Lifeguard/Boiler` 3개에 `ValveVisualIndicator`를 부착(YAML 직접 편집). 이 컴포넌트는 에디터 생성값(SceneId 등)이 없는 순수 MonoBehaviour라 손으로 안전하게 배선 가능. fileID `910000000000000001~3`, 중복·미해결 참조 0건 스크립트 재검증.
+
+### 회귀
+
+`ValveBehaviour`에 프로퍼티만 추가(로직 변경 없음). Core+Net+Presentation 컴파일 0 error, EditMode **198 passed, 0 failed**(색상 매핑은 단순 `switch`+`Lerp`라 지시서 판단대로 유닛 테스트 생략).
+
+### 검증 방법
+
+`수동검증_절차.md §12-2`에 색 확인 항목 추가: 한쪽에서 홀드하면 양쪽 화면에서 회색→노랑→초록으로 실시간 변하는지. Console 로그 없이도 눈으로 동기화를 확인할 수 있다.
+
+### 검증 한계
+
+라이브 에디터 부재로 실제 색 변화·양쪽 동기화는 미검증(다음 세션에서 H/J로 확인 필요). 씬에 `ValveVisualIndicator`를 하드 배선했으므로, 에디터가 씬을 다시 저장하면 인스펙터에서 색 필드 3개가 보이고 조정 가능하다.
+
+---
+
+## 스프린트 11 — 태그 서버 권위 동기화 (네트워크 2단계, §3.1/§14.3)
+
+스프린트 10(밸브)에서 확립·실기검증한 서버 권위 패턴을 태그에 반복 적용했다. 태그는
+밸브보다 단순(홀드/진행률 없는 순간 판정)하지만, **두 주체(술래+대상)**가 있고 **대상의
+역할이 바뀐다**는 점이 달라 구조가 조금 더 크다.
+
+### 신뢰 모델 (클라이언트 권위 → 서버 권위)
+
+- **이전**(스프린트 7): 술래 클라이언트가 로컬에서 거리·역할을 판정하고 대상 역할을 직접 Echo로 바꿈.
+- **이후**: 술래는 "이 대상을 태그하겠다"는 요청만 서버에 보내고(`ServerRpc`), 서버가 §3.1
+  규칙(거리 1.2m·술래→도망자·이미태그됨)으로 **재검증**한 뒤에만 확정. 확정되면 대상의
+  `SyncVar<bool>`가 전 피어에 전파되어 대상 역할이 Echo로 바뀐다 — 대상 본인 화면에도 반영.
+
+### 밸브와 달랐던 점 (§6-4)
+
+| 쟁점 | 밸브(스프린트 10) | 태그(스프린트 11) |
+|---|---|---|
+| 주체 수 | 1(플레이어→밸브) | 2(술래→대상 플레이어) |
+| 서버 거리 재검증 | 클라 판정 신뢰(GAP-17) | **서버가 재검증**(§5.3 요구) — RPC 호출자 `NetworkConnection.FirstObject`(술래 플레이어)의 위치로 계산 |
+| 판정 규칙 위치 | Core `Valve` (이미 Core) | `TagRules`가 Presentation에 있어 **Core로 이동**해야 Net이 재사용 가능 |
+| 대상 열거 | 밸브는 씬 고정 | 대상이 로컬 대역+네트워크 플레이어 혼재 → `TagTargetRegistry`로 통일 |
+| 상태 반영 | 밸브 상태 표시 | 대상 **역할 전환**(Echo) → `IRoleState`로 Presentation 역할을 Net이 바꿈 |
+
+### 수정·생성 파일
+
+**Core (신규/이동)**
+- `Core/Tagging/TagRules.cs` — **Presentation → Core 이동**(로직 불변). Net 서버가 재사용하려면 Core에 있어야 한다(Net은 Presentation 미참조). Valve·WinConditionEvaluator가 Core인 것과 같은 이유.
+- `Core/Tagging/ServerTagDriver.cs` — 순수 서버 검증(`TagRules` 재사용 + 이미태그됨). 테스트 대상.
+- `Core/Net/ITagTarget.cs` — "태그 대상" 통일 계약(PlayerId/Role/IsTagged/WorldPosition/NetworkActive/RequestTag). 로컬 대역·네트워크 플레이어를 TagDetector가 같은 방식으로 다룬다.
+- `Core/Net/TagTargetRegistry.cs` — 대상 중앙 등록소 + `TargetTagged` 이벤트(라운드 집계 통지). `LocalPlayerRegistry` 패턴을 Core에 둔 것. Play 진입 시 static 리셋.
+- `Core/Net/IRoleState.cs` — 역할 읽기 + `ApplyRole`(네트워크 확정 역할 적용). Net이 대상 역할을 Echo로 바꾸는 통로.
+
+**Net (신규)**
+- `Net/TagNetworkSync.cs` — `NetworkBehaviour, ITagTarget`(Player에 부착). 클라: `RequestTag` → `[ServerRpc(RequireOwnership=false)]`. 서버: `caller.FirstObject`로 술래 위치를 얻어 `ServerTagDriver.Validate`(거리 재검증 포함), 통과 시 `SyncVar<bool>` 확정. 전 피어: OnChange → `IRoleState.ApplyRole(Echo)` + `TagTargetRegistry.NotifyTagged`. **NetworkActive에 `NetworkObject != null` 가드를 처음부터** 넣어 스프린트 10 NRE 재발 방지.
+
+**Presentation (수정)**
+- `Tagging/TagDetector.cs` — ① **소유권 가드**(`IsLocallyControlled`, 원격 프록시 입력 차단) ② 씬 스캔 대신 `TagTargetRegistry` 순회 ③ 직접 조작·RoundCoordinator 등록 제거, `RequestTag`만 호출.
+- `Tagging/TaggableRunner.cs` — `ITagTarget` 구현(로컬 대역, `NetworkActive=false`, 즉시 확정). 레지스트리 등록.
+- `Player/FirstPersonController.cs` — `IRoleState` 구현(`ApplyRole` 세터). 태그 확정 시 서버가 이 플레이어를 Echo로 전환.
+- `GameFlow/RoundCoordinator.cs` — `TagTargetRegistry.TargetTagged` 구독 → 서버 확정 태그를 집계. TagDetector 직접 호출을 대체(로컬/네트워크 공통 경로, "서버 확정 기준").
+- `GameFlow/RoundOutcomeTracker.cs` — `using` 갱신(TagRules 이동).
+
+**DebugTools (수정)**
+- `NetworkTestBootstrap.cs` — **K 키 추가**: 로컬 플레이어를 술래로 지정(태그 검증용). 역할 배정이 아직 네트워크화 안 돼(다음 스프린트) 2-클라 테스트에서 술래를 만들 방법이 필요.
+
+**Editor (수정)**
+- `Editor/NetworkPlayerSetupTool.cs` — Player 프리팹 셋업에 `TagNetworkSync` 부착 추가(멱등). NetworkBehaviour의 ComponentIndex·NetworkObject.NetworkBehaviours는 FishNet이 관리하므로 **YAML 직접 편집이 아니라 이 도구(AddComponent)로** 붙인다.
+
+### 테스트 결과
+
+- **신규 13케이스**: `ServerTagDriverTests`(9) — 핵심 `OutOfRange_IsRejectedByServer`(§5.3 거리 밖 요청을 서버가 거부), 역할·이미태그됨·경계값. `TagTargetRegistryTests`(4) — 등록/통지/세션 리셋.
+- **회귀**: 기존 198 + 신규 13 = **211 passed, 0 failed**. `TaggingTests`(17: TagRules 이동 후 using만 갱신)·`ServerValveDriverTests` 등 전부 통과.
+- 검증: 스크래치패드 하네스로 Core+Net+Presentation 컴파일(0 error) + 리플렉션 러너 211 실행.
+
+### 스펙 갭 1건 신규 (GAP-18)
+
+| GAP | 쟁점 | 결정 | 근거 |
+|---|---|---|---|
+| **GAP-18** | 태그 서버 권위의 검증 범위와 역할·라운드 연동 | 서버가 **거리(1.2m)·대상 역할·이미태그됨을 재검증**(밸브 GAP-17보다 강화 — §5.3 요구). 술래 역할과 라운드 집계 분모는 이월 | ① 거리는 `caller.FirstObject`(술래 플레이어)의 동기화된 위치로 서버가 재계산 가능해 재검증에 넣음. ② **이월**: 술래 role은 아직 서버 권위 아님(로컬 필드라 클라 주장 신뢰 — `RoleAssigned`(§14.3) 네트워크화 시 재검증). 클라 권위 NetworkTransform 위치 자체의 스푸핑도 이월(GAP-17과 동류). ③ `RoundCoordinator`의 전원태그 분모(`_totalRunners`)는 여전히 대역 기준 — 라운드 결과 네트워크화(다음 스프린트) 몫. 태그 **집계는 서버 확정분만** 각 피어가 반영하므로 카운트는 일치 |
+
+### 실기 검증 (Reserialize 필요 여부)
+
+이번엔 태그가 **이미 NetworkObject가 있는 Player 프리팹**에 NetworkBehaviour(TagNetworkSync)를 추가하는 것이라, 스프린트 10처럼 씬에 새 NetworkObject를 만들지는 않는다. 다만 **프리팹에 NetworkBehaviour를 추가**하면 FishNet이 ComponentIndex·NetworkObject.NetworkBehaviours 목록을 다시 만들어야 하므로, `Setup Network Player` 재실행 후 **`Fish-Networking → Utility → Reserialize NetworkObjects(Prefabs+Scenes)`가 필요할 가능성이 높다**(스프린트 10에서 밸브에 필요했던 것과 같은 이유). 라이브 에디터 부재로 실제 2-클라 태그 동작·위빙은 미검증 — 다음 세션에서 확인 필요.
+
+### 다음 스프린트 선행 정보 / 우선순위
+
+1. **탈출/라운드 결과 네트워크화** — GAP-18 이월분(전원태그 분모, 라운드 결과 일치)을 여기서 해소. `EscapePointTrigger`도 소유권 가드 + 서버 권위로.
+2. **발소리/PerceivedPulse** — 가장 복잡(고빈도·리스너별 차폐). SyncVar 아닌 타깃 RPC(§14.3).
+3. **역할 배정 네트워크화**(`RoleAssigned`) — GAP-16/18 이월분(술래·대상 역할 서버 권위)의 전제. 이게 되면 `NetworkTestBootstrap`의 K키 디버그를 제거할 수 있다.
+
+### 검증 한계
+
+라이브 에디터/MCP 부재로 미검증: ① FishNet IL 위빙(ServerRpc/SyncVar 코드 생성) ② Player 프리팹에 TagNetworkSync 추가 후 Reserialize·인덱스 재구성 ③ 2-클라 실동작(술래가 러너 태그 → 러너 화면 역할 전환). C# 컴파일(0 error)·유닛 211 통과·FishNet API(`NetworkConnection.FirstObject`, `SyncVar<T>`, `[ServerRpc(RequireOwnership=false)]`) 벤더 소스 확인은 완료.

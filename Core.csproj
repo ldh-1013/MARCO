@@ -55,22 +55,30 @@
   <ItemGroup>
     <Compile Include="Assets\_Project\Core\Locomotion\LocomotionConfig.cs" />
     <Compile Include="Assets\_Project\Core\SoundPulse\ActivePulseTracker.cs" />
+    <Compile Include="Assets\_Project\Core\Net\IValveNetworkBridge.cs" />
     <Compile Include="Assets\_Project\Core\SoundPulse\SoundPulseResolver.cs" />
     <Compile Include="Assets\_Project\Core\Objectives\Valve.cs" />
     <Compile Include="Assets\_Project\Core\Net\ILocalControlGate.cs" />
+    <Compile Include="Assets\_Project\Core\Net\TagTargetRegistry.cs" />
     <Compile Include="Assets\_Project\Core\GameFlow\GameFlowState.cs" />
     <Compile Include="Assets\_Project\Core\Objectives\ValveState.cs" />
     <Compile Include="Assets\_Project\Core\Objectives\WinConditionEvaluator.cs" />
+    <Compile Include="Assets\_Project\Core\Tagging\ServerTagDriver.cs" />
+    <Compile Include="Assets\_Project\Core\Net\IRoleState.cs" />
     <Compile Include="Assets\_Project\Core\SoundPulse\PerceivedPulse.cs" />
     <Compile Include="Assets\_Project\Core\SoundPulse\SoundType.cs" />
+    <Compile Include="Assets\_Project\Core\Objectives\ServerValveDriver.cs" />
+    <Compile Include="Assets\_Project\Core\Tagging\TagRules.cs" />
     <Compile Include="Assets\_Project\Core\Objectives\RoundResult.cs" />
     <Compile Include="Assets\_Project\Core\Locomotion\LocomotionSimulator.cs" />
     <Compile Include="Assets\_Project\Core\SoundPulse\IOcclusionProbe.cs" />
     <Compile Include="Assets\_Project\Core\SoundPulse\SoundPulse.cs" />
     <Compile Include="Assets\_Project\Core\Net\IPlayerIdentity.cs" />
     <Compile Include="Assets\_Project\Core\SoundPulse\DirectionOctant.cs" />
+    <Compile Include="Assets\_Project\Core\Objectives\IValveHost.cs" />
     <Compile Include="Assets\_Project\Core\GameFlow\GameFlowManager.cs" />
     <Compile Include="Assets\_Project\Core\Role\RoleType.cs" />
+    <Compile Include="Assets\_Project\Core\Net\ITagTarget.cs" />
     <Compile Include="Assets\_Project\Core\Locomotion\MovementState.cs" />
   </ItemGroup>
   <ItemGroup>

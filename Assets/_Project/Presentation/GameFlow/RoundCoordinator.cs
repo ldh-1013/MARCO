@@ -1,5 +1,6 @@
 using UnityEngine;
 using Marco.Core.GameFlow;
+using Marco.Core.Net;
 using Marco.Core.Objectives;
 using Marco.Core.Role;
 using Marco.Presentation.Objectives;
@@ -53,7 +54,25 @@ namespace Marco.Presentation.GameFlow
                 _valveTracker = FindAnyObjectByType<ValveObjectiveTracker>();
 
             // §6.3 allRunnersTagged 판정의 분모. 로컬에서는 씬에 놓인 대역 도망자 수다.
+            // 스프린트 11 주의: 네트워크 모드에서 실제 러너 수를 반영하는 것은 라운드 결과
+            // 네트워크화(다음 스프린트) 몫이라, 이 분모는 아직 대역 기준이다(GAP-18 기록).
             _totalRunners = FindObjectsByType<TaggableRunner>().Length;
+        }
+
+        // 스프린트 11: 태그 확정은 로컬 대역/네트워크 플레이어 모두 TagTargetRegistry를 통해
+        // 통지된다. 서버가 확정한 태그만 이 이벤트로 오므로("서버 확정 기준"), 각 피어의
+        // RoundCoordinator가 같은 태그 집합을 집계한다. TagDetector가 직접 등록하던 것을 대체.
+        private void OnEnable() => TagTargetRegistry.TargetTagged += OnTargetTagged;
+        private void OnDisable() => TagTargetRegistry.TargetTagged -= OnTargetTagged;
+
+        private void OnTargetTagged(ITagTarget target)
+        {
+            if (target == null)
+                return;
+
+            // 태그된 대상은 태그 시점에 항상 도망자였다(TagDetector·서버가 Runner만 통과시킴).
+            // 통지 시점의 target.Role은 이미 Echo이므로, 판정에는 태그 당시 역할(Runner)을 넘긴다.
+            TryRegisterTag(RoleType.Seeker, target.PlayerId, RoleType.Runner);
         }
 
         private void Start()

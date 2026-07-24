@@ -1,7 +1,7 @@
 using UnityEngine;
 using Marco.Core.Role;
 
-namespace Marco.Presentation.Tagging
+namespace Marco.Core.Tagging
 {
     /// <summary>
     /// §3.1 태그 판정 규칙의 순수 구현. 기획서에 명시된 것만 담는다 —
@@ -14,6 +14,12 @@ namespace Marco.Presentation.Tagging
     /// **재태그 쿨다운이 필요 없는 이유**: 태그당한 즉시 메아리가 되고, 메아리는
     /// 태그 불가다. 즉 같은 대상을 두 번 태그하는 상황이 구조적으로 성립하지 않는다.
     /// 기획서에 쿨다운 언급이 없는 것도 이 때문으로 보이며, 없는 규칙을 만들지 않았다.
+    ///
+    /// **스프린트 11(서버 권위 동기화)에서 Presentation → Core로 이동**: 서버(Net)가
+    /// 태그 요청을 재검증하려면 이 규칙을 재사용해야 하는데, Net은 Presentation을
+    /// 참조하지 않는다(§15.2). 그래서 순수 판정인 이 클래스를 Core로 옮겨 Presentation
+    /// (TagDetector)·Net(ServerTagDriver) 양쪽이 같은 규칙을 쓰게 했다 — Valve·
+    /// WinConditionEvaluator가 Core에 있는 것과 같은 이유. **로직은 그대로다**(이동만).
     /// </summary>
     public static class TagRules
     {

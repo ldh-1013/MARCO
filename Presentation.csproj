@@ -61,6 +61,7 @@
     <Compile Include="Assets\_Project\Presentation\Tagging\TagDetector.cs" />
     <Compile Include="Assets\_Project\Presentation\GameFlow\RoundTimer.cs" />
     <Compile Include="Assets\_Project\Presentation\Player\FirstPersonController.cs" />
+    <Compile Include="Assets\_Project\Presentation\Objectives\ValveVisualIndicator.cs" />
     <Compile Include="Assets\_Project\Presentation\SoundPulse\LocalPulsePipeline.cs" />
     <Compile Include="Assets\_Project\Presentation\SoundPulse\LocalPulsePipelineBehaviour.cs" />
     <Compile Include="Assets\_Project\Presentation\Tagging\TaggableRunner.cs" />
@@ -71,7 +72,6 @@
     <Compile Include="Assets\_Project\Presentation\SoundPulse\PulseVisualRenderer.cs" />
     <Compile Include="Assets\_Project\Presentation\Player\LocalPlayerRegistry.cs" />
     <Compile Include="Assets\_Project\Presentation\GameFlow\RoundCoordinator.cs" />
-    <Compile Include="Assets\_Project\Presentation\Tagging\TagRules.cs" />
     <Compile Include="Assets\_Project\Presentation\SoundPulse\PulseVisualRegistry.cs" />
   </ItemGroup>
   <ItemGroup>

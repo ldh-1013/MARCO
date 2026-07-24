@@ -2,8 +2,8 @@ using NUnit.Framework;
 using UnityEngine;
 using Marco.Core.Objectives;
 using Marco.Core.Role;
+using Marco.Core.Tagging;
 using Marco.Presentation.GameFlow;
-using Marco.Presentation.Tagging;
 
 namespace Marco.Core.Tests
 {

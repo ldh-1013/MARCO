@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using Marco.Core.Objectives;
 using Marco.Core.Role;
-using Marco.Presentation.Tagging;
+using Marco.Core.Tagging;
 
 namespace Marco.Presentation.GameFlow
 {

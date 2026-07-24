@@ -27,7 +27,7 @@ namespace Marco.Presentation.Player
     /// NetworkTransform(§14.2 10~20Hz)을 덧붙일 때 이 클래스는 수정하지 않는 구조.
     /// </summary>
     [RequireComponent(typeof(CharacterController))]
-    public sealed class FirstPersonController : MonoBehaviour, ILocalControlGate, IPlayerIdentity
+    public sealed class FirstPersonController : MonoBehaviour, ILocalControlGate, IPlayerIdentity, IRoleState
     {
         /// <summary>
         /// 네트워크가 없는 로컬 단독 실행에서의 발생원 ID.
@@ -60,6 +60,17 @@ namespace Marco.Presentation.Player
 
         public MovementState CurrentState => _simulator?.CurrentState ?? MovementState.Idle;
         public RoleType Role => _role;
+
+        /// <summary>
+        /// 네트워크(또는 로컬 판정)가 확정한 역할을 적용한다(<see cref="IRoleState"/>).
+        /// 스프린트 11: 서버가 태그를 확정하면 <c>TagNetworkSync</c>가 이 플레이어를 Echo로 바꾼다.
+        /// 로컬 단독 실행에서는 아무도 호출하지 않아 인스펙터의 <see cref="_role"/>이 유지된다.
+        ///
+        /// 이동 시뮬레이터는 Awake에서 초기 역할로 만들어지며, 역할 배율의 런타임 재적용은
+        /// 이번 스코프가 아니다(태그된 메아리의 이동 특성 변경은 후속 과제) — 여기서는
+        /// 태그 상태·밸브 역할 게이팅에 쓰이는 <see cref="Role"/> 값만 갱신한다.
+        /// </summary>
+        public void ApplyRole(RoleType role) => _role = role;
 
         /// <summary>
         /// 이 플레이어가 발생시키는 이벤트의 발생원 ID(§5.5/§6.1/§3.1).

@@ -1,0 +1,20 @@
+{
+    "name": "Marco.DebugTools",
+    "rootNamespace": "Marco.DebugTools",
+    "references": [
+        "Core",
+        "Net",
+        "Presentation",
+        "FishNet.Runtime",
+        "Unity.InputSystem"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
