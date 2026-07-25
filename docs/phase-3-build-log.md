@@ -867,3 +867,165 @@ public bool NetworkActive => NetworkObject != null && IsSpawned;
 ### 검증 한계
 
 라이브 에디터/MCP 부재로 미검증: ① FishNet IL 위빙(ServerRpc/SyncVar 코드 생성) ② Player 프리팹에 TagNetworkSync 추가 후 Reserialize·인덱스 재구성 ③ 2-클라 실동작(술래가 러너 태그 → 러너 화면 역할 전환). C# 컴파일(0 error)·유닛 211 통과·FishNet API(`NetworkConnection.FirstObject`, `SyncVar<T>`, `[ServerRpc(RequireOwnership=false)]`) 벤더 소스 확인은 완료.
+
+---
+
+## 스프린트 12 — 탈출/라운드 결과 서버 권위 동기화 (네트워크 2단계)
+
+스프린트 10(밸브)·11(태그)에서 확립·실기검증한 서버 권위 패턴을 **라운드 전체**(탈출·타이머·최종 판정)에 적용했다. 지금까지 각 클라이언트가 로컬 타이머를 돌리고 §6.3을 독립 계산하던 것을, **서버 하나만의 단일 판정**으로 통일해 GAP-18 이월분(전원태그 분모·크로스 클라이언트 판정 일치)을 해소한다.
+
+### 신뢰 모델 (클라이언트 독립 판정 → 서버 단일 판정)
+
+- **이전**(스프린트 6): 클라이언트마다 `RoundTimer`를 돌리고 `RoundCoordinator`가 로컬에서 `WinConditionEvaluator`를 호출. 타이밍 차이로 클라이언트별 결과가 갈릴 위험.
+- **이후**: **서버**가 `ServerRoundDriver`로 타이머를 소유하고, 탈출을 재검증하고(§5.3), `WinConditionEvaluator`를 **서버에서만** 호출해 확정한 `RoundResult`·남은 시간·탈출 수를 `SyncVar`로 전 클라이언트에 전파. 클라이언트(`RoundCoordinator`)는 자체 판정을 멈추고 서버값만 반영한다.
+
+### 판정 입력의 출처 (이미 서버 권위인 것을 재사용)
+
+| 입력 | 출처 | 서버 권위 확보 방법 |
+|---|---|---|
+| 밸브 게이트(개방수·전체·게이트) | `EscapeGateRegistry`(Core) ← `ValveObjectiveTracker` | 밸브 SyncVar(스프린트 10)를 집계한 값이라 이미 서버 권위 |
+| 전원 태그 | `TagTargetRegistry`(Core) | 태그 SyncVar(스프린트 11) 집합을 서버가 직접 읽음 |
+| 탈출 | `RoundNetworkSync`가 `ServerRpc`로 직접 재검증·집계 | 이번 신규 |
+| 타이머 | `RoundNetworkSync`(서버)가 소유 | 이번 신규 |
+
+### 수정·생성 파일
+
+**Core (신규)**
+- `Core/GameFlow/IRoundNetworkBridge.cs` — Presentation↔Net 라운드 계약(`NetworkActive`/`RemainingSeconds`/`EscapedCount`/`Result` + `SubmitEscapeIntent`). `IValveNetworkBridge`와 같은 패턴.
+- `Core/GameFlow/ServerRoundDriver.cs` — **순수 서버 판정기**(타이머 소유·탈출 재검증·§6.3 위임·1회 래치). `WinConditionEvaluator`를 그대로 호출(변경 없음). FishNet·UnityEngine 미참조 → EditMode 테스트 가능.
+- `Core/Objectives/IEscapeGateState.cs` — 밸브 게이트 상태 읽기 계약(`OpenedValves`/`TotalValves`/`IsGateOpen`).
+- `Core/Objectives/EscapeGateRegistry.cs` — 게이트 집계기 중앙 등록소(Net이 §15.2 넘어 읽는 통로). `TagTargetRegistry` 패턴을 Core에 둔 것.
+
+**Net (신규)**
+- `Net/RoundNetworkSync.cs` — `NetworkBehaviour, IRoundNetworkBridge`. 서버: `OnStartServer`에서 `ServerRoundDriver` 생성, `Update`에서 타이머 틱+판정, `SyncVar<float>`(남은 시간)·`SyncVar<int>`(탈출 수)·`SyncVar<RoundResult>`(최종 결과) 전파. `ServerSubmitEscape`(`[ServerRpc(RequireOwnership=false)]`)로 탈출 재검증. **NetworkActive에 `NetworkObject != null` 가드를 처음부터**(스프린트 10 NRE 재발 방지).
+
+**Presentation (수정)**
+- `Objectives/ValveObjectiveTracker.cs` — `IEscapeGateState` 구현 + `EscapeGateRegistry` 등록/해제. 서버가 게이트 상태를 읽는 통로(로직 무변경, 프로퍼티/등록만 추가).
+- `GameFlow/RoundCoordinator.cs` — 브릿지 인지형으로. `IsNetworkActive`면 `ReflectServerRound`(서버 남은 시간 로그 + 결과 변화 시 1회 `RoundEnd` 전이)만 하고 로컬 타이머·판정을 멈춘다. `RequestEscape`가 네트워크면 브릿지로, 로컬이면 기존 `TryRegisterEscape`로 라우팅. 전원태그 로컬 집계(`OnTargetTagged→Evaluate`)도 네트워크면 스킵. **로컬 경로는 그대로**(스프린트 6 보존).
+- `Objectives/EscapePointTrigger.cs` — ① **소유권 가드**(`IsLocallyControlled`) ② 게이트 개방 사전 필터(RPC 낭비 방지) ③ `TryRegisterEscape` 직접 호출 → `RoundCoordinator.RequestEscape` 라우팅.
+
+**Editor (신규)**
+- `Editor/NetworkRoundSetupTool.cs` — `Tools/MARCO/Setup Network Round`. `RoundCoordinator` 오브젝트에 `NetworkObject`+`RoundNetworkSync`를 `Undo.AddComponent`로 부착(멱등). SceneId는 FishNet 자동 생성.
+
+### 테스트 결과
+
+- **신규 22케이스** `ServerRoundDriverTests`(Core) — 타이머 소유(감소·0 클램프·결정 후 정지) · 탈출 재검증(게이트 닫힘/비러너 거부·중복 방지·결정 후 무시) · §6.3 위임+래치(러너승·시간초과·전원태그·미결·**래치**·탈출 우선순위) · **GAP-19 전원태그**(널/빈/미태그러너잔존/전원Echo/술래만/널항목).
+- **회귀**: 기존 211 + 신규 22 = **233 passed, 0 failed**. 스프린트 11에서 재구성한 하네스(NUnitLite + Unity 관리 DLL `AssemblyResolve`)로 **실제 실행**.
+- **Net 컴파일 검증**: Core+Net를 FishNet.Runtime 참조로 컴파일 → **0 error/0 warning**(`RoundNetworkSync`의 `SyncVar<T>`·`[ServerRpc]`·`NetworkBehaviour` C# 유효성 확인).
+
+### 스펙 갭 2건 신규 (GAP-19, GAP-20)
+
+| GAP | 쟁점 | 결정 | 근거 |
+|---|---|---|---|
+| **GAP-19** | 역할이 아직 네트워크 동기화 안 되는데 "전원 태그" 분모를 어떻게 얻나(GAP-18 이월) | **고정 분모를 쓰지 않는다.** `AllRunnersTagged = (태그된 대상 ≥ 1) && (태그 안 된 Role==Runner 대상 == 0)` | 태그된 대상은 §3.1대로 Echo가 되어 더는 Runner가 아니다. 따라서 "안 태그된 러너 0"이면 전원 태그다 — 총 러너 수를 셀 필요가 없어진다. 서버가 `TagTargetRegistry`(서버 권위 태그 SyncVar 집합)를 그대로 읽어 계산하므로, 역할 배정 네트워크화(미구현) 없이도 크로스 클라이언트 일치가 성립한다. 러너 0명이면 공허한 참 방지로 false |
+| **GAP-20** | 탈출의 서버 재검증 범위 | 서버가 **게이트 개방(서버 권위 밸브)·역할(러너)을 재검증**. 탈출 지점까지의 거리는 클라 신뢰(이월) | 게이트 개방은 이미 서버 권위 밸브 상태라 서버가 확실히 안다. 거리 재검증은 서버가 탈출 지점 위치를 알아야 하는데(밸브 GAP-17·태그 위치 스푸핑과 동종) 이번 파일럿 범위 밖. §14.4-3 "친구 대상, 안티치트 과투자 금지" 방침 유지 |
+
+### 밸브/태그와 다르게 처리해야 했던 점
+
+1. **판정 주체가 오브젝트 하나가 아니다.** 밸브(오브젝트당 상태)·태그(대상당 상태)는 대상별 SyncVar였지만, 라운드는 **여러 시스템의 상태를 모아 하나의 결론**을 낸다. 그래서 `RoundNetworkSync`가 밸브 게이트(`EscapeGateRegistry`)·태그(`TagTargetRegistry`)를 **읽어와** 판정하는 집약 구조가 필요했다.
+2. **클라이언트의 로컬 판정을 적극적으로 꺼야 했다.** 밸브·태그는 클라가 원래 상태를 안 만들었지만, 라운드는 스프린트 6부터 클라가 타이머·판정을 **이미 돌리고 있었다.** `RoundCoordinator`가 네트워크 활성 시 로컬 타이머 틱·`Evaluate`·`OnTargetTagged` 집계를 전부 우회하도록 명시적으로 게이트했다 — "서버 판정 하나만 신뢰"의 핵심 요건.
+3. **게이트 상태를 Net이 읽는 새 통로**가 필요했다. 태그는 대상이 스스로 등록(`ITagTarget`)했지만, 밸브 게이트 집계는 Presentation(`ValveObjectiveTracker`)에만 있어 `IEscapeGateState`+`EscapeGateRegistry`로 Core에 노출했다.
+
+### 실기 검증 (다음 세션 필요)
+
+라이브 에디터/MCP 부재로 미검증 — 다음 세션에서 확인:
+1. `Tools/MARCO/Setup Network Round` 실행 → 씬 저장 → **`Fish-Networking → Utility → Reserialize NetworkObjects` 필요**(RoundCoordinator 오브젝트에 새 씬 NetworkObject 추가 — 스프린트 10 밸브와 동일 이유).
+2. 세 종료 시나리오 각각 **양쪽 클라이언트 결과 일치**: (a) 게이트 개방 후 러너 탈출 → RunnersWin (b) 시간 초과 → SeekerWin (c) 전원 태그 → SeekerWin.
+3. 남은 시간이 양쪽에서 **서버 동일 값**으로 로그되는지(`[Round] … (서버 권위)`), 게이트 미개방 탈출을 서버가 거부하는지(`[RoundNet:Server] 탈출 거부`).
+4. **주의(스프린트 11 K/R 교훈)**: 전원 태그 시나리오는 술래가 러너 전원(원격 + 씬 대역 `TaggableRunner`)을 태그해야 성립한다 — 대역이 씬에 남아 있으면 그들도 러너 모집단에 포함된다(GAP-19).
+
+### 남은 작업 우선순위 제안
+
+1. **발소리/PerceivedPulse 네트워크화** — 가장 복잡(고빈도·리스너별 차폐). SyncVar 아닌 타깃/ObserversRpc(§14.3). 이제 이산 이벤트(밸브·태그·라운드)는 전부 서버 권위가 됐다.
+2. **역할 배정 네트워크화**(`RoleAssigned`) — GAP-16/18/19/20 이월분(역할·위치 서버 권위)의 전제. 되면 `NetworkTestBootstrap`의 K/R 디버그와 씬 대역 러너를 제거할 수 있다.
+
+---
+
+## 스프린트 13 — 역할 배정 네트워크화 (`RoleAssigned`, §6.2/§14.3)
+
+지금까지 역할은 로컬 디버그 키(K/R)로만 지정 가능했고, 스프린트 12 실기에서 **Player 프리팹 `_role` 기본값이 원격 피어가 보는 역할을 결정**하던 한계가 드러났다. 이번 스프린트로 **서버가 §6.2 표대로 배정하고 전 피어가 일관되게 인지**하도록 만들었다.
+
+### 1. 인원수별 역할 배분 — 기획서에서 찾음 (임의 생성 없음)
+
+지시서가 "표를 찾으면 그대로 쓰고 임의로 만들지 않는다"고 했고, **찾았다**. 두 곳이 서로 일관된다:
+
+| 인원 | 도망자 | 술래(= 인원 − 도망자) | 출처 |
+|---|---|---|---|
+| 2 | 1 | 1 | §6.2 표(AI 술래 권장 — v1.x) |
+| 3 | 2 | 1 | §6.2 표(v1.x) |
+| **4** | **3** | **1** | **§6.2 표 — MVP 대상** |
+| 5 | 4 | 1 | §6.2 표(v1.x) |
+| 6 | 5 | 1 | §6.2 표(v1.x) |
+
+보강 근거: **용어집** "리스너(Seeker) | 술래 역할. **1인**" / "도망자(Runner) | … 3~5인", **§1 게임 개요** "인원 최소 2 / 권장 4~5 / 최대 6 (v1.x: 8~10인, **술래 2인**)".
+
+→ 규칙은 **"술래 1인 고정, 나머지 전원 도망자"**로 표 전 행에서 직접 도출된다(`인원 − 도망자 = 1`이 5개 행 모두 성립). 술래 2인은 v1.x 8~10인 전용이라 MVP 범위 밖. **메아리(Echo)는 초기 배정 대상이 아니다** — §3.1상 "태그당해 탈락한 도망자"이므로 게임플레이 이벤트로만 도달한다.
+
+### 2. 수정·생성 파일
+
+**Core (신규 1)**
+- `Core/Role/RoleAssigner.cs` — §6.2 표의 순수 구현. `SeekerCount=1`·`MinimumPlayers=2`·`MaximumPlayers=6` 상수, `CanAssign`/`SeekersFor`/`RunnersFor`/`RoleForOrder`. FishNet·UnityEngine 미참조.
+
+**Net (신규 1 / 수정 1)**
+- `Net/RoleNetworkSync.cs` (신규) — Player 프리팹의 `NetworkBehaviour`. `SyncVar<RoleType>`(배정 역할) + `SyncVar<bool>`(배정 여부) → OnChange에서 `IRoleState.ApplyRole`. 스폰 목록을 `internal static Spawned`로 노출(소비자도 Net이라 Core 레지스트리 불필요). **Echo 가드**·**NRE 가드**·늦은 스폰 즉시 반영 포함.
+- `Net/RoundNetworkSync.cs` (수정) — 서버 `Update`에 `EnsureRolesAssigned()` 추가. 미배정 플레이어가 있을 때만 OwnerId 오름차순 정렬 후 `RoleAssigner.RoleForOrder`로 배정(무할당 재사용 버퍼).
+
+**Editor (수정 1)**: `NetworkPlayerSetupTool.cs` — Player 프리팹에 `RoleNetworkSync` 부착 추가(멱등, ⑤번 항목).
+**Tests (신규 1)**: `RoleAssignerTests.cs` — 31케이스.
+
+### 3. 테스트 결과
+
+- **신규 31케이스** `RoleAssignerTests` — 핵심은 **§6.2 표 재현 고정**(`RunnersFor_MatchesDesignDocTable` 2→1, 3→2, 4→3, 5→4, 6→5). 그 외: 술래 항상 1명·합계=인원·상수값(1/2/6) 검증 · GAP-21(1명 이하는 배정 없이 러너 유지 = 로컬 폴백 보존) · GAP-22(순서 0번이 술래, 음수 인덱스는 러너, **Echo는 절대 배정 안 됨**, 인원 늘어도 기존 술래 불변).
+- **회귀**: 기존 233 + 신규 31 = **264 passed, 0 failed** (NUnitLite 실제 실행).
+- **Net 컴파일**: Core+Net를 FishNet.Runtime 참조로 컴파일 → **Build succeeded, 0 Error / 0 Warning**.
+
+### 4. 스펙 갭 3건 신규 (GAP-21 ~ GAP-23)
+
+| GAP | 쟁점 | 결정 | 근거 |
+|---|---|---|---|
+| **GAP-21** | 2인 행이 "1 (AI 술래 권장) — AI 술래 구현 후에만 유효"인데, 실기 테스트는 2인(호스트+클라)이다 | 2인이면 **인간 술래 1 + 러너 1**로 배정. 1명 이하면 **배정하지 않고 러너 유지** | §6.2 표의 "도망자 1"은 그대로 지키고 AI 자리에 인간을 넣는 것이 가장 보수적인 해석(표의 수치를 바꾸지 않는다). 1명일 때 술래로 만들면 탈출(GAP-11 러너만)·전원태그 판정이 로컬 단독 실행에서 깨지므로, 최소 인원 미만은 배정하지 않아 스프린트 3~7 워크플로우를 보존한다 |
+| **GAP-22** | "**누구를** 술래로 뽑는가"가 기획서에 없음 | **OwnerId 오름차순 첫 1명**(결정론적 순서) | ① 서버 권위 검증·EditMode 테스트에 유리(무작위는 시드 동기화 필요). ② 새 플레이어는 항상 더 큰 OwnerId라 **기존 술래가 바뀌지 않는다** — 재배정 안정성이 공짜로 따라온다. ③ §2.2의 "술래 로테이션 3판 1세트"가 순서 개념을 이미 함의(로테이션 오프셋은 후속 확장 자리). 부작용: 호스트(OwnerId 0)가 항상 술래 — 실기 검증에는 편리하나 로테이션 구현 시 해소 대상 |
+| **GAP-23** | 배정을 **언제** 확정하나 — MVP에 로비 준비완료가 없다 | **미배정 플레이어가 있으면 즉시 (재)배정**(멱등) | 명확한 "라운드 시작" 트리거가 없어 스폰 완료 시점을 배정 시점으로 삼았다. GAP-22의 결정론적 정렬 덕에 재배정이 기존 배정을 흔들지 않고, 같은 값이면 SyncVar를 건드리지 않아 대역폭도 0이다. 정식 로비 UI가 생기면 "준비완료 → 배정 1회"로 좁힌다 |
+
+### 5. 초기 배정 ↔ 태그 전환(Echo) 충돌 방지 — 지시서 §2 요구사항
+
+`ApplyRole` 호출부가 이제 3곳(배정·태그·디버그)이라 서로 덮어쓸 위험을 구조적으로 막았다:
+
+| 경로 | 시점 | 값 |
+|---|---|---|
+| `RoleNetworkSync`(신규) | 라운드 시작 시 1회 | Seeker 또는 Runner **only** |
+| `TagNetworkSync`(스프린트 11) | 태그 확정 시 | Echo |
+| `NetworkTestBootstrap` K/R | 수동(디버그) | Seeker/Runner |
+
+- **Echo 가드**: `ApplyAssignedRole()`이 `IsTaggedOut`(= `ITagTarget.IsTagged` 또는 현재 역할 Echo)이면 **반영을 건너뛴다.** 초기 배정 SyncVar(Runner)가 뒤늦게 도착해 태그 결과(Echo)를 되돌리는 것을 막는다 — 두 SyncVar의 도착 순서·컴포넌트 콜백 순서에 의존하지 않는다.
+- **서버 측에서도 제외**: `EnsureRolesAssigned()`가 `IsTaggedOut`인 플레이어를 배정 대상에서 빼되 **인원 수 계산에는 포함**한다(라운드에 참가한 사람이므로 §6.2 분모가 흔들리지 않는다).
+- 태그는 단방향(Runner→Echo)이고 되돌아가지 않으므로, 이 두 가드로 충돌이 사라진다.
+
+**배정 플래그를 따로 둔 이유(스프린트 12 교훈 반영)**: `SyncVar<RoleType>`의 기본값은 열거형 0번 = **Seeker**다. 플래그 없이 값만 보면 배정 전 전원이 술래로 보인다 — 스프린트 12 실기 버그(프리팹 `_role: 0`)와 **똑같은 함정**이라, `_hasAssignment`가 true일 때만 반영한다.
+
+### 6. 실기 검증 (다음 세션 필요)
+
+라이브 에디터/MCP 부재로 미검증 — `docs/수동검증_절차.md §15`에 절차서로 남겼다:
+1. `Setup Network Player` 재실행(프리팹에 `RoleNetworkSync` 추가) → **`Reserialize NetworkObjects` 필요**(프리팹에 NetworkBehaviour 추가 시 ComponentIndex 재구성 — 스프린트 11과 같은 이유).
+2. 2-클라 접속 시 **K를 누르지 않아도** 호스트=술래, 원격=러너로 자동 배정되고 양쪽 로그가 일치하는지.
+3. 태그 발생 시 역할 전환(Echo)이 초기 배정과 충돌 없이 동작하는지(스프린트 11 회귀).
+4. 밸브 GAP-5(메아리 거부)·전원태그(GAP-19)가 실제 배정 역할 기준으로 동작하는지.
+5. 로컬 단독 실행(1명) 시 배정 없이 러너 유지(회귀).
+
+### 7. K/R 디버그 키 제거를 위해 남은 작업
+
+지시서대로 **이번엔 제거하지 않고 공존**시켰다(검증 경로 보존). 제거 조건:
+- [ ] 위 실기 검증 2~4번 통과(자동 배정이 K 없이 동작함을 확인)
+- [ ] 씬 대역 러너(`TaggableRunner` 3명) 처리 방침 결정 — 이들은 `RoleNetworkSync`가 없어 배정 대상이 아니지만 `TagTargetRegistry`에는 등록되므로 GAP-19 전원태그 모집단에 포함된다. 실제 플레이어만으로 전원태그를 검증하려면 대역을 씬에서 제거하거나 비활성화해야 한다.
+- 제거 시 삭제 대상: `NetworkTestBootstrap`의 `_becomeSeekerKey`/`_becomeRunnerKey`/`SetLocalRole`, 수동검증 부록의 K/R 행, §13-2의 K 안내.
+- **H/J 접속 키는 남긴다**(정식 로비 UI 전까지 필요).
+
+### 8. 남은 작업 우선순위 제안
+
+1. **발소리/PerceivedPulse 네트워크화** — 마지막 미동기화 시스템이자 가장 복잡(고빈도·리스너별 차폐). SyncVar 아닌 타깃/`ObserversRpc`(§14.3). 이제 역할까지 서버 권위이므로 §5.7 역할별 인지 배율을 **실제 배정 역할**로 계산할 수 있다.
+2. **K/R 제거 + 씬 대역 러너 정리** (위 §7 조건 충족 후 짧게).
+3. **술래 로테이션**(§2.2 "3판 1세트") — GAP-22 부작용(호스트 고정 술래) 해소. 라운드 종료 → 재시작 흐름이 생길 때.
+
+### 검증 한계
+
+라이브 에디터/MCP 부재로 미검증: ① FishNet IL 위빙(`SyncVar<RoleType>`·`SyncVar<bool>` 코드 생성) ② Player 프리팹에 `RoleNetworkSync` 추가 후 Reserialize·ComponentIndex 재구성 ③ 2-클라 실동작(자동 배정·양쪽 인지 일치·태그 전환 공존). C# 컴파일(Core+Presentation+Tests 0 error, Net 0 error/0 warning)·유닛 **264 실제 실행 통과**·FishNet API(`SyncVar<T>`·`OnStartNetwork`/`OnStopNetwork`·`OwnerId`) 벤더 소스 확인은 완료.

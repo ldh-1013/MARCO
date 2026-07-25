@@ -59,8 +59,10 @@
     <Compile Include="Assets\_Project\Net\Transports\FishyFacepunch\Core\ClientSocket.cs" />
     <Compile Include="Assets\_Project\Net\PlayerOwnershipGate.cs" />
     <Compile Include="Assets\_Project\Net\Transports\FishyFacepunch\Core\FishyConnectionManager.cs" />
+    <Compile Include="Assets\_Project\Net\RoleNetworkSync.cs" />
     <Compile Include="Assets\_Project\Net\TagNetworkSync.cs" />
     <Compile Include="Assets\_Project\Net\Transports\FishyFacepunch\Core\ServerSocket.cs" />
+    <Compile Include="Assets\_Project\Net\RoundNetworkSync.cs" />
     <Compile Include="Assets\_Project\Net\Transports\FishyFacepunch\Core\LocalPacket.cs" />
     <Compile Include="Assets\_Project\Net\Transports\FishyFacepunch\Core\CommonSocket.cs" />
     <Compile Include="Assets\_Project\Net\ValveNetworkSync.cs" />

@@ -52,6 +52,11 @@ namespace Marco.Presentation.Objectives
             if (_player == null)
                 return;
 
+            // 스프린트 12: 원격 프록시가 내 입력 없이 탈출 요청을 보내지 않도록 소유권 가드
+            // (밸브 스프린트 10·태그 스프린트 11과 같은 원칙). _player는 로컬 플레이어지만 방어적으로 확인한다.
+            if (!_player.IsLocallyControlled)
+                return;
+
             bool inside = Vector3.Distance(_player.transform.position, transform.position) <= _escapeRadius;
 
             // 범위에 "들어온 순간"에만 시도한다 — 서 있는 동안 매 프레임 시도하지 않도록.
@@ -63,15 +68,21 @@ namespace Marco.Presentation.Objectives
 
         private void TryEscape()
         {
-            if (_roundCoordinator.TryRegisterEscape(_player.PlayerId, _player.Role))
-                return;
-
-            // 등록되지 않은 이유 중 플레이어가 알아야 할 것은 "게이트가 아직 닫힘"뿐이다.
-            if (_logGateClosedHint && !_gateClosedHintShown && !_roundCoordinator.IsEscapeGateOpen)
+            // 게이트 개방 전엔 요청 자체를 보내지 않는다(클라 사전 필터로 RPC 낭비 방지).
+            // 서버는 이와 무관하게 다시 재검증한다(§5.3) — 안전성은 서버가 보장한다.
+            if (!_roundCoordinator.IsEscapeGateOpen)
             {
-                _gateClosedHintShown = true;
-                Debug.Log("[Escape] 배수로 게이트가 아직 닫혀 있다 — 밸브 3개를 모두 열어야 탈출할 수 있다 (§6.1)");
+                if (_logGateClosedHint && !_gateClosedHintShown)
+                {
+                    _gateClosedHintShown = true;
+                    Debug.Log("[Escape] 배수로 게이트가 아직 닫혀 있다 — 밸브 3개를 모두 열어야 탈출할 수 있다 (§6.1)");
+                }
+                return;
             }
+
+            // 네트워크면 서버에 요청만 보내고(서버가 재검증·확정·전파), 로컬이면 즉시 집계한다.
+            // 어느 경로인지는 RoundCoordinator가 라우팅한다(§15.2 경계 유지).
+            _roundCoordinator.RequestEscape(_player.PlayerId, _player.Role);
         }
     }
 }

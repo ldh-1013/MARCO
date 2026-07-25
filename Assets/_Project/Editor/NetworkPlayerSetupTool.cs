@@ -42,7 +42,7 @@ namespace Marco.EditorTools
                 "이 작업은 현재 씬과 프로젝트 자산을 수정합니다:\n" +
                 "  • NetworkManager(+Tugboat+PlayerSpawner) 오브젝트 배치\n" +
                 "  • 씬의 Player를 Assets/_Project/Prefabs/Player.prefab으로 프리팹화\n" +
-                "  • 프리팹에 NetworkObject/NetworkTransform/PlayerOwnershipGate 부착\n" +
+                "  • 프리팹에 NetworkObject/NetworkTransform/PlayerOwnershipGate/TagNetworkSync/RoleNetworkSync 부착\n" +
                 "  • 씬의 기존 Player 인스턴스 삭제\n\n" +
                 "씬 변경은 Ctrl+Z로 되돌릴 수 있지만, 프리팹·에셋 변경(DefaultPrefabObjects.asset 포함)은 " +
                 "에디터 Undo로 되돌아가지 않습니다. 계속하기 전에 Assets/Scenes/Game.unity 백업을 권장합니다 " +
@@ -200,6 +200,14 @@ namespace Marco.EditorTools
                 {
                     root.AddComponent<TagNetworkSync>();
                     Debug.Log("[NetworkPlayerSetupTool] Player 프리팹에 TagNetworkSync 부착");
+                }
+
+                // ⑤ RoleNetworkSync — 스프린트 13 서버 권위 역할 배정(§6.2/§14.3). 설정할 값 없음
+                //    (Awake에서 IRoleState를 스스로 찾고, 배정 결과는 SyncVar가 관리한다).
+                if (root.GetComponent<RoleNetworkSync>() == null)
+                {
+                    root.AddComponent<RoleNetworkSync>();
+                    Debug.Log("[NetworkPlayerSetupTool] Player 프리팹에 RoleNetworkSync 부착");
                 }
             }
 

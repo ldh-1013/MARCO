@@ -114,7 +114,7 @@ MonoBehaviour:
   _initializeOrder: 0
   _preventDespawnOnDisconnect: 0
   _defaultDespawnType: 0
-  _initializedTimestamp: -8584166987026613857
+  _initializedTimestamp: -8584165987897987065
 --- !u!143 &4148834954576211901
 CharacterController:
   m_ObjectHideFlags: 0

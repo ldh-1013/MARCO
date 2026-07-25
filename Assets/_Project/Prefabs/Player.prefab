@@ -107,6 +107,7 @@ GameObject:
   - component: {fileID: 4428196590212668294}
   - component: {fileID: 5779659941918705331}
   - component: {fileID: 3381629495904837641}
+  - component: {fileID: 2632874382875680094}
   m_Layer: 0
   m_Name: Player
   m_TagString: Untagged
@@ -168,7 +169,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f1602b84958d4f0ea03de4609857f29f, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _role: 0
+  _role: 1
   _cameraTransform: {fileID: 8226035136475508314}
   _mouseSensitivity: 0.12
   _pitchLimit: 89
@@ -262,7 +263,7 @@ MonoBehaviour:
   _initializeOrder: 0
   _preventDespawnOnDisconnect: 0
   _defaultDespawnType: 0
-  _initializedTimestamp: -8584166991797774153
+  _initializedTimestamp: -8584166258144485358
 --- !u!114 &4428196590212668294
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -339,6 +340,21 @@ MonoBehaviour:
   _componentIndexCache: 2
   _addedNetworkObject: {fileID: 405541516152503632}
   _networkObjectCache: {fileID: 405541516152503632}
+--- !u!114 &2632874382875680094
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1290075914969322122}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 1844c96a2c404174ab775c8342b1dcd9, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Net::Marco.Net.RoleNetworkSync
+  _componentIndexCache: 255
+  _addedNetworkObject: {fileID: 405541516152503632}
+  _networkObjectCache: {fileID: 0}
 --- !u!1 &1803192958280037329
 GameObject:
   m_ObjectHideFlags: 0

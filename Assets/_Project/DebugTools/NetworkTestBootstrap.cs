@@ -30,6 +30,12 @@ namespace Marco.DebugTools
                  "로컬 플레이어를 술래로 만들어 태그를 테스트한다. 로비/역할 배정이 생기면 제거.")]
         [SerializeField] private Key _becomeSeekerKey = Key.K;
 
+        [Tooltip("스프린트 11 태그 검증용: 로컬 플레이어를 러너로 되돌린다(K의 반대). " +
+                 "주의 — 역할은 아직 네트워크 동기화되지 않으므로 이 지정은 '이 기기'에서만 유효하다. " +
+                 "다른 피어가 보는 이 플레이어 프록시의 역할은 프리팹 기본값(현재 Runner)으로 남는다. " +
+                 "로비/역할 배정이 생기면 제거.")]
+        [SerializeField] private Key _becomeRunnerKey = Key.R;
+
         [Tooltip("연결 전 화면이 완전히 비지 않도록 임시로 켜 둘 카메라. 비워두면 Camera.main을 쓴다.")]
         [SerializeField] private GameObject _fallbackCameraObject;
 
@@ -49,7 +55,8 @@ namespace Marco.DebugTools
             LocalPlayerRegistry.WhenReady(OnLocalPlayerReady);
 
             Debug.Log($"[NetworkTestBootstrap] 연결 대기 중 — {_hostKey} 키: 호스트로 시작(서버+클라이언트), " +
-                $"{_joinKey} 키: 클라이언트로 참가({_joinAddress}), {_becomeSeekerKey} 키: 로컬 플레이어를 술래로(태그 검증용). " +
+                $"{_joinKey} 키: 클라이언트로 참가({_joinAddress}), {_becomeSeekerKey} 키: 로컬 플레이어를 술래로, " +
+                $"{_becomeRunnerKey} 키: 로컬 플레이어를 러너로(둘 다 태그 검증용). " +
                 $"이 창(Game 뷰)에 포커스가 있어야 키 입력이 들어간다.");
         }
 
@@ -66,7 +73,9 @@ namespace Marco.DebugTools
 
             // 태그 검증용 역할 전환은 연결 후에도 눌러야 하므로 _connectionStarted 가드 밖에 둔다.
             if (keyboard[_becomeSeekerKey].wasPressedThisFrame)
-                BecomeSeeker();
+                SetLocalRole(RoleType.Seeker);
+            if (keyboard[_becomeRunnerKey].wasPressedThisFrame)
+                SetLocalRole(RoleType.Runner);
 
             if (_connectionStarted)
                 return;
@@ -78,10 +87,16 @@ namespace Marco.DebugTools
         }
 
         /// <summary>
-        /// [임시] 로컬 플레이어를 술래로 만든다(스프린트 11 태그 검증). 역할 배정이
+        /// [임시] 로컬 플레이어의 역할을 수동 지정한다(스프린트 11 태그 검증). 역할 배정이
         /// 아직 네트워크화되지 않아, 태그를 테스트하려면 한 클라이언트를 술래로 지정해야 한다.
+        ///
+        /// **네트워크 전파 안 됨**: 이 호출은 <see cref="LocalPlayerRegistry.Current"/>(이 기기의
+        /// 로컬 플레이어)의 <c>_role</c>만 바꾼다. 역할은 SyncVar가 아니므로 다른 피어가 보는
+        /// 이 플레이어 프록시의 역할은 프리팹 기본값(현재 Runner)으로 남는다. 그래서
+        /// "술래가 상대를 태그"는 <b>술래 자신의 기기</b>에서 상대(프리팹 기본 Runner)를 보고 판정하는
+        /// 방식으로 성립한다 — 상대가 R을 눌러 자기 화면에서 러너로 바꿔야 하는 것이 아니다.
         /// </summary>
-        private void BecomeSeeker()
+        private void SetLocalRole(RoleType role)
         {
             FirstPersonController player = LocalPlayerRegistry.Current;
             if (player == null)
@@ -90,8 +105,11 @@ namespace Marco.DebugTools
                 return;
             }
 
-            player.ApplyRole(RoleType.Seeker);
-            Debug.Log($"[NetworkTestBootstrap] 로컬 플레이어를 술래로 지정했습니다(태그 검증용). 이제 러너에게 1.2m 접근하면 태그 요청을 보냅니다.");
+            player.ApplyRole(role);
+            string hint = role == RoleType.Seeker
+                ? "이제 러너에게 1.2m 접근하면 태그 요청을 보냅니다."
+                : "이 기기에서 로컬 플레이어를 러너로 되돌렸습니다.";
+            Debug.Log($"[NetworkTestBootstrap] 로컬 플레이어 역할 = {role} (태그 검증용, 이 기기 한정). {hint}");
         }
 
         private void StartHost()

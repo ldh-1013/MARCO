@@ -55,11 +55,13 @@
   <ItemGroup>
     <Compile Include="Assets\_Project\Tests\EditMode\PlayerIdentityTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\TagTargetRegistryTests.cs" />
+    <Compile Include="Assets\_Project\Tests\EditMode\ServerRoundDriverTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\ActivePulseTrackerTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\WinConditionEvaluatorTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\ValveInteractionControllerTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\ValveTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\SoundPulseResolverTests.cs" />
+    <Compile Include="Assets\_Project\Tests\EditMode\RoleAssignerTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\RoundFlowTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\GameFlowManagerTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\ServerValveDriverTests.cs" />

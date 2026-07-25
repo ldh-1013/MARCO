@@ -41,6 +41,11 @@ namespace Marco.Presentation.GameFlow
         private float _lastTimeLog;
         private int _totalRunners;
 
+        // 스프린트 12: 같은 오브젝트의 서버 권위 브릿지(없으면 null — 로컬 전용).
+        private IRoundNetworkBridge _bridge;
+        private RoundResult _lastServerResult = RoundResult.InProgress;
+        private float _lastServerTimeLog;
+
         public RoundTimer Timer => _timer;
         public RoundOutcomeTracker Outcome => _outcome;
         public GameFlowManager GameFlow => _gameFlow;
@@ -48,8 +53,17 @@ namespace Marco.Presentation.GameFlow
         /// <summary>§6.1: 밸브가 전부 열려야 배수로 게이트가 열린다.</summary>
         public bool IsEscapeGateOpen => _valveTracker != null && _valveTracker.IsEscapeGateOpen;
 
+        /// <summary>
+        /// 라운드가 서버 권위(네트워크)로 관리되는가. 그러면 로컬 타이머·판정을 멈추고
+        /// 서버가 전파한 값(남은 시간·탈출 수·최종 결과)만 반영한다.
+        /// </summary>
+        public bool IsNetworkActive => _bridge != null && _bridge.NetworkActive;
+
         private void Awake()
         {
+            // 같은 오브젝트에 Net의 RoundNetworkSync가 있으면 Core 인터페이스로만 잡는다.
+            _bridge = GetComponent<IRoundNetworkBridge>();
+
             if (_valveTracker == null)
                 _valveTracker = FindAnyObjectByType<ValveObjectiveTracker>();
 
@@ -68,6 +82,12 @@ namespace Marco.Presentation.GameFlow
         private void OnTargetTagged(ITagTarget target)
         {
             if (target == null)
+                return;
+
+            // 스프린트 12: 네트워크 활성 시 전원 태그 판정은 서버가 한다(RoundNetworkSync가
+            // TagTargetRegistry를 서버 측에서 직접 읽어 판정). 클라이언트가 로컬 집계로
+            // 판정하면 서버와 이중 판정이 되므로, 네트워크면 로컬 집계를 하지 않는다.
+            if (IsNetworkActive)
                 return;
 
             // 태그된 대상은 태그 시점에 항상 도망자였다(TagDetector·서버가 Runner만 통과시킴).
@@ -96,6 +116,14 @@ namespace Marco.Presentation.GameFlow
 
         private void Update()
         {
+            // 스프린트 12: 네트워크 활성 시 서버가 단독 판정한다 — 로컬 타이머·판정을 돌리지 않고
+            // 서버가 전파한 값만 반영한다(밸브·태그와 같은 폴백 원칙, 로컬 실행은 아래 경로 그대로).
+            if (IsNetworkActive)
+            {
+                ReflectServerRound();
+                return;
+            }
+
             if (_outcome.IsDecided)
                 return;
 
@@ -105,7 +133,44 @@ namespace Marco.Presentation.GameFlow
         }
 
         /// <summary>
-        /// 탈출 지점이 호출한다. 실제로 새로 집계됐을 때만 true.
+        /// 네트워크 활성 시: 로컬 판정 대신 서버가 확정한 결과를 반영한다. 남은 시간은 서버
+        /// 권위 값을 로그로 찍고, 결과가 InProgress → 승패로 바뀌는 순간 1회만 라운드를 종료한다.
+        /// </summary>
+        private void ReflectServerRound()
+        {
+            LogServerRemaining();
+
+            RoundResult serverResult = _bridge.Result;
+            if (serverResult == RoundResult.InProgress || _lastServerResult != RoundResult.InProgress)
+                return;
+
+            _lastServerResult = serverResult;
+            _timer.Stop();
+            _gameFlow.TryTransition(GameFlowState.RoundEnd);
+
+            Debug.Log($"[Round] 라운드 종료(서버 확정) — 판정: {serverResult} " +
+                      $"(탈출 {_bridge.EscapedCount}명, 남은 시간 {_bridge.RemainingSeconds:0.0}초) " +
+                      $"→ 상태 {_gameFlow.CurrentState}");
+        }
+
+        /// <summary>
+        /// 탈출 지점(<see cref="Objectives.EscapePointTrigger"/>)이 호출한다.
+        /// 네트워크 활성 시 서버에 요청만 보내고(서버가 §5.3 재검증·확정·전파),
+        /// 로컬 단독 실행이면 기존 경로로 즉시 집계한다. 처리(요청 전송/로컬 집계)됐으면 true.
+        /// </summary>
+        public bool RequestEscape(ulong playerId, RoleType role)
+        {
+            if (IsNetworkActive)
+            {
+                _bridge.SubmitEscapeIntent(playerId, role);
+                return true;
+            }
+
+            return TryRegisterEscape(playerId, role);
+        }
+
+        /// <summary>
+        /// [로컬 전용] 실제로 새로 집계됐을 때만 true.
         /// 역할 제약(GAP-11)과 게이트 개방 조건(§6.1)은 <see cref="RoundOutcomeTracker"/>가 강제한다.
         /// </summary>
         public bool TryRegisterEscape(ulong playerId, RoleType role)
@@ -167,6 +232,19 @@ namespace Marco.Presentation.GameFlow
 
             _lastTimeLog = Time.time;
             Debug.Log($"[Round] 남은 시간 {_timer.RemainingSeconds:0}초");
+        }
+
+        /// <summary>네트워크 경로: 서버 권위 남은 시간을 주기적으로 로그(양쪽 창 동일 값 확인용).</summary>
+        private void LogServerRemaining()
+        {
+            if (_timeLogInterval <= 0f)
+                return;
+
+            if (Time.time - _lastServerTimeLog < _timeLogInterval)
+                return;
+
+            _lastServerTimeLog = Time.time;
+            Debug.Log($"[Round] 남은 시간 {_bridge.RemainingSeconds:0}초 (서버 권위)");
         }
     }
 }

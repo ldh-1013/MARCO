@@ -55,6 +55,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Assets\_Project\Editor\NetworkValveSetupTool.cs" />
+    <Compile Include="Assets\_Project\Editor\NetworkRoundSetupTool.cs" />
     <Compile Include="Assets\_Project\Editor\NetworkPlayerSetupTool.cs" />
   </ItemGroup>
   <ItemGroup>
