@@ -6944,6 +6944,7 @@ GameObject:
   - component: {fileID: 840000000000000003}
   - component: {fileID: 840000000000000002}
   - component: {fileID: 840000000000000004}
+  - component: {fileID: 920000000000000001}
   m_Layer: 0
   m_Name: PulseSystem
   m_TagString: Untagged
@@ -7312,6 +7313,32 @@ MonoBehaviour:
   _networkObjectCache: {fileID: 0}
   _logServerDeliveries: 0
   _logDiagnostics: 1
+--- !u!114 &920000000000000001
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 820000000000000001}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c3d4e5f60718293a4b5c6d7e8f90a1b2, type: 3}
+  m_Name:
+  m_EditorClassIdentifier:
+  _round: {fileID: 840000000000000001}
+  _valves: {fileID: 830000000000000011}
+  _palette: {fileID: 11400000, guid: ab455011fadf4c18ad3be2f6e0af9338, type: 2}
+  _colorblindSource: {fileID: 820000000000000004}
+  _colorblindFallback: 0
+  _fontSize: 22
+  _screenMargin: {x: 24, y: 18}
+  _valvePipSize: 14
+  _valvePipSpacing: 6
+  _showTimer: 1
+  _showValves: 1
+  _showRole: 1
+  _showGateHint: 1
+  _showResultBanner: 1
 --- !u!1 &840000000000000010
 GameObject:
   m_ObjectHideFlags: 0
@@ -7437,7 +7464,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!4 &850000000000000011
 Transform:
   m_ObjectHideFlags: 0
@@ -7542,7 +7569,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!4 &850000000000000021
 Transform:
   m_ObjectHideFlags: 0
@@ -7647,7 +7674,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!4 &850000000000000031
 Transform:
   m_ObjectHideFlags: 0

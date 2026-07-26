@@ -3,7 +3,8 @@
     "rootNamespace": "Marco.Presentation",
     "references": [
         "Core",
-        "Unity.InputSystem"
+        "Unity.InputSystem",
+        "UnityEngine.UI"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

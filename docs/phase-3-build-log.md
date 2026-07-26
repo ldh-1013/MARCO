@@ -1105,43 +1105,41 @@ public bool NetworkActive => NetworkObject != null && IsSpawned;
 3. **로컬 판정을 명시적으로 정지**: 라운드(스프린트 12)와 같은 문제 — 클라가 이미 로컬로 판정하고 있었으므로, 네트워크 활성 시 로컬 틱을 끊어야 스모크 리그의 고정 청취자 결과가 화면에 섞이지 않는다.
 4. **성능**: `ActivePulseTracker.Tick`이 매 호출 `List<PulseDelivery>`를 새로 할당한다(기존 Core 코드, 리팩토링 금지 대상). 6인·초당 10~20회 판정에서는 무해하다고 판단해 그대로 뒀다 — 지시서의 "과도한 최적화 금지"에 따름. 청취자 스냅샷 버퍼는 재사용해 프레임 할당을 없앴다.
 
-### 실기 검증 (다음 세션 필요)
+### 실기 검증 — ✅ 완료·확정 (2026-07-26, 스프린트 14 후속 디버그 세션에서 확인)
 
-라이브 에디터/MCP 부재로 미검증 — `docs/수동검증_절차.md §16`에 절차서로 남겼다:
-1. **선행 조건**: `Setup Network Player`(스프린트 13, `RoleNetworkSync` 필요 — 없으면 청취자 목록이 비어 아무것도 전달되지 않는다) + `Setup Network Pulse`(이번) 실행 → 씬 저장 → **`Reserialize NetworkObjects`**.
-2. 2-클라 접속 후 한쪽 이동 → **다른 쪽 화면에 T8 링/방위 인디케이터**가 뜨는지.
-3. 발생원 자신에게는 안 뜨는지(GAP-1).
-4. 벽 뒤로 들어가면 **좌표(링) → 방위 인디케이터**로 전환되는지(GAP-2, 이번엔 실제 원격 청취자 기준).
-5. 술래가 러너보다 먼 거리에서 인지하는지(§5.7, 스프린트 13 배정 역할 기준).
-6. 밸브 회전 시 12m 소음이 원격에 전달되는지(GAP-25).
-7. 로컬 단독 실행(H/J 없이) 시 스모크 리그 그대로 동작(회귀).
+실기 1차 실패(씬에 `PulseNetworkSync` 미부착, 아래 후속 항목 참고)를 잡은 뒤, `[PulseNet:Judge]` 진단 로그로 재검증해 **완전히 정상 동작을 확인했다**:
+
+- **§5.1 반경 판정이 소수점 단위로 정확**: 걷기 반경 2m 기준, 거리 1.90m는 통과·2.10m는 탈락 — 판정 경계가 스펙값과 정확히 일치.
+- **질주(6m) 반경도 정상**: Shift 이동 시 더 먼 거리에서도 시각 효과가 정상적으로 나타남을 확인.
+- **초기 오인의 원인**: "태그 거리(1.2m)까지 붙어야 겨우 보였다"는 관측은 버그가 아니라 **걷기 반경(2m) 자체가 태그 거리(1.2m)와 가까운 값**이라 체감상 그렇게 느껴진 것이었다. GAP-24(서버가 §5.1 표에서 재계산)·GAP-2(좌표/방위 분기)·`[TargetRpc]` 개별 전송 전부 설계대로 동작.
+
+이로써 이 시점 기준 **스프린트 14(파문 네트워크화)는 코드뿐 아니라 실기까지 검증 완료**다. 아래 §16 체크리스트 중 미확인으로 남은 항목(밸브 소음 GAP-25 등)은 후속 세션에서 확인.
 
 ### 네트워크 2단계 완료 여부
 
 **코드 계층은 완료.** 이벤트 동기화 대상 6종이 전부 서버 권위가 됐다:
 
-| 시스템 | 스프린트 | 방식 |
-|---|---|---|
-| 이동(Transform) | 8 | NetworkTransform |
-| 밸브 | 10 | SyncVar + ServerRpc |
-| 태그 | 11 | SyncVar + ServerRpc(거리 재검증) |
-| 라운드 결과·타이머·탈출 | 12 | SyncVar + ServerRpc |
-| 역할 배정 | 13 | SyncVar |
-| **파문(발소리·밸브 소음)** | **14** | **ServerRpc + TargetRpc(청취자별)** |
+| 시스템 | 스프린트 | 방식 | 실기 |
+|---|---|---|---|
+| 이동(Transform) | 8 | NetworkTransform | ✅ 검증됨 |
+| 밸브 | 10 | SyncVar + ServerRpc | ✅ 검증됨(2026-07-26) |
+| 태그 | 11 | SyncVar + ServerRpc(거리 재검증) | ✅ 검증됨(2026-07-26) |
+| 라운드 결과·타이머·탈출 | 12 | SyncVar + ServerRpc | ✅ 검증됨(2026-07-26) |
+| 역할 배정 | 13 | SyncVar | ✅ 검증됨(2026-07-26) |
+| **파문(발소리·밸브 소음)** | **14** | **ServerRpc + TargetRpc(청취자별)** | **✅ 검증됨(2026-07-26)** |
 
-§14.3 이벤트 테이블에서 남은 것은 로비 계열(`JoinRoom`·`ReadyToggle`)·음성(§5.2)·메아리 노크(미구현 능력)·`ItemUse`(v1.x)·`HostMigration`(v1.x 제외)뿐이고, 전부 별도 스코프다. **단, 2-클라 실기 검증은 스프린트 10~14 전부 미실시**라 "코드 완료 + 실기 대기" 상태다.
+§14.3 이벤트 테이블에서 남은 것은 로비 계열(`JoinRoom`·`ReadyToggle`)·음성(§5.2)·메아리 노크(미구현 능력)·`ItemUse`(v1.x)·`HostMigration`(v1.x 제외)뿐이고, 전부 별도 스코프다. **네트워크 2단계(이벤트 동기화)는 이 시점 기준 코드·실기 양쪽으로 완전히 닫혔다**(위 표 전체 ✅ — 상세 근거는 "스프린트 10~13 실기 검증 완료 확인" 섹션 참고).
 
 ### 남은 작업 우선순위 제안
 
-1. **실기 검증 일괄 수행**(§12~16) — 스프린트 10~14가 모두 실기 미검증으로 쌓였다. 이게 최우선. 특히 이번 스프린트는 위빙 대상이 `TargetRpc`(새 종류)라 확인 가치가 크다.
-2. **K/R 제거 + 씬 대역 러너 정리** — 스프린트 13 §7 조건 충족 후.
+1. **정식 UI**(§12 HUD·결과 화면) — 네트워크 2단계가 닫혔으므로 다음 단계 최우선 후보. 현재 Console 로그·IMGUI 임시 구현을 대체.
+2. **K/R 제거 + 씬 대역 러너 정리** — 스프린트 13 §7 조건 충족 후(→ 스프린트 15에서 처리 완료).
 3. **음성 파이프라인**(§5.2/§5.8) — Steam Voice 원시 PCM → 진폭 → 소리 등급. §14.4-2가 지목한 난제.
-4. **정식 UI**(§12 HUD·결과 화면) — 현재 Console 로그·IMGUI 임시 구현을 대체.
-5. **술래 로테이션**(§2.2) — GAP-22 부작용 해소.
+4. **술래 로테이션**(§2.2) — GAP-22 부작용 해소.
 
 ### 검증 한계
 
-라이브 에디터/MCP 부재로 미검증: ① FishNet IL 위빙 — 특히 **`[TargetRpc]`는 이번에 처음 쓰는 RPC 종류**다 ② 씬 PulseSystem에 새 NetworkObject 추가 후 Reserialize ③ 2-클라 실동작(원격 발소리 시각화·좌표/방위 전환·§5.7 배율). C# 컴파일(Core+Presentation+Tests 0 error, Net 0 error/0 warning)·유닛 **284 실제 실행 통과**·FishNet API(`[TargetRpc]` 시그니처·`ServerManager.Clients`(`Dictionary<int, NetworkConnection>`)·`NetworkConnection.ClientId`/`FirstObject`·`OwnerId => Owner.ClientId`) 벤더 소스 확인은 완료. 특히 **청취자 ID(OwnerId)와 발생원 ID(caller.ClientId)가 같은 번호 공간**임을 벤더 소스로 확인했다 — GAP-1 자기제외가 성립하는 전제다.
+라이브 에디터/MCP로 **2-클라 실동작(원격 발소리 시각화·좌표/방위 전환·§5.7 배율)을 확인 완료**(위 실기 검증 항목 참고). 남은 미검증: ① 씬 PulseSystem에 새 NetworkObject 추가 후 Reserialize 필요 여부의 세부 확인 ② 밸브 소음(GAP-25) 원격 전달. C# 컴파일(Core+Presentation+Tests 0 error, Net 0 error/0 warning)·유닛 **284 실제 실행 통과**·FishNet API(`[TargetRpc]` 시그니처·`ServerManager.Clients`(`Dictionary<int, NetworkConnection>`)·`NetworkConnection.ClientId`/`FirstObject`·`OwnerId => Owner.ClientId`) 벤더 소스 확인은 완료. **`[TargetRpc]`(이번에 처음 쓴 RPC 종류)의 IL 위빙도 실기로 정상 동작이 확인됐다** — 청취자 ID(OwnerId)와 발생원 ID(caller.ClientId)가 같은 번호 공간임을 벤더 소스로 확인한 전제(GAP-1 자기제외)가 실기에서도 그대로 성립했다.
 
 ---
 
@@ -1207,3 +1205,90 @@ public bool NetworkActive => NetworkObject != null && IsSpawned;
 2. `Setup Network Pulse` 실행 → **반드시 씬 저장(Ctrl+S)** → `Reserialize NetworkObjects` → 재빌드.
 3. 다시 `Diagnose Network Setup`으로 전 항목 ✔ 확인(저장 반영 여부까지).
 4. H/J 접속 후 `수동검증_절차.md §16-9` 표대로 ①~⑦ 로그를 위에서 아래로 확인 — 처음 끊긴 지점이 원인이다.
+
+---
+
+## 스프린트 10~13 실기 검증 완료 확인 (2026-07-26)
+
+스프린트 14 후속 디버그 세션과 같은 실기 접속에서, 그동안 "실기 검증 대기"로 남아 있던 스프린트 10~13(밸브·태그·라운드·역할 배정)도 **전부 검증 완료됐다.** 아래에 각 스프린트가 문서화 당시 남겼던 "검증 한계"를 사용자가 실기로 직접 확인한 근거로 갱신한다.
+
+| 스프린트 | 시스템 | 실기 확인 근거 |
+|---|---|---|
+| 10 | 밸브 서버 권위 | 밸브 3/3 개방 확인. 후속 색상 시각화(회색→노랑→초록)까지 **양쪽 화면**에서 동기화 확인 |
+| 11 | 태그 서버 권위 | `[TagNet:Server] targetId=… 태그 확정 — 서버 재검증 통과` + `[TagNet:Client] … 메아리로 전환 — 서버 확정 수신` — 서버 재검증→클라 반영 경로 확인 |
+| 12 | 라운드/탈출 서버 권위 | `[RoundNet:Server] 라운드 종료 판정 = RunnersWin — 전 피어 전파` 로그로 **크로스 클라이언트 결과 일치** 확인 |
+| 13 | 역할 배정 자동화 | K 키 없이 호스트=Seeker/원격=Runner 자동 배정 로그 확인 + 전원태그 시나리오(`SeekerWin`)까지 확인 |
+| 14 | 파문 네트워크화 | 위 "스프린트 14" 섹션의 실기 검증 항목 참고(§5.1 반경 판정 정확성 등) |
+
+**이로써 네트워크 2단계(이벤트 동기화) — 이동·밸브·태그·라운드·역할 배정·파문 6종 전부 — 코드와 실기 양쪽에서 완전히 닫혔다.** 아래 스프린트 10~13 원문의 "검증 한계"·"다음 세션 필요" 문구는 작성 시점 기준 정확했던 기록이며, 이 확인으로 대체된다.
+
+---
+
+## 스프린트 15 — 정리: K/R 디버그 키 제거 + 씬 대역 러너 비활성화
+
+새 기능 없음. 스프린트 8~14 네트워크 2단계에서 검증을 도와준 임시 장치를, 그 역할을 대체한 실제 시스템이 자리잡았으므로 걷어냈다.
+
+### 무엇을 왜 걷어냈나
+
+| 임시 장치 | 도입 | 대체한 실제 시스템 | 처리 |
+|---|---|---|---|
+| `K`/`R` 역할 수동 지정 키 | 스프린트 11 | 스프린트 13 서버 역할 자동 배정(`RoleAssigner`/`RoleNetworkSync`) | **코드 제거** |
+| 씬 대역 러너 `Runner_A/B/C`(101~103) | 스프린트 7 | 스프린트 11 실제 원격 플레이어 태그 · 스프린트 14 실제 원격 청취자 | **비활성화**(코드 보존) |
+
+K/R은 단순히 불필요해진 게 아니라 **해로웠다** — 로컬 `_role`만 바꾸므로 서버가 배정한 실제 역할과 어긋나 오진을 유발했다(스프린트 12 실기에서 이미 혼란의 원인이 됐다).
+
+### 수정·생성 파일
+
+- `DebugTools/NetworkTestBootstrap.cs` — `_becomeSeekerKey`·`_becomeRunnerKey` 필드, `SetLocalRole()` 메서드, `Update`의 두 분기, 미사용 `using Marco.Core.Role` 제거. 안내 로그를 "역할은 접속 후 서버가 자동 배정한다 — 수동 지정 키는 없다"로 정정. **`H`/`J`는 유지**(정식 로비 UI 없음).
+- `Assets/Scenes/Game.unity` — `Runner_A/B/C` 3개를 `m_IsActive: 0`으로 변경(YAML 직접 편집. 이 오브젝트들은 `NetworkObject`가 없는 순수 MonoBehaviour라 FishNet 생성값이 걸려 있지 않아 안전하다 — 스프린트 10 후속 2와 같은 판단).
+- `Tests/EditMode/ServerRoundDriverTests.cs` — 정리 후 모집단을 고정하는 3케이스 추가.
+- 문서 3종 갱신.
+
+### 대역 비활성화가 GAP-19 모집단에서 실제로 제외되는지 — 코드로 확인
+
+`TaggableRunner`의 등록 시점이 결정적이다:
+
+```csharp
+private void OnEnable() => TagTargetRegistry.Register(this);
+private void OnDisable() => TagTargetRegistry.Unregister(this);
+```
+
+비활성 상태로 시작하는 GameObject는 **`OnEnable`이 호출되지 않으므로 애초에 등록되지 않는다.** 따라서 `TagTargetRegistry.Targets`에 들어가지 않고, 서버의 `ServerRoundDriver.AllRunnersTagged(TagTargetRegistry.Targets)`가 보는 모집단에서도 빠진다 — **비활성화만으로 충분하며 코드 변경이 필요 없다.**
+
+새 테스트 3건이 이 결과를 고정한다:
+
+| 테스트 | 확인 |
+|---|---|
+| `AllRunnersTagged_TwoRealPlayers_SeekerPlusTaggedRunner_IsTrue` | 정리 후 2인 구성(술래+태그된 러너)에서 전원 태그 성립 |
+| `AllRunnersTagged_TwoRealPlayers_BeforeTag_IsFalse` | 태그 전에는 성립하지 않음(공허한 참 방지) |
+| `AllRunnersTagged_StandInsStillCountedIfRegistered_DocumentsCleanupReason` | **대역이 등록돼 있으면** 실제 러너를 다 태그해도 전원 태그가 안 됨 — 이번 정리의 근거를 코드로 남김 |
+
+### 부수 영향 — 로컬 단독 실행의 "전원 태그" 확인 경로
+
+`RoundCoordinator.Awake`의 `_totalRunners = FindObjectsByType<TaggableRunner>().Length`는 기본적으로 **비활성 오브젝트를 제외**하므로 이제 0이 된다. 로컬 경로의 `AreAllRunnersTagged(0)`은 `totalRunners > 0` 가드로 false를 반환한다 — 즉 **로컬 단독 실행에서는 전원 태그 분기가 열리지 않는다.**
+
+이건 회귀가 아니라 일관된 상태다(대역이 없으면 태그할 대상 자체가 없으므로). 로컬에서 그 분기를 눈으로 확인하려면 두 방법이 있고 문서에 명시했다:
+1. Hierarchy에서 `Runner_A/B/C`를 직접 활성화(§9 상단 주의 — 네트워크 테스트 전 반드시 되돌릴 것)
+2. `Round Coordinator` → `Force All Runners Tagged` 인스펙터 플래그(스프린트 6부터 있던 수동 확인 수단)
+
+### 테스트 결과
+
+- **기존 284 + 신규 3 = 287 passed, 0 failed**(NUnitLite 실제 실행).
+- **전 어셈블리 컴파일 0 error / 0 warning** — Core+Presentation+Net+Editor+DebugTools. K/R 제거로 생길 수 있는 미사용 참조·끊긴 호출이 없음을 확인했다.
+
+### 실기 확인 (다음 세션)
+
+라이브 에디터 부재로 미검증:
+1. Play + H/J → 안내 로그에 K/R 문구가 없고, 눌러도 아무 반응 없음(코드 제거 확인).
+2. 대역 캡슐 3개가 화면에 보이지 않음.
+3. `[Tag:Diag] 등록대상` 수가 줄어듦 — 2인 접속 시 **2**(플레이어 2명)여야 한다(이전에는 대역 3 + 플레이어 2 = 5).
+4. 술래가 원격 러너 1명을 태그하면 곧바로 `판정: SeekerWin`(§16 시나리오 C가 짧아진다).
+
+### 남은 작업 우선순위 제안
+
+1. **정식 UI/HUD**(§12) — 가장 유력. 네트워크 2단계(이동·밸브·태그·라운드·역할 배정·파문)가 코드·실기 양쪽으로 완전히 닫혔으므로(§"스프린트 10~13 실기 검증 완료 확인" 참고), 다음 단계로 넘어갈 조건이 갖춰졌다. 현재 Console 로그·IMGUI 임시 구현이 검증 수단 전부이고, 로비 UI가 생기면 `DebugTools` 전체(H/J 포함)를 삭제할 수 있다. §12.1 로비·§12.4 결과 화면·타이머 HUD가 대상.
+
+   > 스프린트 14 후속의 "파문 인지 반경" 이슈(6m 기대 vs 1.2m 관측)는 2026-07-26 실기 재검증에서 **버그가 아님이 확정**됐다 — `[PulseNet:Judge]` 로그로 걷기(2m)·질주(6m) 반경 판정이 소수점 단위로 스펙과 정확히 일치함을 확인했고, 초기 관측은 걷기 반경(2m)이 태그 거리(1.2m)와 가까워 생긴 체감 오차였다.
+
+2. **음성 파이프라인**(§5.2/§5.8) — §14.4-2가 지목한 난제.
+3. **술래 로테이션**(§2.2) — GAP-22 부작용(호스트 고정 술래) 해소.

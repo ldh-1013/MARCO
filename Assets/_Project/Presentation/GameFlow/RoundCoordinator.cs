@@ -59,6 +59,19 @@ namespace Marco.Presentation.GameFlow
         /// </summary>
         public bool IsNetworkActive => _bridge != null && _bridge.NetworkActive;
 
+        // ── 표시용 읽기 전용 접근자 (스프린트 16 HUD) ──────────────────────
+        // 새 계산이 없다 — 네트워크/로컬 소스 선택 규칙은 이미 이 클래스가 쓰던 것과 동일하며
+        // (ValveBehaviour.IsOpen과 같은 패턴), HUD가 그 판단을 중복하지 않도록 여기서 노출한다.
+
+        /// <summary>§6.2 남은 시간. 네트워크면 서버 확정값, 아니면 로컬 타이머 값.</summary>
+        public float RemainingSeconds => IsNetworkActive ? _bridge.RemainingSeconds : _timer.RemainingSeconds;
+
+        /// <summary>§6.3 라운드 결과. 네트워크면 서버 확정값, 아니면 로컬 판정 결과.</summary>
+        public RoundResult Result => IsNetworkActive ? _bridge.Result : _outcome.Result;
+
+        /// <summary>서버/로컬 어느 경로든 집계된 탈출자 수.</summary>
+        public int EscapedCount => IsNetworkActive ? _bridge.EscapedCount : _outcome.EscapedCount;
+
         private void Awake()
         {
             // 같은 오브젝트에 Net의 RoundNetworkSync가 있으면 Core 인터페이스로만 잡는다.

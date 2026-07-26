@@ -31,6 +31,12 @@ namespace Marco.Presentation.Objectives
         /// <summary>§6.1: 밸브 전부 개방 시 배수로 게이트가 열린다 — 탈출의 전제 조건.</summary>
         public bool IsEscapeGateOpen => TotalValves > 0 && OpenedCount >= TotalValves;
 
+        /// <summary>
+        /// 씬에서 찾은 밸브 목록(읽기 전용 용도). 스프린트 16 HUD가 밸브별 상태·진행률을
+        /// 표시하려고 읽는다 — 집계기가 이미 찾아둔 배열을 재사용해 중복 탐색을 피한다.
+        /// </summary>
+        public ValveBehaviour[] Valves => _valves ?? System.Array.Empty<ValveBehaviour>();
+
         // ── IEscapeGateState (스프린트 12: 서버 라운드 판정기가 읽는 게이트 상태) ──
         int IEscapeGateState.OpenedValves => OpenedCount;
         int IEscapeGateState.TotalValves => TotalValves;

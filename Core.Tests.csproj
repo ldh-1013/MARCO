@@ -54,6 +54,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Assets\_Project\Tests\EditMode\PlayerIdentityTests.cs" />
+    <Compile Include="Assets\_Project\Tests\EditMode\HudFormatterTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\TagTargetRegistryTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\ServerPulseDriverTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\ServerRoundDriverTests.cs" />

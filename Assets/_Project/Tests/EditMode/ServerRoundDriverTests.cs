@@ -220,5 +220,41 @@ namespace Marco.Core.Tests
             var list = new List<ITagTarget> { null, TaggedEcho(1) };
             Assert.IsTrue(ServerRoundDriver.AllRunnersTagged(list));
         }
+
+        // ── 스프린트 15(정리): 대역 러너 없는 실제 2인 구성 ────────────────
+
+        [Test]
+        public void AllRunnersTagged_TwoRealPlayers_SeekerPlusTaggedRunner_IsTrue()
+        {
+            // 스프린트 15에서 씬 대역 러너(101~103)를 비활성화했다 — 비활성 오브젝트는
+            // OnEnable이 호출되지 않아 TagTargetRegistry에 등록되지 않으므로, 실기 2인
+            // 구성의 모집단은 {술래, 러너} 둘뿐이다. 술래가 그 러너를 태그하면 즉시 전원 태그다.
+            var list = new List<ITagTarget> { Seeker(0), TaggedEcho(1) };
+            Assert.IsTrue(ServerRoundDriver.AllRunnersTagged(list),
+                "대역 러너를 뺀 2인 구성에서 러너 1명을 태그하면 전원 태그여야 한다");
+        }
+
+        [Test]
+        public void AllRunnersTagged_TwoRealPlayers_BeforeTag_IsFalse()
+        {
+            // 태그 전에는 성립하지 않아야 한다(대역이 빠졌어도 공허한 참이 되지 않을 것).
+            var list = new List<ITagTarget> { Seeker(0), Runner(1) };
+            Assert.IsFalse(ServerRoundDriver.AllRunnersTagged(list));
+        }
+
+        [Test]
+        public void AllRunnersTagged_StandInsStillCountedIfRegistered_DocumentsCleanupReason()
+        {
+            // 스프린트 13이 지적한 문제를 고정한다: 대역 러너가 등록돼 있으면(활성 상태) 실제
+            // 플레이어를 전부 태그해도 전원 태그가 되지 않는다 — 이것이 스프린트 15에서 대역을
+            // 비활성화한 이유다. 대역을 되살릴 때 이 성질을 다시 감안해야 한다.
+            var withStandIns = new List<ITagTarget>
+            {
+                Seeker(0), TaggedEcho(1),          // 실제 플레이어: 러너 태그 완료
+                Runner(101), Runner(102), Runner(103) // 대역 3명은 미태그
+            };
+            Assert.IsFalse(ServerRoundDriver.AllRunnersTagged(withStandIns),
+                "대역이 등록돼 있으면 실제 러너를 다 태그해도 전원 태그가 아니다(스프린트 15 정리 근거)");
+        }
     }
 }

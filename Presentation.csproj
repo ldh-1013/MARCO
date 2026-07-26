@@ -55,6 +55,7 @@
   <ItemGroup>
     <Compile Include="Assets\_Project\Presentation\Objectives\ValveInteractor.cs" />
     <Compile Include="Assets\_Project\Presentation\Palette\ColorPalette.cs" />
+    <Compile Include="Assets\_Project\Presentation\UI\HudFormatter.cs" />
     <Compile Include="Assets\_Project\Presentation\Objectives\ValveObjectiveTracker.cs" />
     <Compile Include="Assets\_Project\Presentation\SoundPulse\PulseVisualState.cs" />
     <Compile Include="Assets\_Project\Presentation\Objectives\EscapePointTrigger.cs" />
@@ -62,6 +63,7 @@
     <Compile Include="Assets\_Project\Presentation\GameFlow\RoundTimer.cs" />
     <Compile Include="Assets\_Project\Presentation\Player\FirstPersonController.cs" />
     <Compile Include="Assets\_Project\Presentation\Objectives\ValveVisualIndicator.cs" />
+    <Compile Include="Assets\_Project\Presentation\UI\InGameHud.cs" />
     <Compile Include="Assets\_Project\Presentation\SoundPulse\LocalPulsePipeline.cs" />
     <Compile Include="Assets\_Project\Presentation\SoundPulse\LocalPulsePipelineBehaviour.cs" />
     <Compile Include="Assets\_Project\Presentation\Tagging\TaggableRunner.cs" />
@@ -1270,12 +1272,12 @@
       <HintPath>Library\ScriptAssemblies\Unity.InputSystem.dll</HintPath>
       <Private>False</Private>
     </Reference>
-    <Reference Include="UnityEditor.UI">
-      <HintPath>Library\ScriptAssemblies\UnityEditor.UI.dll</HintPath>
-      <Private>False</Private>
-    </Reference>
     <Reference Include="UnityEngine.UI">
       <HintPath>Library\ScriptAssemblies\UnityEngine.UI.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="UnityEditor.UI">
+      <HintPath>Library\ScriptAssemblies\UnityEditor.UI.dll</HintPath>
       <Private>False</Private>
     </Reference>
   </ItemGroup>
