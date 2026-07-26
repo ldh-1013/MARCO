@@ -622,7 +622,7 @@ MonoBehaviour:
   <PrefabId>k__BackingField: 65535
   <SpawnableCollectionId>k__BackingField: 0
   <AssetPathHash>k__BackingField: 0
-  SceneId: 3845005231
+  SceneId: 1870280430
   SerializedTransformProperties:
     Position: {x: 0, y: 0, z: 0}
     Rotation: {x: 0, y: 0, z: 0, w: 0}
@@ -646,6 +646,37 @@ MonoBehaviour:
   _preventDespawnOnDisconnect: 0
   _defaultDespawnType: 0
   _initializedTimestamp: 0
+--- !u!1 &1964602097
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1964602098}
+  m_Layer: 0
+  m_Name: GameObject (1)
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &1964602098
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1964602097}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 1.81978, y: 12.16017, z: 2.58251}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &800000000000000001
 GameObject:
   m_ObjectHideFlags: 0
@@ -6912,6 +6943,7 @@ GameObject:
   - component: {fileID: 840000000000000001}
   - component: {fileID: 840000000000000003}
   - component: {fileID: 840000000000000002}
+  - component: {fileID: 840000000000000004}
   m_Layer: 0
   m_Name: PulseSystem
   m_TagString: Untagged
@@ -6949,6 +6981,7 @@ MonoBehaviour:
   _player: {fileID: 0}
   _visuals: {fileID: 820000000000000004}
   _logDeliveries: 0
+  _logDiagnostics: 1
   _stressTestKey: 30
   _stressTestPulseCount: 30
   _colorblindToggleKey: 17
@@ -7064,7 +7097,7 @@ MonoBehaviour:
   <PrefabId>k__BackingField: 65535
   <SpawnableCollectionId>k__BackingField: 0
   <AssetPathHash>k__BackingField: 0
-  SceneId: 1841977006
+  SceneId: 4085979071
   SerializedTransformProperties:
     Position: {x: 0, y: 0, z: 0}
     Rotation: {x: 0, y: 0, z: 0, w: 0}
@@ -7136,7 +7169,7 @@ MonoBehaviour:
   <PrefabId>k__BackingField: 65535
   <SpawnableCollectionId>k__BackingField: 0
   <AssetPathHash>k__BackingField: 0
-  SceneId: 3881451518
+  SceneId: 4288585391
   SerializedTransformProperties:
     Position: {x: 0, y: 0, z: 0}
     Rotation: {x: 0, y: 0, z: 0, w: 0}
@@ -7238,7 +7271,7 @@ MonoBehaviour:
   <PrefabId>k__BackingField: 65535
   <SpawnableCollectionId>k__BackingField: 0
   <AssetPathHash>k__BackingField: 0
-  SceneId: 1944838143
+  SceneId: 3889936319
   SerializedTransformProperties:
     Position: {x: 0, y: 0, z: 0}
     Rotation: {x: 0, y: 0, z: 0, w: 0}
@@ -7262,6 +7295,23 @@ MonoBehaviour:
   _preventDespawnOnDisconnect: 0
   _defaultDespawnType: 0
   _initializedTimestamp: 0
+--- !u!114 &840000000000000004
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 820000000000000001}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 39001efa64345b240ba0ca41ee9b22b4, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Net::Marco.Net.PulseNetworkSync
+  _componentIndexCache: 255
+  _addedNetworkObject: {fileID: 840000000000000003}
+  _networkObjectCache: {fileID: 0}
+  _logServerDeliveries: 0
+  _logDiagnostics: 1
 --- !u!1 &840000000000000010
 GameObject:
   m_ObjectHideFlags: 0
@@ -7795,3 +7845,4 @@ SceneRoots:
   - {fileID: 830201680}
   - {fileID: 1161290102}
   - {fileID: 900000000000000002}
+  - {fileID: 1964602098}

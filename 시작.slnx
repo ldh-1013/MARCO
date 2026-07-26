@@ -5,12 +5,12 @@
   <Project Path="Core.Tests.csproj" />
   <Project Path="Presentation.csproj" />
   <Project Path="GameKit.Dependencies.csproj" />
+  <Project Path="Marco.Editor.csproj" />
   <Project Path="Core.csproj" />
   <Project Path="Unity.FishNet.Codegen.csproj" />
   <Project Path="FishNet.Demos.csproj" />
   <Project Path="Assembly-CSharp-Editor.csproj" />
   <Project Path="Net.csproj" />
   <Project Path="Assembly-CSharp.csproj" />
-  <Project Path="Marco.Editor.csproj" />
   <Project Path="Marco.DebugTools.csproj" />
 </Solution>

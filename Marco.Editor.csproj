@@ -54,8 +54,10 @@
     <Analyzer Include="C:\Program Files\Unity\Hub\Editor\6000.5.4f1\Editor\Data\BCLExtensions\TargetingPacks\netstandard2.1\analyzers\dotnet\roslyn4.0\cs\System.Text.Json.SourceGeneration.dll" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Assets\_Project\Editor\NetworkPulseSetupTool.cs" />
     <Compile Include="Assets\_Project\Editor\NetworkValveSetupTool.cs" />
     <Compile Include="Assets\_Project\Editor\NetworkRoundSetupTool.cs" />
+    <Compile Include="Assets\_Project\Editor\NetworkSetupDiagnostics.cs" />
     <Compile Include="Assets\_Project\Editor\NetworkPlayerSetupTool.cs" />
   </ItemGroup>
   <ItemGroup>

@@ -1029,3 +1029,181 @@ public bool NetworkActive => NetworkObject != null && IsSpawned;
 ### 검증 한계
 
 라이브 에디터/MCP 부재로 미검증: ① FishNet IL 위빙(`SyncVar<RoleType>`·`SyncVar<bool>` 코드 생성) ② Player 프리팹에 `RoleNetworkSync` 추가 후 Reserialize·ComponentIndex 재구성 ③ 2-클라 실동작(자동 배정·양쪽 인지 일치·태그 전환 공존). C# 컴파일(Core+Presentation+Tests 0 error, Net 0 error/0 warning)·유닛 **264 실제 실행 통과**·FishNet API(`SyncVar<T>`·`OnStartNetwork`/`OnStopNetwork`·`OwnerId`) 벤더 소스 확인은 완료.
+
+---
+
+## 스프린트 14 — 발소리 펄스 네트워크화 (네트워크 2단계 마무리, §5.6/§14.3)
+
+마지막 미동기화 시스템. 지금까지 로컬 스모크 리그(고정 청취자 id=999, 스프린트 3~9)로만 돌던 파문 파이프라인이 **처음으로 실제 다른 플레이어에게 전달**된다.
+
+### 왜 지금까지와 구조가 다른가
+
+밸브·태그·라운드·역할은 전부 "상태 하나를 전원에게 똑같이" 전파하는 문제라 `SyncVar` 하나로 끝났다. 파문은 **GAP-2**(벽 0개면 좌표, 아니면 방위만)와 **GAP-3**(청취자별 재판정) 때문에 같은 소리라도 청취자마다 내용이 다르다 — 술래 A는 좌표, 러너 B는 방위만, 러너 C는 아예 미수신. 그래서 브로드캐스트가 아니라 **`[TargetRpc]`로 청취자 한 명에게만** 보낸다. §14.3이 이 구조를 명시한다:
+
+| 이벤트 | 발신 | 수신 | 이번 구현 |
+|---|---|---|---|
+| `SoundPulse` | Client → Server | Server(내부 판정용) | `ServerSubmitPulse`(ServerRpc) — 종류만 전송 |
+| `PerceivedPulse` | **Server → 해당 리스너만** | 개별 클라이언트 | `TargetPulseDelivery`(TargetRpc) — 판정 통과자에게만 |
+
+§14.3 주석("차폐로 걸러진 리스너는 아예 수신하지 않음")도 그대로 성립한다 — `SoundPulseResolver`가 null을 반환하면 델리버리 자체가 생기지 않는다.
+
+### 확인부터: 필요한 것이 이미 다 있었다
+
+지시서가 "새로 판정 로직을 짜지 않는다"고 했고, 실제로 **판정·상태관리·시각화를 하나도 새로 만들지 않았다**:
+
+1. **`ActivePulseTracker.Tick(now, listeners, probe)`가 이미 청취자 목록을 받는 시그니처**였다. 주석에 "Net 레이어가 매 Tick 구성해 넘긴다"고 적혀 있다 — T7 시점부터 이 구조를 전제로 설계된 것.
+2. **청취자별 트래커 인스턴스가 불필요하다**(지시서 Step 3의 질문). `TrackedPulse.LastResults`가 이미 `Dictionary<청취자ID, PerceivedPulse?>`라, 트래커 하나가 청취자별 직전 결과를 구분 보관한다. 서버 인스턴스 1개로 전원 처리.
+3. **`PulseVisualRenderer.Apply(in PulseDelivery, float now)`가 그대로 재사용 가능**했다. 수신 델리버리를 로컬 판정 결과와 **완전히 같은 경로**로 넣는다 — 시각화 코드 추가 0줄. 인터페이스(`IPulseDeliverySink`) 시그니처를 기존 `Apply`에 맞췄다.
+4. **시계 동기화가 불필요하다**. 렌더러가 `PerceivedDuration`으로 자체 만료 타이머를 돌리므로(스프린트 4 결론), 수신 측 로컬 `Time.time`을 넘기면 된다.
+
+### 수정·생성 파일
+
+**Core (신규 3)**
+- `Core/SoundPulse/ServerPulseDriver.cs` — 서버 권위 구동기. `TryGetPulseSpec`(§5.1 표 서버 재계산)·`AddPulse`·`Tick`(트래커 위임). FishNet·수명주기 미참조 → EditMode 테스트 가능.
+- `Core/Net/IPulseNetworkBridge.cs` — 발생원 계약(`NetworkActive`/`SubmitPulse(SoundType)`) **+ `IPulseDeliverySink`**(수신 소비자 계약, T8 `Apply`와 동일 시그니처).
+- `Core/SoundPulse/PulseNetworkRegistry.cs` — 서버가 §15.2를 넘어 Presentation 구현체 2개(차폐 프로브·렌더러)에 닿는 지연 바인딩 지점.
+
+**Net (신규 1)**
+- `Net/PulseNetworkSync.cs` — 씬 `NetworkBehaviour`. `[ServerRpc(RequireOwnership=false)]`로 소리 수집 → 서버가 `RoleNetworkSync.Spawned`로 청취자 스냅샷(ID·위치·**배정된 역할**) 구성 → `ServerPulseDriver.Tick` → 델리버리마다 `[TargetRpc]` 개별 전송. 무할당 재사용 버퍼·NRE 가드 포함.
+
+**Presentation (수정 2)**
+- `SoundPulse/LocalPulsePipelineBehaviour.cs` — 네트워크 활성 시 ① 로컬 트래커 틱 **정지**(이중 판정·스모크 리그 결과 혼입 방지) ② 발소리·밸브 소음을 `SubmitPulse(type)`로 서버에 전달 ③ 차폐 프로브를 레지스트리에 등록. 렌더러 `Tick`은 양쪽 경로에서 계속 돌린다(자연 만료 처리).
+- `SoundPulse/PulseVisualRenderer.cs` — `IPulseDeliverySink` 구현 + 레지스트리 자기등록(`OnEnable`/`OnDisable`). **렌더 로직 무변경.**
+
+**Editor (신규 1)**: `Editor/NetworkPulseSetupTool.cs` — `Tools/MARCO/Setup Network Pulse`(PulseSystem 오브젝트에 `NetworkObject`+`PulseNetworkSync` 부착, 멱등).
+**Tests (신규 1)**: `Tests/EditMode/ServerPulseDriverTests.cs` — 20케이스.
+
+### 테스트 결과
+
+- **신규 20케이스** `ServerPulseDriverTests` — §5.1 표 재현 3건(걷기 2m/0.4s·질주 6m/0.8s·밸브 12m/3s) · 미지원 종류 거부 5건(음성 3등급·노크·AddPulse 거부) · **클라가 반경을 부풀릴 수 없음**(`AddPulse_ServerRecalculatesRadius_ClientCannotInflate`) · **청취자별 결과 분기** 5건(근/원거리·GAP-1 자기제외·GAP-2 좌표공개/비공개·하드블로커 미전달) · **§5.7 역할별 인지 배율**(술래만 듣는 거리·술래가 더 큰 반경) · 자연 만료 무통지 · 차폐 발생 시 Disappeared.
+- **회귀**: 기존 264 + 신규 20 = **284 passed, 0 failed**(NUnitLite 실제 실행).
+- **Net 컴파일**: Core+Net를 FishNet.Runtime 참조로 컴파일 → **Build succeeded, 0 Error / 0 Warning**.
+
+### 기획서 대응
+
+| 기획서 | 이번 구현 |
+|---|---|
+| §14.3 `SoundPulse` Client → Server(내부 판정용) | `ServerSubmitPulse` ServerRpc |
+| §14.3 `PerceivedPulse` **Server → 해당 리스너만** | `TargetPulseDelivery` TargetRpc |
+| §14.3 주석 "차폐로 걸러진 리스너는 아예 수신하지 않음" | Resolver가 null → 델리버리 미생성 |
+| §5.1 표(걷기 2m/0.4s, 질주 6m/0.8s, 밸브 12m/회전내내) | `TryGetPulseSpec`가 서버에서 재계산 |
+| §5.6 리스너별 차폐 판정 | `SoundPulseResolver` 재사용(무변경) |
+| §5.7 역할별 인지 배율 | **스프린트 13 배정 역할**(`RoleNetworkSync.CurrentRole`)로 계산 |
+| §14.4-2 "리스너별 차폐 레이캐스트를 매 이벤트마다 감당하는 서버 부하" | 6인×초당 2~4개 = 초당 10~20회(§5.6 주석의 예상 범위 그대로) |
+
+### 스펙 갭 2건 신규 (GAP-24, GAP-25)
+
+| GAP | 쟁점 | 결정 | 근거 |
+|---|---|---|---|
+| **GAP-24** | 클라이언트가 보낸 파문 정보를 서버가 얼마나 신뢰하나 | 클라는 **소리 종류(`SoundType`)만** 주장. 반경·지속은 서버가 §5.1 표에서 재계산, 발생 위치는 `caller.FirstObject`의 서버 측 위치, 발생원 ID는 `caller.ClientId` | ① §5.1 표가 이미 Core 상수(`LocomotionConfig`·`Valve.SoundRadiusMeters`)로 있어 재계산이 공짜다. ② 그래서 클라는 반경을 부풀리거나(테스트로 고정) 남의 발소리로 위장할 수 없다 — 밸브 GAP-17·태그 거리 재검증보다 **강한** 서버 권위. ③ 남은 신뢰: "소리가 났다"는 사실 자체와 종류(걷기↔질주 위장). 이동 상태를 서버가 재계산하려면 `LocomotionSimulator`를 서버에서 돌려야 하는데 그건 예측·보정 스코프라 이월 |
+| **GAP-25** | 밸브 소음(§5.1 12m)을 이번 스코프에 넣을지 | **넣는다.** `SoundType.Valve`도 같은 경로로 서버가 재계산·전송 | 지시서 포함 목록은 "발소리"지만, 네트워크에서 로컬 판정을 끄면 **밸브가 무음이 되어** §6.1 "의도된 유인 장치" 설계가 붕괴한다(회귀). 기존 `EmitPulse`가 이미 범용이라 추가 비용이 없다. 스프린트 5에서 같은 판단(§6.1 본문 동작이고 빼면 설계가 성립 안 함)을 한 전례를 따랐다. 회전시간은 4인 MVP 기준 `Valve.DefaultRotationSeconds`(3초) — 6인 보정(3.75초)은 §6.2상 v1.x |
+
+### 이전 스프린트와 다르게 처리한 점
+
+1. **와이어 레벨 GAP-2 강제**: `PerceivedPulse`를 구조체 통째로 보내지 않고 필드를 원시값으로 분해해 전송한다. 좌표 비공개 판정이면 `hasSourcePos=false`+`Vector3.zero`를 보내 **비공개 좌표가 페이로드에 아예 실리지 않는다**. `PerceivedPulse` 문서의 의도("클라이언트에 정밀 좌표를 아예 보내지 않기 위함")를 전송 계층까지 관철한 것이며, 부수적으로 FishNet의 `Nullable<Vector3>` 직렬화 지원 여부에 의존하지 않게 된다(라이브 위빙 검증 불가 상황에서의 안전한 선택).
+2. **판정 주체가 씬 오브젝트 하나**: 밸브(오브젝트당)·태그/역할(플레이어당)과 달리, 파문은 서버 트래커 1개가 전원의 상태를 들고 있어야 GAP-3 재판정이 성립한다. 그래서 씬 오브젝트(PulseSystem)에 붙였다.
+3. **로컬 판정을 명시적으로 정지**: 라운드(스프린트 12)와 같은 문제 — 클라가 이미 로컬로 판정하고 있었으므로, 네트워크 활성 시 로컬 틱을 끊어야 스모크 리그의 고정 청취자 결과가 화면에 섞이지 않는다.
+4. **성능**: `ActivePulseTracker.Tick`이 매 호출 `List<PulseDelivery>`를 새로 할당한다(기존 Core 코드, 리팩토링 금지 대상). 6인·초당 10~20회 판정에서는 무해하다고 판단해 그대로 뒀다 — 지시서의 "과도한 최적화 금지"에 따름. 청취자 스냅샷 버퍼는 재사용해 프레임 할당을 없앴다.
+
+### 실기 검증 (다음 세션 필요)
+
+라이브 에디터/MCP 부재로 미검증 — `docs/수동검증_절차.md §16`에 절차서로 남겼다:
+1. **선행 조건**: `Setup Network Player`(스프린트 13, `RoleNetworkSync` 필요 — 없으면 청취자 목록이 비어 아무것도 전달되지 않는다) + `Setup Network Pulse`(이번) 실행 → 씬 저장 → **`Reserialize NetworkObjects`**.
+2. 2-클라 접속 후 한쪽 이동 → **다른 쪽 화면에 T8 링/방위 인디케이터**가 뜨는지.
+3. 발생원 자신에게는 안 뜨는지(GAP-1).
+4. 벽 뒤로 들어가면 **좌표(링) → 방위 인디케이터**로 전환되는지(GAP-2, 이번엔 실제 원격 청취자 기준).
+5. 술래가 러너보다 먼 거리에서 인지하는지(§5.7, 스프린트 13 배정 역할 기준).
+6. 밸브 회전 시 12m 소음이 원격에 전달되는지(GAP-25).
+7. 로컬 단독 실행(H/J 없이) 시 스모크 리그 그대로 동작(회귀).
+
+### 네트워크 2단계 완료 여부
+
+**코드 계층은 완료.** 이벤트 동기화 대상 6종이 전부 서버 권위가 됐다:
+
+| 시스템 | 스프린트 | 방식 |
+|---|---|---|
+| 이동(Transform) | 8 | NetworkTransform |
+| 밸브 | 10 | SyncVar + ServerRpc |
+| 태그 | 11 | SyncVar + ServerRpc(거리 재검증) |
+| 라운드 결과·타이머·탈출 | 12 | SyncVar + ServerRpc |
+| 역할 배정 | 13 | SyncVar |
+| **파문(발소리·밸브 소음)** | **14** | **ServerRpc + TargetRpc(청취자별)** |
+
+§14.3 이벤트 테이블에서 남은 것은 로비 계열(`JoinRoom`·`ReadyToggle`)·음성(§5.2)·메아리 노크(미구현 능력)·`ItemUse`(v1.x)·`HostMigration`(v1.x 제외)뿐이고, 전부 별도 스코프다. **단, 2-클라 실기 검증은 스프린트 10~14 전부 미실시**라 "코드 완료 + 실기 대기" 상태다.
+
+### 남은 작업 우선순위 제안
+
+1. **실기 검증 일괄 수행**(§12~16) — 스프린트 10~14가 모두 실기 미검증으로 쌓였다. 이게 최우선. 특히 이번 스프린트는 위빙 대상이 `TargetRpc`(새 종류)라 확인 가치가 크다.
+2. **K/R 제거 + 씬 대역 러너 정리** — 스프린트 13 §7 조건 충족 후.
+3. **음성 파이프라인**(§5.2/§5.8) — Steam Voice 원시 PCM → 진폭 → 소리 등급. §14.4-2가 지목한 난제.
+4. **정식 UI**(§12 HUD·결과 화면) — 현재 Console 로그·IMGUI 임시 구현을 대체.
+5. **술래 로테이션**(§2.2) — GAP-22 부작용 해소.
+
+### 검증 한계
+
+라이브 에디터/MCP 부재로 미검증: ① FishNet IL 위빙 — 특히 **`[TargetRpc]`는 이번에 처음 쓰는 RPC 종류**다 ② 씬 PulseSystem에 새 NetworkObject 추가 후 Reserialize ③ 2-클라 실동작(원격 발소리 시각화·좌표/방위 전환·§5.7 배율). C# 컴파일(Core+Presentation+Tests 0 error, Net 0 error/0 warning)·유닛 **284 실제 실행 통과**·FishNet API(`[TargetRpc]` 시그니처·`ServerManager.Clients`(`Dictionary<int, NetworkConnection>`)·`NetworkConnection.ClientId`/`FirstObject`·`OwnerId => Owner.ClientId`) 벤더 소스 확인은 완료. 특히 **청취자 ID(OwnerId)와 발생원 ID(caller.ClientId)가 같은 번호 공간**임을 벤더 소스로 확인했다 — GAP-1 자기제외가 성립하는 전제다.
+
+---
+
+## 스프린트 14 후속 — 실기 1차 실패 원인 규명: 씬에 PulseNetworkSync 미부착 (2026-07-26)
+
+### 보고된 증상
+
+`Setup Network Pulse` + `Reserialize NetworkObjects` + 재빌드까지 했는데도 **발소리 시각 효과가 자기 화면에만 나타나고 상대 화면에는 전혀 안 보인다.** 연결 중에도 `[Pulse] 디버그 청취점 고정 … (id=999, 임시 스모크 리그)` 로그가 계속 찍힌다.
+
+### 증상 자체가 원인을 가리킨다
+
+**자기 화면에 자기 발소리가 보인다는 것이 결정적 증거다.** 네트워크 경로에서는 GAP-1(자기 제외)로 발생원 자신은 자기 파문을 **받지 않는다** — 즉 자기 화면에 보인다는 건 로컬 스모크 리그(고정 청취자 id=999)가 여전히 돌고 있다는 뜻이고, `IsNetworkActive == false`라는 의미다.
+
+### 원인 확정 — 코드가 아니라 씬 자산 상태
+
+씬 파일(`Assets/Scenes/Game.unity`)을 GUID로 직접 조회한 결과:
+
+| 컴포넌트 | GUID | 씬 출현 |
+|---|---|---|
+| NetworkObject | `26b716c4…` | ✅ PulseSystem에 있음 |
+| RoundNetworkSync(스프린트 12) | `41b8a6db…` | ✅ PulseSystem에 있음 |
+| **PulseNetworkSync(스프린트 14)** | `39001efa…` | ❌ **씬 전체에 0회** |
+
+`LocalPulsePipelineBehaviour.Awake`의 `GetComponent<IPulseNetworkBridge>()`가 **null**을 받아 `IsNetworkActive`가 영구히 false가 되고, 발소리가 계속 로컬 경로로 처리됐다. 관찰 증상과 정확히 일치한다.
+
+**왜 이렇게 됐나**: 셋업 도구들은 `EditorSceneManager.MarkSceneDirty`로 **dirty 표시만** 하고 저장은 사용자가 해야 한다(설계상 안전 장치). 저장을 놓치면 변경이 사라지고, **빌드는 저장된 씬을 사용**하므로 재빌드해도 반영되지 않는다. `Reserialize`는 이미 존재하는 NetworkObject만 갱신하므로 이 누락을 메워주지 않는다.
+
+> 참고: 사용자 질문 중 "PulseNetworkSync가 Player 프리팹에 붙어 있는지"는 설계와 다르다 — 이 컴포넌트는 **씬 PulseSystem 오브젝트**에 붙는다(서버 트래커 1개가 전원의 GAP-3 재판정 상태를 들고 있어야 하므로). Player 프리팹에는 `TagNetworkSync`·`RoleNetworkSync`가 붙는다(확인 결과 둘 다 정상 부착됨).
+
+### 확인: 네트워크 판단 조건과 타이밍은 정상이었다
+
+사용자가 의심한 "BindPlayer가 너무 이른 시점에 실행돼 네트워크 상태가 고정되는 것"은 **아니다**:
+
+- `Awake`에서 캐시하는 것은 **컴포넌트 참조(`_bridge`)뿐**이고, 네트워크 상태는 캐시하지 않는다.
+- 판단 조건은 `IsNetworkActive => _bridge != null && _bridge.NetworkActive` 하나이며 **매 프레임 새로 평가**된다. 그래서 스폰이 늦어도(BindPlayer가 먼저 실행돼도) 스폰 완료 시점에 자동 전환된다.
+- 다만 `[Pulse] 디버그 청취점 고정` 로그가 **네트워크 여부와 무관하게 항상 찍히도록** 되어 있어(청취점을 미리 준비만 하는 것) 오진을 유발했다 — 이번에 문구를 "준비"로 바꾸고 "실제 사용 여부는 `[Pulse:Diag]` 경로 로그로 판단"을 명시했다.
+
+### 추가한 진단 (요청대로 로직 변경 없음 — 관측만)
+
+**Presentation** `LocalPulsePipelineBehaviour`
+- **①** `Awake`에서 브릿지 부착 여부 1회 로그. 미부착이면 `LogWarning`으로 조치 안내(툴 실행 + **씬 저장** + Reserialize).
+- **②** `[Pulse:Diag]` 경로 로그 — 2초 주기 + **경로 전환 순간 즉시**. `경로={서버 권위|로컬 스모크} | 브릿지={없음|미스폰|스폰됨} | 차폐프로브 | 렌더싱크`.
+- 오해를 부른 스모크 리그 로그 문구 정정.
+
+**Net** `PulseNetworkSync`
+- **③** `OnStartNetwork`에서 스폰 확인(`objectId`·서버/클라 컨텍스트).
+- **④** **첫 ServerRpc 수신 1회 로그**(`★`) + 폐기 사유 경고(FirstObject 없음 / §5.1 표에 없는 종류).
+- **⑤** 서버 상태 2초 요약 — **청취자 수**·추적 파문 수·차폐프로브 등록 여부·누계(수신 RPC / 개별 전송).
+- **⑥** **첫 TargetRpc 수신 1회 로그**(`★`) + 싱크 미등록 경고. 커넥션 조회 실패 시 경고.
+
+**Editor (신규)** `NetworkSetupDiagnostics.cs` — `Tools/MARCO/Diagnose Network Setup`
+- 씬(파문·라운드·밸브)과 Player 프리팹(NetworkObject·OwnershipGate·Tag·Role)의 부착 상태, **씬 dirty 여부**를 한 번에 점검하는 읽기 전용 메뉴. 이번 같은 "툴 실행 후 저장 누락"을 런타임 전에 즉시 잡는다.
+- 보너스: 프리팹 `_role` 기본값이 Runner인지도 검사 — 스프린트 12 실기 버그(전원이 술래로 보임) 재발 감지.
+
+### 검증
+
+- **회귀 284 passed / 0 failed**(로그·카운터 추가뿐이라 판정 로직 무영향).
+- **전 어셈블리 컴파일 0 error / 0 warning** — Core+Presentation+**Net**+**Editor**+**DebugTools**를 한 번에 컴파일해 확인(Editor·DebugTools까지 검증한 것은 이번이 처음).
+
+### 다음 실기 세션 절차
+
+1. `Tools/MARCO/Diagnose Network Setup` → 누락 항목 확인.
+2. `Setup Network Pulse` 실행 → **반드시 씬 저장(Ctrl+S)** → `Reserialize NetworkObjects` → 재빌드.
+3. 다시 `Diagnose Network Setup`으로 전 항목 ✔ 확인(저장 반영 여부까지).
+4. H/J 접속 후 `수동검증_절차.md §16-9` 표대로 ①~⑦ 로그를 위에서 아래로 확인 — 처음 끊긴 지점이 원인이다.

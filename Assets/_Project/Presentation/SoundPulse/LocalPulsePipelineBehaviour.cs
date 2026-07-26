@@ -1,5 +1,6 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
+using Marco.Core.Net;
 using Marco.Core.Role;
 using Marco.Core.Sound;
 using Marco.Presentation.Player;
@@ -29,6 +30,15 @@ namespace Marco.Presentation.Sound
         [Header("디버그")]
         [SerializeField] private bool _logDeliveries;
 
+        [Header("진단 (스프린트 14 실기 디버그 — 확인 끝나면 꺼도 됨)")]
+        [Tooltip("어느 경로(서버 권위 / 로컬 스모크 리그)로 동작 중인지, 브릿지·싱크·프로브가 " +
+                 "연결됐는지를 이정표 1회 + 2초 주기로 로그한다.")]
+        [SerializeField] private bool _logDiagnostics = true;
+
+        private float _nextDiagTime;
+        private bool _loggedBridgeState;
+        private bool? _lastLoggedNetworkActive;
+
         [Tooltip("§15.5 성능 목표(동시 30개) 체감 확인용. 누르면 청취점 주변에 파문을 한꺼번에 생성한다.")]
         [SerializeField] private Key _stressTestKey = Key.P;
         [SerializeField, Range(1, 100)] private int _stressTestPulseCount = 30;
@@ -38,23 +48,62 @@ namespace Marco.Presentation.Sound
 
         private LocalPulsePipeline _pipeline;
         private Vector3 _listenerAnchor;
+        private IPulseNetworkBridge _bridge;
+        private PhysicsOcclusionProbe _probe;
+
+        /// <summary>
+        /// 서버 권위 파문 경로가 활성인가(스프린트 14). true면 로컬에서 §5.6을 판정하지 않고
+        /// 서버에 소리 발생만 알린다 — 판정·전송은 서버가 청취자별로 수행한다.
+        /// </summary>
+        public bool IsNetworkActive => _bridge != null && _bridge.NetworkActive;
 
         private void Awake()
         {
             if (_visuals == null)
                 _visuals = FindAnyObjectByType<PulseVisualRenderer>();
 
+            // 같은 오브젝트의 Net 브릿지(없으면 null — 로컬 전용). Core 인터페이스로만 잡는다.
+            _bridge = GetComponent<IPulseNetworkBridge>();
+
+            // [진단 ①] 브릿지 부착 여부. 이게 없으면 네트워크 경로로 절대 전환되지 않으므로
+            // 발소리가 로컬 스모크 리그(고정 청취자)로만 돌아 "자기 화면에만 보이는" 증상이 난다.
+            // 컴포넌트는 씬 저장 시점에 확정되므로, 미부착이면 자산 문제(툴 미실행/씬 미저장)다.
+            if (_logDiagnostics && !_loggedBridgeState)
+            {
+                _loggedBridgeState = true;
+                if (_bridge == null)
+                {
+                    Debug.LogWarning($"[Pulse:Diag] '{name}'에 IPulseNetworkBridge(PulseNetworkSync)가 없습니다 — " +
+                        "발소리는 항상 로컬 스모크 리그로만 처리됩니다(원격 전달 불가). " +
+                        "Tools/MARCO/Setup Network Pulse 실행 → 씬 저장(Ctrl+S) → Reserialize NetworkObjects 후 재빌드가 필요합니다.");
+                }
+                else
+                {
+                    Debug.Log($"[Pulse:Diag] '{name}'에서 PulseNetworkSync 브릿지를 찾았습니다 — " +
+                              "네트워크 스폰이 완료되면 서버 권위 경로로 전환됩니다.");
+                }
+            }
+
             // 발생원 ID는 플레이어 바인딩 시점에 실제 값으로 덮어쓴다(BindPlayer).
             // 그 전까지는 로컬 폴백값(1)으로 시작한다.
-            _pipeline = new LocalPulsePipeline(new PhysicsOcclusionProbe(), FirstPersonController.LocalFallbackPlayerId);
+            _probe = new PhysicsOcclusionProbe();
+            _pipeline = new LocalPulsePipeline(_probe, FirstPersonController.LocalFallbackPlayerId);
             _pipeline.DeliveryEmitted += OnDelivery;
+
+            // 스프린트 14: 서버(Net)가 §5.6 차폐 판정에 쓸 구현체를 Core 레지스트리에 올린다.
+            // 호스트에서는 이 프로브가 서버 판정 경로에 그대로 쓰인다(§15.2 경계 유지).
+            PulseNetworkRegistry.RegisterProbe(_probe);
 
             // 플레이어는 네트워크로 스폰될 수 있어 이 시점에 없을 수 있다.
             // 준비되면 알려달라고 등록해 둔다(이미 있으면 즉시 콜백).
             LocalPlayerRegistry.WhenReady(BindPlayer);
         }
 
-        private void OnDestroy() => LocalPlayerRegistry.StopWaiting(BindPlayer);
+        private void OnDestroy()
+        {
+            LocalPlayerRegistry.StopWaiting(BindPlayer);
+            PulseNetworkRegistry.UnregisterProbe(_probe);
+        }
 
         private void BindPlayer(FirstPersonController player)
         {
@@ -74,7 +123,12 @@ namespace Marco.Presentation.Sound
             // 표시 수치가 §5.1 원본값 그대로 나와 눈으로 검증하기 쉽다).
             _listenerAnchor = _player.transform.position;
             _pipeline.SetDebugListener(DebugListenerId, _listenerAnchor, RoleType.Runner);
-            Debug.Log($"[Pulse] 디버그 청취점 고정: {_listenerAnchor} (id={DebugListenerId}, 임시 스모크 리그 — 게임플레이 기능 아님)");
+
+            // 주의: 이 로그는 네트워크 여부와 무관하게 항상 찍힌다(청취점을 미리 준비만 해두는 것).
+            // 실제로 이 스모크 리그가 "사용되는지"는 Update의 [Pulse:Diag] 경로 로그로 판단해야 한다 —
+            // 네트워크 경로에서는 로컬 틱을 돌리지 않으므로 이 청취자는 쓰이지 않는다.
+            Debug.Log($"[Pulse] 디버그 청취점 준비: {_listenerAnchor} (id={DebugListenerId}, 임시 스모크 리그 — " +
+                      "실제 사용 여부는 [Pulse:Diag] 경로 로그 확인)");
         }
 
         private void OnDisable()
@@ -86,27 +140,83 @@ namespace Marco.Presentation.Sound
         private void Update()
         {
             float now = Time.time;
-            _pipeline.Tick(now);
+
+            LogPathDiagnostics(now);
+
+            // 스프린트 14: 네트워크 활성 시 §5.6 판정은 서버가 청취자별로 수행한다.
+            // 로컬 트래커를 돌리면 이중 판정이 되고, 스모크 리그의 고정 청취자(id=999) 결과가
+            // 실제 원격 청취자 결과와 섞여 화면에 뜬다 — 그래서 네트워크면 로컬 틱을 멈춘다.
+            if (!IsNetworkActive)
+                _pipeline.Tick(now);
 
             // 렌더러의 자체 만료 타이머는 델리버리와 무관하게 매 프레임 돌아야 한다 —
             // 자연 만료 시 Disappeared가 오지 않기 때문(T7 설계, 스프린트 3 조사 결론).
+            // 네트워크 경로에서도 수신한 델리버리를 이 타이머가 소멸시키므로 항상 돌린다.
             if (_visuals != null)
                 _visuals.Tick(now);
 
             HandleDebugInput(now);
         }
 
+        /// <summary>
+        /// [진단 ②] 현재 어느 경로로 동작 중인지(서버 권위 / 로컬 스모크 리그)와, 그 판단의 근거가
+        /// 되는 값들을 남긴다. 경로가 바뀌는 순간은 즉시 1회, 그 외에는 2초 주기로 찍는다.
+        ///
+        /// **판단 조건은 <see cref="IsNetworkActive"/> 하나뿐이며 매 프레임 새로 평가된다** —
+        /// Awake에서 캐시하는 것은 컴포넌트 참조(<c>_bridge</c>)뿐이고 네트워크 상태는 캐시하지
+        /// 않는다. 따라서 스폰이 늦어도(BindPlayer가 먼저 실행돼도) 스폰 완료 시점에 자동 전환된다.
+        /// 이 로그로 "전환이 실제로 일어났는지"를 시각으로 확인할 수 있다.
+        /// </summary>
+        private void LogPathDiagnostics(float now)
+        {
+            if (!_logDiagnostics)
+                return;
+
+            bool networkActive = IsNetworkActive;
+            bool pathChanged = _lastLoggedNetworkActive != networkActive;
+
+            if (!pathChanged && now < _nextDiagTime)
+                return;
+
+            _lastLoggedNetworkActive = networkActive;
+            _nextDiagTime = now + 2f;
+
+            string bridgeState = _bridge == null
+                ? "없음(미부착)"
+                : (_bridge.NetworkActive ? "스폰됨" : "미스폰(연결 전이거나 스폰 대기)");
+
+            Debug.Log($"[Pulse:Diag] 경로={(networkActive ? "서버 권위(원격 전달)" : "로컬 스모크 리그(자기 화면만)")} " +
+                      $"| 브릿지={bridgeState} | 차폐프로브={(PulseNetworkRegistry.OcclusionProbe != null ? "등록됨" : "없음")} " +
+                      $"| 렌더싱크={(PulseNetworkRegistry.DeliverySink != null ? "등록됨" : "없음")}" +
+                      (pathChanged ? "  ← 경로 전환" : string.Empty));
+        }
+
         private void OnFootstepPulse(SoundType type, float radius, float duration, Vector3 position)
         {
+            // 네트워크면 "소리가 났다"만 알리고(서버가 §5.1 표로 반경·지속을, 서버 측 위치로
+            // 발생 지점을 결정 — GAP-24), 로컬이면 기존 경로로 직접 판정한다.
+            if (IsNetworkActive)
+            {
+                _bridge.SubmitPulse(type);
+                return;
+            }
+
             _pipeline.OnFootstepPulse(type, radius, duration, position, Time.time);
         }
 
         /// <summary>
         /// 발소리 외 소리원(§5.1 밸브 회전 등)이 파문을 발행하는 진입점.
-        /// 차폐 판정·재판정 주기는 기존 파이프라인이 그대로 담당한다.
+        /// 네트워크면 서버로 알리고(§5.1 밸브 12m 소음이 원격에도 들려야 §6.1 유인 설계가
+        /// 성립한다), 로컬이면 기존 파이프라인이 차폐·재판정을 담당한다.
         /// </summary>
         public void EmitPulse(SoundType type, float radius, float duration, Vector3 position)
         {
+            if (IsNetworkActive)
+            {
+                _bridge.SubmitPulse(type);
+                return;
+            }
+
             _pipeline?.EmitPulse(type, radius, duration, position, Time.time);
         }
 
@@ -134,6 +244,14 @@ namespace Marco.Presentation.Sound
             {
                 for (int i = 0; i < _stressTestPulseCount; i++)
                 {
+                    if (IsNetworkActive)
+                    {
+                        // 네트워크에서는 발생 위치를 서버가 정하므로(GAP-24) 전부 내 위치에서 난다.
+                        // 동시 파문 개수 부하는 그대로 재현된다(§15.5 목표 확인 목적은 유지).
+                        _bridge.SubmitPulse(SoundType.Sprint);
+                        continue;
+                    }
+
                     Vector2 offset = Random.insideUnitCircle * 4f;
                     Vector3 position = _listenerAnchor + new Vector3(offset.x, 0f, offset.y);
                     _pipeline.OnFootstepPulse(SoundType.Sprint, 6f, 0.8f, position, now);

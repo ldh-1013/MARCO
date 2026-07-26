@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using UnityEngine;
+using Marco.Core.Net;
 using Marco.Core.Sound;
 using Marco.Presentation.Palette;
 
@@ -21,8 +22,13 @@ namespace Marco.Presentation.Sound
     ///
     /// 방향 인디케이터는 UI 시스템이 아직 없어 IMGUI(OnGUI)로 그린다 — 기능 확인용
     /// 최소 구현이며 §12 HUD 작업 때 정식 UI로 교체한다.
+    ///
+    /// 스프린트 14(파문 네트워크화): <see cref="IPulseDeliverySink"/>를 구현해
+    /// <see cref="PulseNetworkRegistry"/>에 등록한다. 서버가 개별 전송(§14.3 TargetRpc)한
+    /// 델리버리가 <see cref="Apply"/>로 들어오는데, 이는 로컬 판정 결과가 들어오던 것과
+    /// **완전히 같은 경로**다 — 시각화 코드는 하나도 새로 만들지 않았다.
     /// </summary>
-    public sealed class PulseVisualRenderer : MonoBehaviour
+    public sealed class PulseVisualRenderer : MonoBehaviour, IPulseDeliverySink
     {
         [Header("팔레트 (§16.2)")]
         [SerializeField] private ColorPalette _palette;
@@ -52,6 +58,9 @@ namespace Marco.Presentation.Sound
 
         private Material _ringMaterial;
         private GUIStyle _indicatorStyle;
+
+        // 진단: 첫 시각 오브젝트 생성 시 1회만 표현·색상을 로그한다(스프린트 14 실기 디버그).
+        private bool _logFirstVisual = true;
 
         // OnGUI는 프레임마다 여러 번(Layout·Repaint·입력 이벤트) 호출되므로,
         // 프레임당 한 번만 계산하면 되는 값은 Tick에서 미리 구해 둔다.
@@ -105,8 +114,31 @@ namespace Marco.Presentation.Sound
             _registry.VisualRemoved -= OnVisualRemoved;
         }
 
+        // 스프린트 14: 서버가 개별 전송(TargetRpc)한 델리버리를 받을 소비자로 자신을 등록한다.
+        // Net은 Presentation을 참조할 수 없으므로 Core 레지스트리를 경유한다(§15.2).
+        private void OnEnable() => PulseNetworkRegistry.RegisterSink(this);
+        private void OnDisable() => PulseNetworkRegistry.UnregisterSink(this);
+
         /// <summary>파이프라인이 방출한 델리버리를 시각 상태에 반영한다.</summary>
-        public void Apply(in PulseDelivery delivery, float now) => _registry.Apply(delivery, now);
+        public void Apply(in PulseDelivery delivery, float now)
+        {
+            _registry.Apply(delivery, now);
+
+            // [진단] 이 렌더러가 실제로 무엇을 그리는지 확정한다. 실기에서 관측된 "노란색 효과"가
+            // T8 파문인지(색맹 모드면 러너색이 #F2E205 노랑) 다른 시스템인지(밸브 회전 표시가
+            // (1,0.9,0.1) 노랑) 구별하기 위한 것이다. 첫 1회만 찍는다.
+            if (_logFirstVisual && delivery.Perceived.HasValue)
+            {
+                _logFirstVisual = false;
+                PerceivedPulse p = delivery.Perceived.Value;
+                Color c = ResolvePulseColor();
+                Debug.Log($"[PulseVis] ★ 첫 시각 오브젝트 생성 — pulse={delivery.PulseId} " +
+                          $"표현={(p.WorldSpaceRingVisible ? "월드스페이스 링" : "화면 가장자리 방위 인디케이터")} " +
+                          $"반경={p.PerceivedRadius:0.00}m 지속={p.PerceivedDuration:0.00}s 방위={p.Direction} | " +
+                          $"색맹모드={_colorblindMode} 색상={c} (#{ColorUtility.ToHtmlStringRGB(c)}) | " +
+                          "이 색과 화면에서 본 색이 다르면 다른 시스템(예: 밸브 노랑 (1,0.9,0.1))을 본 것이다.");
+            }
+        }
 
         /// <summary>매 프레임 호출: 자체 타이머 만료 처리 + 링 애니메이션 갱신.</summary>
         public void Tick(float now)

@@ -253,6 +253,7 @@ MonoBehaviour:
   - {fileID: 4428196590212668294}
   - {fileID: 5779659941918705331}
   - {fileID: 3381629495904837641}
+  - {fileID: 2632874382875680094}
   InitializedParentNetworkBehaviour: {fileID: 0}
   InitializedNestedNetworkObjects: []
   RuntimeParentNetworkBehaviour: {fileID: 0}
@@ -263,7 +264,7 @@ MonoBehaviour:
   _initializeOrder: 0
   _preventDespawnOnDisconnect: 0
   _defaultDespawnType: 0
-  _initializedTimestamp: -8584166258144485358
+  _initializedTimestamp: -8584165377052904418
 --- !u!114 &4428196590212668294
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -352,9 +353,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 1844c96a2c404174ab775c8342b1dcd9, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Net::Marco.Net.RoleNetworkSync
-  _componentIndexCache: 255
+  _componentIndexCache: 3
   _addedNetworkObject: {fileID: 405541516152503632}
-  _networkObjectCache: {fileID: 0}
+  _networkObjectCache: {fileID: 405541516152503632}
 --- !u!1 &1803192958280037329
 GameObject:
   m_ObjectHideFlags: 0
