@@ -28,7 +28,7 @@ namespace Marco.EditorTools
         [MenuItem("Tools/MARCO/Setup Network Round")]
         public static void Run()
         {
-            var coordinator = Object.FindFirstObjectByType<RoundCoordinator>(FindObjectsInactive.Include);
+            var coordinator = Object.FindAnyObjectByType<RoundCoordinator>(FindObjectsInactive.Include);
             if (coordinator == null)
             {
                 EditorUtility.DisplayDialog("네트워크 라운드 구성",

@@ -92,7 +92,7 @@ namespace Marco.EditorTools
 
         private static GameObject SetupNetworkManagerObject()
         {
-            var existing = Object.FindFirstObjectByType<NetworkManager>(FindObjectsInactive.Include);
+            var existing = Object.FindAnyObjectByType<NetworkManager>(FindObjectsInactive.Include);
             GameObject go;
             if (existing != null)
             {
@@ -130,7 +130,7 @@ namespace Marco.EditorTools
 
         private static GameObject FindScenePlayerInstance()
         {
-            var fpc = Object.FindFirstObjectByType<FirstPersonController>(FindObjectsInactive.Include);
+            var fpc = Object.FindAnyObjectByType<FirstPersonController>(FindObjectsInactive.Include);
             return fpc != null ? fpc.gameObject : null;
         }
 

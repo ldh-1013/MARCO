@@ -74,7 +74,15 @@ namespace Marco.Net
             get
             {
                 var tagTarget = GetComponent<ITagTarget>();
-                return (tagTarget != null && tagTarget.IsTagged) || CurrentRole == RoleType.Echo;
+
+                // 태그 상태의 진실은 서버가 확정한 SyncVar다 — 있으면 그것만 신뢰한다.
+                // 스프린트 17: 여기서 현재 역할(Echo)까지 함께 보면, 라운드 재시작으로 태그가
+                // 풀린 뒤에도 "아직 Echo 상태"라는 이유로 재배정이 영구히 차단된다(메아리 고착).
+                if (tagTarget != null)
+                    return tagTarget.IsTagged;
+
+                // ITagTarget이 없는 구성에서는 현재 역할로 대신 판단한다(방어용 폴백).
+                return CurrentRole == RoleType.Echo;
             }
         }
 
@@ -92,6 +100,22 @@ namespace Marco.Net
             _assignedRole.Value = role;
             _hasAssignment.Value = true;
             Debug.Log($"[RoleNet:Server] ownerId={OrderKey} 역할 배정 = {role} (§6.2)");
+        }
+
+        /// <summary>
+        /// 새 라운드를 위해 배정을 지운다(스프린트 17). 서버 전용.
+        ///
+        /// 배정 플래그를 내리면 <c>RoundNetworkSync.EnsureRolesAssigned</c>가 다음 프레임에
+        /// **§6.2 표대로 다시 배정**한다 — 배정 규칙을 여기 복제하지 않고 기존 경로를 재사용한다.
+        /// 술래 재추첨(§2.2 로테이션)은 이번 스코프가 아니므로, GAP-22의 결정론적 정렬대로
+        /// 같은 사람이 다시 술래가 된다.
+        ///
+        /// 태그로 Echo가 된 플레이어도 이 리셋 후 다시 배정 대상이 된다 —
+        /// <c>TagNetworkSync.ServerResetForNewRound</c>가 먼저 태그 상태를 풀기 때문이다.
+        /// </summary>
+        internal void ServerClearAssignmentForNewRound()
+        {
+            _hasAssignment.Value = false;
         }
 
         // ── 전 피어: 확정 배정 반영 ──────────────────────────────────────

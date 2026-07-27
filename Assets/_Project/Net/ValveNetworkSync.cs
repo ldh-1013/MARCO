@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using FishNet.Connection;
 using FishNet.Object;
 using FishNet.Object.Synchronizing;
@@ -40,6 +41,13 @@ namespace Marco.Net
         private bool _hasSent;
         private bool _lastSentHeld;
         private ulong _lastSentPlayer;
+
+        /// <summary>
+        /// 스폰된 밸브 동기화 컴포넌트들(스프린트 17). 라운드 재시작 시
+        /// <c>RoundNetworkSync</c>가 전체를 초기화하려고 열거한다 — 소비자도 Net이라
+        /// Core 레지스트리를 거칠 필요가 없다(<c>RoleNetworkSync.Spawned</c>와 같은 패턴).
+        /// </summary>
+        internal static readonly List<ValveNetworkSync> Spawned = new List<ValveNetworkSync>();
 
         // ── IValveNetworkBridge ──────────────────────────────────────────
 
@@ -148,13 +156,48 @@ namespace Marco.Net
         {
             base.OnStartNetwork();
             _state.OnChange += OnStateChanged;
+
+            if (!Spawned.Contains(this))
+                Spawned.Add(this);
         }
 
         public override void OnStopNetwork()
         {
             base.OnStopNetwork();
             _state.OnChange -= OnStateChanged;
+            Spawned.Remove(this);
         }
+
+        /// <summary>
+        /// 새 라운드를 위해 서버 권위 밸브 상태를 초기값으로 되돌린다(스프린트 17). 서버 전용.
+        ///
+        /// <see cref="IValveHost"/>(<c>ValveBehaviour</c>)가 Core <see cref="Valve"/> 인스턴스를
+        /// 새로 만들므로, 옛 인스턴스를 감싸고 있던 구동기도 **새로 만들어야** 리셋이 반영된다.
+        /// 그 뒤 SyncVar를 초기값으로 밀어 전 클라이언트의 표시(색·카운트)도 함께 되돌린다.
+        /// </summary>
+        internal void ServerResetForNewRound()
+        {
+            EnsureHost();
+            if (_host == null)
+                return;
+
+            _host.ResetValveForNewRound();
+            _driver = new ServerValveDriver(_host.Valve);
+
+            _state.Value = _driver.State;
+            _progress.Value = _driver.Progress01;
+
+            // 송신 디듀프 상태도 지워, 새 라운드의 첫 홀드 의사가 반드시 서버로 전달되게 한다.
+            _hasSent = false;
+            _lastSentHeld = false;
+            _lastSentPlayer = 0;
+        }
+
+        /// <summary>
+        /// 도메인 리로드를 끈 채 Play를 반복하면 static 상태가 남는다(스프린트 13과 같은 안전장치).
+        /// </summary>
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        private static void ResetForNewSession() => Spawned.Clear();
 
         private void OnStateChanged(ValveState prev, ValveState next, bool asServer)
         {

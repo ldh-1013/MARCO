@@ -25,7 +25,7 @@ namespace Marco.EditorTools
         [MenuItem("Tools/MARCO/Setup Network Valves")]
         public static void Run()
         {
-            var valves = Object.FindObjectsByType<ValveBehaviour>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            var valves = Object.FindObjectsByType<ValveBehaviour>(FindObjectsInactive.Include);
             if (valves.Length == 0)
             {
                 EditorUtility.DisplayDialog("네트워크 밸브 구성",

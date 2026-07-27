@@ -28,7 +28,7 @@ namespace Marco.EditorTools
         [MenuItem("Tools/MARCO/Setup Network Pulse")]
         public static void Run()
         {
-            var pipeline = Object.FindFirstObjectByType<LocalPulsePipelineBehaviour>(FindObjectsInactive.Include);
+            var pipeline = Object.FindAnyObjectByType<LocalPulsePipelineBehaviour>(FindObjectsInactive.Include);
             if (pipeline == null)
             {
                 EditorUtility.DisplayDialog("네트워크 파문 구성",

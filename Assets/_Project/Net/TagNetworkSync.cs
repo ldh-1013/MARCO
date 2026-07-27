@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using FishNet.Connection;
 using FishNet.Object;
 using FishNet.Object.Synchronizing;
@@ -38,6 +39,12 @@ namespace Marco.Net
 
         private IRoleState _roleState;
         private bool _appliedTagEffect; // 피어별 태그 효과(역할 전환·통지)를 정확히 1회만 적용
+
+        /// <summary>
+        /// 스폰된 태그 동기화 컴포넌트들(스프린트 17). 라운드 재시작 시 <c>RoundNetworkSync</c>가
+        /// 태그 상태를 전체 초기화하려고 열거한다(<c>RoleNetworkSync.Spawned</c>와 같은 패턴).
+        /// </summary>
+        internal static readonly List<TagNetworkSync> Spawned = new List<TagNetworkSync>();
 
         private void Awake()
         {
@@ -107,6 +114,9 @@ namespace Marco.Net
             _tagged.OnChange += OnTaggedChanged;
             TagTargetRegistry.Register(this);
 
+            if (!Spawned.Contains(this))
+                Spawned.Add(this);
+
             // [진단] 원격 플레이어가 호스트의 TagTargetRegistry에 실제로 등록되는지 실기에서 확인용.
             // 이 로그는 로컬/원격 게이트 없이 스폰된 모든 피어에서 찍혀야 정상이다 —
             // 호스트라면 자기 플레이어 + 원격 플레이어(들) 각각에 대해 한 번씩 나와야 한다.
@@ -125,7 +135,28 @@ namespace Marco.Net
             base.OnStopNetwork();
             _tagged.OnChange -= OnTaggedChanged;
             TagTargetRegistry.Unregister(this);
+            Spawned.Remove(this);
         }
+
+        /// <summary>
+        /// 새 라운드를 위해 태그 상태를 초기화한다(스프린트 17). 서버 전용.
+        ///
+        /// SyncVar를 false로 되돌리면 <see cref="OnTaggedChanged"/>가 전 피어에서 불리지만
+        /// <c>next == false</c>라 태그 효과를 적용하지 않는다. 효과 1회성 가드도 함께 풀어,
+        /// 새 라운드에서 다시 태그되면 정상적으로 Echo 전환이 일어나게 한다.
+        ///
+        /// 역할 복구는 여기서 하지 않는다 — <c>RoleNetworkSync</c>가 배정을 지우고 다시 배정하며,
+        /// 그 경로가 §6.2 표를 단일 소유하기 때문이다(역할 규칙을 두 곳에 두지 않는다).
+        /// </summary>
+        internal void ServerResetForNewRound()
+        {
+            _tagged.Value = false;
+            _appliedTagEffect = false;
+        }
+
+        /// <summary>도메인 리로드를 끈 채 Play를 반복할 때의 static 잔여 상태 정리.</summary>
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        private static void ResetForNewSession() => Spawned.Clear();
 
         private void OnTaggedChanged(bool prev, bool next, bool asServer)
         {

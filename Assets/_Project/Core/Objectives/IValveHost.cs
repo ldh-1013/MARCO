@@ -19,5 +19,15 @@ namespace Marco.Core.Objectives
     {
         /// <summary>이 오브젝트가 소유한 §6.1 밸브 상태기계 인스턴스.</summary>
         Valve Valve { get; }
+
+        /// <summary>
+        /// 새 라운드를 위해 밸브를 닫힌 초기 상태로 되돌린다(스프린트 17 재시작 골격).
+        ///
+        /// 구현체는 <see cref="Valve"/> 인스턴스를 <b>새로 만든다</b> — §6.1 상태기계에는
+        /// Open → Closed 전이가 없기 때문이다(라운드 중 개방은 되돌릴 수 없다는 의도된 설계).
+        /// 그래서 호출 후 <see cref="Valve"/>는 <b>다른 인스턴스</b>를 반환하며, 이를 감싸고 있던
+        /// 서버 구동기도 새로 만들어야 리셋이 반영된다.
+        /// </summary>
+        void ResetValveForNewRound();
     }
 }

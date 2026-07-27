@@ -36,7 +36,10 @@ namespace Marco.Presentation.GameFlow
         [SerializeField] private float _timeLogInterval = 30f;
 
         private readonly RoundTimer _timer = new RoundTimer();
-        private readonly RoundOutcomeTracker _outcome = new RoundOutcomeTracker();
+
+        // 스프린트 17: 로컬 재시작 시 새 인스턴스로 교체한다(RoundOutcomeTracker는 판정을 래치하며
+        // 되돌리는 전이를 갖지 않는다 — Core 판정 로직을 건드리지 않으려고 교체 방식을 택했다).
+        private RoundOutcomeTracker _outcome = new RoundOutcomeTracker();
         private readonly GameFlowManager _gameFlow = new GameFlowManager();
         private float _lastTimeLog;
         private int _totalRunners;
@@ -154,7 +157,17 @@ namespace Marco.Presentation.GameFlow
             LogServerRemaining();
 
             RoundResult serverResult = _bridge.Result;
-            if (serverResult == RoundResult.InProgress || _lastServerResult != RoundResult.InProgress)
+
+            // 스프린트 17: 서버가 재시작하면 결과가 승패 → InProgress로 돌아온다. 그때 종료 래치를
+            // 풀어야 새 라운드의 종료를 다시 반영할 수 있다(§15.4 RoundEnd → RoleAssign → InGame).
+            if (serverResult == RoundResult.InProgress)
+            {
+                if (_lastServerResult != RoundResult.InProgress)
+                    BeginNewRoundFromServer();
+                return;
+            }
+
+            if (_lastServerResult != RoundResult.InProgress)
                 return;
 
             _lastServerResult = serverResult;
@@ -164,6 +177,66 @@ namespace Marco.Presentation.GameFlow
             Debug.Log($"[Round] 라운드 종료(서버 확정) — 판정: {serverResult} " +
                       $"(탈출 {_bridge.EscapedCount}명, 남은 시간 {_bridge.RemainingSeconds:0.0}초) " +
                       $"→ 상태 {_gameFlow.CurrentState}");
+        }
+
+        /// <summary>
+        /// 서버가 새 라운드를 시작했을 때 각 피어의 표시·상태기계를 맞춘다(스프린트 17).
+        /// 판정은 서버가 하므로 여기서는 래치 해제와 §15.4 전이만 수행한다.
+        /// </summary>
+        private void BeginNewRoundFromServer()
+        {
+            _lastServerResult = RoundResult.InProgress;
+
+            // §15.4 전이표: RoundEnd → RoleAssign → InGame 순서로만 InGame에 돌아갈 수 있다.
+            _gameFlow.TryTransition(GameFlowState.RoleAssign);
+            _gameFlow.TryTransition(GameFlowState.InGame);
+
+            Debug.Log($"[Round] 새 라운드 시작(서버 확정) — 상태 {_gameFlow.CurrentState}");
+        }
+
+        /// <summary>
+        /// 결과 화면(<c>ResultScreen</c>)이 호출하는 재시작 요청(스프린트 17).
+        /// 네트워크면 서버에 요청만 보내고, 로컬 단독 실행이면 이 자리에서 직접 되돌린다.
+        /// </summary>
+        public void RequestRestart()
+        {
+            if (IsNetworkActive)
+            {
+                _bridge.RequestRestart();
+                return;
+            }
+
+            RestartLocalRound();
+        }
+
+        /// <summary>
+        /// [로컬 전용] 라운드를 초기 상태로 되돌린다(스프린트 17).
+        ///
+        /// 네트워크 경로와 같은 범위를 되돌린다 — 라운드 상태(타이머·탈출·판정 래치)와 밸브.
+        /// 로컬에는 서버 배정이 없으므로 역할은 인스펙터 값을 그대로 유지하고, 대역 러너
+        /// (<c>TaggableRunner</c>)는 스프린트 15에서 비활성화됐으므로 태그 복구 대상이 없다.
+        /// </summary>
+        private void RestartLocalRound()
+        {
+            if (!_outcome.IsDecided)
+                return; // 진행 중 재시작은 §12.5 흐름이 아니다(네트워크 경로와 동일 규칙).
+
+            _outcome = new RoundOutcomeTracker();
+
+            if (_valveTracker != null)
+            {
+                ValveBehaviour[] valves = _valveTracker.Valves;
+                for (int i = 0; i < valves.Length; i++)
+                    valves[i]?.ResetValveForNewRound();
+            }
+
+            _gameFlow.TryTransition(GameFlowState.RoleAssign);
+            _gameFlow.TryTransition(GameFlowState.InGame);
+
+            _timer.Start(_roundDurationSeconds);
+            _lastTimeLog = Time.time;
+
+            Debug.Log($"[Round] 라운드 재시작(로컬) — 제한시간 {_roundDurationSeconds:0}초, 상태 {_gameFlow.CurrentState}");
         }
 
         /// <summary>

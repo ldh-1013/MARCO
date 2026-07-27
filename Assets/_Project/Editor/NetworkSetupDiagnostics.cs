@@ -5,6 +5,7 @@ using Marco.Presentation.GameFlow;
 using Marco.Presentation.Objectives;
 using Marco.Presentation.Player;
 using Marco.Presentation.Sound;
+using Marco.Presentation.UI;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -43,6 +44,7 @@ namespace Marco.EditorTools
             allOk &= CheckSceneComponent<RoundCoordinator, RoundNetworkSync>(
                 report, "라운드(스프린트 12)", "Setup Network Round");
             allOk &= CheckValves(report);
+            allOk &= CheckHud(report);
 
             // ── Player 프리팹 점검 ────────────────────────────────────────
             report.AppendLine();
@@ -79,7 +81,7 @@ namespace Marco.EditorTools
             where THost : Component
             where TSync : Component
         {
-            var host = Object.FindFirstObjectByType<THost>(FindObjectsInactive.Include);
+            var host = Object.FindAnyObjectByType<THost>(FindObjectsInactive.Include);
             if (host == null)
             {
                 report.AppendLine($"  ✖ {label}: 씬에서 {typeof(THost).Name}를 찾지 못했습니다(Game 씬이 열려 있는지 확인).");
@@ -103,7 +105,7 @@ namespace Marco.EditorTools
 
         private static bool CheckValves(StringBuilder report)
         {
-            var valves = Object.FindObjectsByType<ValveBehaviour>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            var valves = Object.FindObjectsByType<ValveBehaviour>(FindObjectsInactive.Include);
             if (valves.Length == 0)
             {
                 report.AppendLine("  ✖ 밸브(스프린트 10): 씬에서 ValveBehaviour를 찾지 못했습니다.");
@@ -126,6 +128,41 @@ namespace Marco.EditorTools
             report.AppendLine($"  ✖ 밸브(스프린트 10): {wired}/{valves.Length}개만 배선됨 → " +
                               "Tools/MARCO/Setup Network Valves 실행 후 **씬 저장(Ctrl+S)**");
             return false;
+        }
+
+        /// <summary>
+        /// 스프린트 16 HUD 점검. HUD는 자기 uGUI 계층을 런타임에 만들므로 씬에 이 컴포넌트
+        /// 하나만 있으면 되지만, 팔레트 참조가 비어 있으면 색상이 하드코딩 폴백으로 떨어진다.
+        /// </summary>
+        private static bool CheckHud(StringBuilder report)
+        {
+            var hud = Object.FindAnyObjectByType<InGameHud>(FindObjectsInactive.Include);
+            if (hud == null)
+            {
+                report.AppendLine("  ✖ HUD(스프린트 16): 씬에서 InGameHud를 찾지 못했습니다 " +
+                                  "→ PulseSystem 오브젝트에 In Game Hud 컴포넌트를 추가하세요.");
+                return false;
+            }
+
+            var so = new SerializedObject(hud);
+            bool paletteWired = so.FindProperty("_palette")?.objectReferenceValue != null;
+
+            report.AppendLine($"  ✔ HUD(스프린트 16): '{hud.gameObject.name}'에 InGameHud 부착됨" +
+                              (paletteWired ? " (팔레트 연결됨)" : " — ⚠ ColorPalette 미연결(하드코딩 색 폴백 사용)"));
+
+            // 스프린트 17 결과 화면. HUD의 최소 배너와 중복되지 않는지도 함께 본다.
+            var result = Object.FindAnyObjectByType<ResultScreen>(FindObjectsInactive.Include);
+            if (result == null)
+            {
+                report.AppendLine("  ✖ 결과 화면(스프린트 17): 씬에서 ResultScreen을 찾지 못했습니다 " +
+                                  "→ PulseSystem 오브젝트에 Result Screen 컴포넌트를 추가하세요.");
+                return false;
+            }
+
+            bool hudBannerOn = so.FindProperty("_showResultBanner")?.boolValue ?? false;
+            report.AppendLine($"  ✔ 결과 화면(스프린트 17): '{result.gameObject.name}'에 ResultScreen 부착됨" +
+                              (hudBannerOn ? " — ⚠ HUD의 Show Result Banner도 켜져 있어 결과가 두 번 표시됩니다" : ""));
+            return !hudBannerOn;
         }
 
         private static bool CheckPlayerPrefab(StringBuilder report)

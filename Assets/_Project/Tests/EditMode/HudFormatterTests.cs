@@ -111,5 +111,48 @@ namespace Marco.Core.Tests
             // 진행 중에는 배너를 그리지 않아야 한다 — 라운드 종료 순간에만 나타난다.
             Assert.IsEmpty(HudFormatter.FormatRoundResult(RoundResult.InProgress));
         }
+
+        // ── 승패 사유 유도 (스프린트 17, §12.5 결과 화면) ──────────────────
+
+        [Test]
+        public void FormatResultReason_RunnersWin_IsEscape()
+        {
+            // §6.3 첫 분기는 "밸브 전부 + 1인 이상 탈출"뿐이라 사유가 하나로 확정된다.
+            // 남은 시간이 얼마든 결과는 같아야 한다.
+            string atFullTime = HudFormatter.FormatResultReason(RoundResult.RunnersWin, 300f);
+            string atZero = HudFormatter.FormatResultReason(RoundResult.RunnersWin, 0f);
+
+            Assert.IsNotEmpty(atFullTime);
+            Assert.AreEqual(atFullTime, atZero, "러너 승리 사유는 남은 시간과 무관하게 탈출이다");
+            StringAssert.Contains("탈출", atFullTime);
+        }
+
+        [Test]
+        public void FormatResultReason_SeekerWin_TimeExpired_IsTimeout()
+        {
+            // §6.3 둘째 분기에서 timeRemaining <= 0이면 시간 초과다.
+            StringAssert.Contains("제한시간", HudFormatter.FormatResultReason(RoundResult.SeekerWin, 0f));
+        }
+
+        [Test]
+        public void FormatResultReason_SeekerWin_TimeRemaining_IsAllTagged()
+        {
+            // 시간이 남은 채 술래가 이기는 경로는 전원 태그뿐이다(서버가 확정 시 타이머를 멈추므로
+            // 남은 시간 값이 그대로 보존된다 — ServerRoundDriver.Tick).
+            StringAssert.Contains("붙잡", HudFormatter.FormatResultReason(RoundResult.SeekerWin, 120f));
+        }
+
+        [Test]
+        public void FormatResultReason_SeekerWin_NegativeTime_IsTimeout()
+        {
+            // 음수도 시간 초과로 읽어야 한다(표시 클램프와 별개로 판정 사유는 동일).
+            StringAssert.Contains("제한시간", HudFormatter.FormatResultReason(RoundResult.SeekerWin, -1f));
+        }
+
+        [Test]
+        public void FormatResultReason_InProgress_ShowsNothing()
+        {
+            Assert.IsEmpty(HudFormatter.FormatResultReason(RoundResult.InProgress, 100f));
+        }
     }
 }

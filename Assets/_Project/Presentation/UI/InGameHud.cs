@@ -54,7 +54,11 @@ namespace Marco.Presentation.UI
         [SerializeField] private bool _showValves = true;
         [SerializeField] private bool _showRole = true;
         [SerializeField] private bool _showGateHint = true;
-        [SerializeField] private bool _showResultBanner = true;
+
+        [Tooltip("스프린트 16의 최소 결과 배너. 스프린트 17에서 정식 결과 화면(ResultScreen, §12.5)이 " +
+                 "생겼으므로 씬에서는 꺼 둔다 — 켜면 같은 내용이 두 번 표시된다. 결과 화면 없이 " +
+                 "HUD만으로 확인하고 싶을 때만 켠다.")]
+        [SerializeField] private bool _showResultBanner;
 
         // 런타임에 만든 UI 요소들.
         private Canvas _canvas;

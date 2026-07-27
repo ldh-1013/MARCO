@@ -74,6 +74,7 @@
     <Compile Include="Assets\_Project\Presentation\SoundPulse\PulseVisualRenderer.cs" />
     <Compile Include="Assets\_Project\Presentation\Player\LocalPlayerRegistry.cs" />
     <Compile Include="Assets\_Project\Presentation\GameFlow\RoundCoordinator.cs" />
+    <Compile Include="Assets\_Project\Presentation\UI\ResultScreen.cs" />
     <Compile Include="Assets\_Project\Presentation\SoundPulse\PulseVisualRegistry.cs" />
   </ItemGroup>
   <ItemGroup>

@@ -60,5 +60,21 @@ namespace Marco.Presentation.Objectives
             // 같은 오브젝트에 Net의 ValveNetworkSync가 있으면 Core 인터페이스로만 잡는다.
             _bridge = GetComponent<IValveNetworkBridge>();
         }
+
+        /// <summary>
+        /// 새 라운드를 위해 밸브를 닫힌 초기 상태로 되돌린다(스프린트 17 재시작 골격).
+        ///
+        /// **Core <see cref="Valve"/>의 판정 로직을 건드리지 않기 위해 인스턴스를 새로 만든다** —
+        /// `Valve`는 §6.1 상태기계상 Open에서 Closed로 되돌아가는 전이를 갖지 않으므로(의도된 설계:
+        /// 라운드 중 개방은 되돌릴 수 없다), 리셋 전이를 추가하는 대신 라운드 경계에서 새 인스턴스로
+        /// 교체한다. 회전 시간 등 설정값은 인스펙터 값에서 그대로 다시 온다.
+        ///
+        /// 서버 권위 경로에서는 <c>ValveNetworkSync</c>가 이 호출 후 자신의 구동기를 새 인스턴스로
+        /// 다시 만들어야 한다(옛 <see cref="Valve"/>를 계속 들고 있으면 리셋이 반영되지 않는다).
+        /// </summary>
+        public void ResetValveForNewRound()
+        {
+            _valve = new Valve(_rotationSeconds);
+        }
     }
 }

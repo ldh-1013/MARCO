@@ -67,6 +67,14 @@ namespace Marco.Net
             ServerSubmitEscape(playerId, role);
         }
 
+        public void RequestRestart()
+        {
+            if (!NetworkActive)
+                return;
+
+            ServerRequestRestart();
+        }
+
         // ── 서버: 타이머·판정 ────────────────────────────────────────────
 
         public override void OnStartServer()
@@ -145,6 +153,68 @@ namespace Marco.Net
         {
             IEscapeGateState gate = EscapeGateRegistry.Current;
             return gate != null && gate.IsGateOpen;
+        }
+
+        // ── 서버: 라운드 재시작 (스프린트 17, §12.5 재시작 골격) ───────────
+
+        /// <summary>
+        /// 라운드 재시작 요청. 특정 플레이어 소유가 아닌 씬 오브젝트이므로 소유권 검사를 끈다.
+        ///
+        /// **정식 사양과의 차이(GAP-27)**: §12.5는 "리매치 투표 15초·과반 찬성 시 즉시 재시작"이지만,
+        /// 투표 UI·과반 판정은 로비(3단계) 몫이다. 지금은 <b>요청이 오면 즉시 재시작</b>하는 골격이다.
+        /// 그래도 재시작 자체는 서버만 수행하므로 권위 모델은 유지된다.
+        /// </summary>
+        [ServerRpc(RequireOwnership = false)]
+        private void ServerRequestRestart(NetworkConnection caller = null)
+        {
+            if (_driver == null)
+                return;
+
+            // 아직 라운드가 끝나지 않았으면 무시한다 — 진행 중 재시작은 §12.5 흐름이 아니다.
+            if (!_driver.IsDecided)
+            {
+                Debug.Log("[RoundNet:Server] 재시작 요청 무시 — 라운드가 아직 진행 중이다.");
+                return;
+            }
+
+            ServerRestartRound();
+        }
+
+        /// <summary>
+        /// 서버가 라운드를 초기 상태로 되돌리고 새 라운드를 시작한다. 서버 전용.
+        ///
+        /// **순서가 중요하다**: ① 태그를 먼저 풀어야 ② 역할 재배정이 메아리 고착에 걸리지 않는다
+        /// (<c>RoleNetworkSync.IsTaggedOut</c>이 태그 SyncVar를 본다). 밸브는 순서 무관.
+        ///
+        /// 라운드 상태(타이머·탈출·판정)는 <see cref="ServerRoundDriver"/>를 **새로 만들어** 되돌린다 —
+        /// <c>OnStartServer</c>가 하는 것과 정확히 같은 초기화를 재사용하므로, 초기값 규칙이 두 곳에
+        /// 흩어지지 않는다.
+        /// </summary>
+        private void ServerRestartRound()
+        {
+            // ① 태그 해제(먼저) — 역할 재배정의 전제.
+            List<TagNetworkSync> tags = TagNetworkSync.Spawned;
+            for (int i = 0; i < tags.Count; i++)
+                tags[i]?.ServerResetForNewRound();
+
+            // ② 역할 배정 해제 → 다음 Update의 EnsureRolesAssigned가 §6.2 표대로 재배정한다.
+            List<RoleNetworkSync> roles = RoleNetworkSync.Spawned;
+            for (int i = 0; i < roles.Count; i++)
+                roles[i]?.ServerClearAssignmentForNewRound();
+
+            // ③ 밸브 초기화(닫힘·진행도 0).
+            List<ValveNetworkSync> valves = ValveNetworkSync.Spawned;
+            for (int i = 0; i < valves.Count; i++)
+                valves[i]?.ServerResetForNewRound();
+
+            // ④ 라운드 상태 초기화 — OnStartServer와 같은 초기화를 그대로 재사용한다.
+            _driver = new ServerRoundDriver(_roundDurationSeconds);
+            _remaining.Value = _driver.RemainingSeconds;
+            _escaped.Value = 0;
+            _result.Value = RoundResult.InProgress;
+
+            Debug.Log($"[RoundNet:Server] 라운드 재시작 — 타이머 {_roundDurationSeconds:0}초, " +
+                      $"밸브 {valves.Count}개·태그 {tags.Count}명·역할 {roles.Count}명 초기화 (§12.5 골격)");
         }
 
         // ── 서버: 역할 배정 (스프린트 13, §6.2/§14.3 RoleAssigned) ────────

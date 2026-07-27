@@ -6945,6 +6945,7 @@ GameObject:
   - component: {fileID: 840000000000000002}
   - component: {fileID: 840000000000000004}
   - component: {fileID: 920000000000000001}
+  - component: {fileID: 920000000000000002}
   m_Layer: 0
   m_Name: PulseSystem
   m_TagString: Untagged
@@ -7338,7 +7339,28 @@ MonoBehaviour:
   _showValves: 1
   _showRole: 1
   _showGateHint: 1
-  _showResultBanner: 1
+  _showResultBanner: 0
+--- !u!114 &920000000000000002
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 820000000000000001}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e5f60718293a4b5c6d7e8f90a1b2c3d4, type: 3}
+  m_Name:
+  m_EditorClassIdentifier:
+  _round: {fileID: 840000000000000001}
+  _palette: {fileID: 11400000, guid: ab455011fadf4c18ad3be2f6e0af9338, type: 2}
+  _colorblindSource: {fileID: 820000000000000004}
+  _colorblindFallback: 0
+  _bannerFontSize: 64
+  _bodyFontSize: 24
+  _dimAlpha: 0.88
+  _restartKey: 2
+  _restartLockSeconds: 1
 --- !u!1 &840000000000000010
 GameObject:
   m_ObjectHideFlags: 0

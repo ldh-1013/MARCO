@@ -69,8 +69,8 @@ namespace Marco.Presentation.UI
         }
 
         /// <summary>
-        /// 라운드 결과 배너 문구(§6.3). 진행 중이면 빈 문자열이라 HUD가 아무것도 그리지 않는다.
-        /// 정식 결과 화면(§12.5)은 이번 스코프가 아니므로, 라운드가 끝났다는 사실만 최소로 알린다.
+        /// 라운드 결과 배너 문구(§6.3 · §12.5 "승패 배너"). 진행 중이면 빈 문자열이라
+        /// 아무것도 그리지 않는다. 스프린트 17부터 결과 화면(<c>ResultScreen</c>)도 이 문구를 쓴다.
         /// </summary>
         public static string FormatRoundResult(RoundResult result)
         {
@@ -79,6 +79,34 @@ namespace Marco.Presentation.UI
                 case RoundResult.RunnersWin: return "도망자 승리";
                 case RoundResult.SeekerWin: return "술래 승리";
                 default: return string.Empty;
+            }
+        }
+
+        /// <summary>
+        /// 승패 <b>사유</b>를 §6.3 판정식에서 역으로 유도한다(스프린트 17).
+        ///
+        /// **새 상태를 저장하지 않는다** — 판정식이 이미 사유를 결정론적으로 함의하기 때문이다:
+        /// <code>
+        /// RunnersWin  → 밸브 전부 + 1인 이상 탈출  (§6.3 첫 분기는 이것뿐)
+        /// SeekerWin   → allRunnersTagged || timeRemaining &lt;= 0
+        ///               남은 시간이 0이면 시간 초과, 0보다 크면 전원 태그
+        /// </code>
+        /// 남은 시간이 0보다 큰 채로 SeekerWin이 되는 경로는 전원 태그뿐이고, 서버 구동기는
+        /// 판정이 확정되면 타이머를 멈추므로(<c>ServerRoundDriver.Tick</c>) 확정 시점의 값이
+        /// 그대로 남아 있다 — 그래서 이 유도가 성립한다.
+        /// </summary>
+        public static string FormatResultReason(RoundResult result, float remainingSeconds)
+        {
+            switch (result)
+            {
+                case RoundResult.RunnersWin:
+                    return "밸브를 모두 열고 배수로로 탈출했다";
+                case RoundResult.SeekerWin:
+                    return remainingSeconds <= 0f
+                        ? "제한시간이 끝났다"
+                        : "도망자가 전원 붙잡혔다";
+                default:
+                    return string.Empty;
             }
         }
     }
