@@ -1468,3 +1468,126 @@ return (tagTarget != null && tagTarget.IsTagged) || CurrentRole == RoleType.Echo
 - **로비(3단계) 착수 조건**: §12.1 로비는 `JoinRoom`·`ReadyToggle`(§14.3 미구현 이벤트)과 방 코드·플레이어 목록이 필요하다. 이번 재시작 골격이 **§12.5 리매치 투표의 자리**를 만들어 뒀으므로, 로비 작업 시 그 골격을 투표로 승격하면 된다. `DebugTools`(H/J)를 삭제할 수 있는 시점도 이때다.
 - **어워드 스프린트 필요성 재확인**: §12.5 어워드 3종은 §6.5 판정 기준(`SoundType.Shout` 발생 횟수 · 이동거리 대비 파문 0회 · 노크 유인 성공 횟수)이 필요하다. 그중 **노크는 메아리 능력 자체가 미구현**이라 어워드 3종을 지금 완성할 수 없다. 따라서 순서는 ① 로비 또는 ② 음성 파이프라인(§5.2 — 비명/대화 등급이 어워드 집계의 입력이기도 하다)이 어워드보다 앞서는 것이 자연스럽다.
 - 그 외: 술래 로테이션(§2.2 — 재시작이 생겼으므로 이제 의미가 있다), §12.6 설정 화면.
+
+---
+
+## 스프린트 18 — 정식 UI 3단계: 로비 (Ready-up · 시작 게이팅 · 리매치 투표, §12.2/§12.3/§14.3/§15.4)
+
+지금까지와 다른 종류의 스프린트다 — 기존 로직을 옮기는 것이 아니라 **존재하지 않던 상태(플레이어별 준비 여부)와 게이팅(전원 준비 전 시작 금지)을 새로 설계**했다. "서버 시작 즉시 라운드 시작"(스프린트 12~17의 전제)이 폐지되고, §15.4 진행 흐름 전체가 서버 페이즈 상태기계로 처음 구동된다.
+
+### 1. Ready-up 설계 근거 (지시서 §5-1 답변)
+
+지시서가 "RoleNetworkSync와 유사할 가능성 vs 태그의 '모두가 서로를 알아야 함' 구조"를 직접 판단하라 했다. 결론: **둘의 하이브리드**다.
+
+| 측면 | 채택한 패턴 | 이유 |
+|---|---|---|
+| 복제 | **RoleNetworkSync**(Player 프리팹의 per-플레이어 `SyncVar<bool>`) | SyncVar는 모든 관전자에게 복제되므로 "전원이 서로의 준비 상태를 안다"(§14.3 ReadyToggle의 Server → All)가 추가 비용 없이 성립. 별도 브로드캐스트 불필요 |
+| 열거 | **TagTargetRegistry**(Core 레지스트리 `ReadyStateRegistry`) | 로비 UI(Presentation)가 §15.2를 넘어 전원 목록을 그려야 함 |
+| 입력 검증 | **신규 — 프레임워크 위임** | `ServerRpc`의 `RequireOwnership` **기본값(true, 벤더 확인)**이 "자기 pawn만 토글"을 강제. 밸브·태그가 `false`+수동 재검증이 필요했던 것과 달리, 기본값이 정확히 맞는 첫 사례 |
+
+서버 게이팅의 입력은 레지스트리가 아니라 Net 내부 실측(`ReadyNetworkSync.Spawned`)이다 — 서버 판정 입력은 Net이 직접 소유한다(스프린트 13 원칙).
+
+### 2. 페이즈 상태기계 — §15.4가 처음으로 전부 돈다
+
+`RoundNetworkSync`에 `SyncVar<GameFlowState>` 페이즈를 추가하고 서버 Update를 페이즈 분기로 재구성했다:
+
+```
+Lobby ──(전원 Ready, ServerLobbyDriver)──▶ RoleAssign ──(3초 §12.3, 완료 시 역할 배정)──▶ InGame
+  ▲                                            ▲                                          │
+  │ 부결: 전원 준비 해제                         │ 가결: 즉시 재시작(Lobby 안 거침)             │ §6.3 판정
+  └────────────── RoundEnd (리매치 투표 15초·과반, RematchVoteDriver) ◀────────────────────┘
+```
+
+- **§15.4의 양갈래 분기(RoundEnd → Lobby 부결 / RoleAssign 가결)가 처음으로 실사용**됐다 — Phase 2에서 만들어 둔 `GameFlowManager` 전이표가 설계대로 맞아떨어졌다.
+- 새 enum을 만들지 않고 기존 `GameFlowState`를 SyncVar로 그대로 실었다.
+- 클라이언트(`RoundCoordinator`)는 결과 래치 추론(스프린트 17)을 버리고 **페이즈 미러링**으로 단순화 — 서버 페이즈까지 §15.4 허용 전이만 밟아 이동한다(`NextStepToward`).
+- 역할 배정 시점이 "매 프레임(미배정 시 즉시, GAP-23)"에서 **"카운트다운 완료 시점"**으로 이동(§15.4 "RoleAssign: 역할 배정" 그대로). 카운트다운 중단 시 되돌릴 배정이 없도록 끝에서 확정한다. GAP-23은 이로써 폐기.
+- 페이즈 가드: 밸브 홀드·태그·탈출 ServerRpc는 `InGame`에서만 유효(`RoundNetworkSync.ServerPhase` 정적). **파문은 게이트하지 않는다** — §12.3 "이 화면 자체가 튜토리얼"(조작 학습 = 로비에서 발소리 확인)이 명시된 기능이다.
+
+### 3. 수정·생성 파일
+
+**Core (신규 5 / 수정 1)**
+- `GameFlow/ServerLobbyDriver.cs` — 로비 게이트 순수 구현(§12.3 3초 = §15.4 RoleAssign, GAP-29 중단 규칙, 리매치용 `BeginCountdown`).
+- `GameFlow/RematchVoteDriver.cs` — §12.5 15초·과반(n/2+1) 순수 구현. 이탈자는 분자·분모에서 자동 제외.
+- `Net/IReadyState.cs` + `Net/ReadyStateRegistry.cs` — 준비 상태 계약·등록소.
+- `Net/IConnectionService.cs`(+`ConnectionServiceRegistry`) — 접속 시작 계약(§12.2). DebugTools H/J의 정식 대체 경로.
+- `GameFlow/IRoundNetworkBridge.cs` — `Phase`/`CountdownRemaining`/`RematchVotesFor·Needed`/`RematchSecondsRemaining` 추가, `RequestRestart` 의미가 "찬성 투표"로 승격.
+
+**Net (신규 2 / 수정 4)**
+- `ReadyNetworkSync.cs` (신규, Player 프리팹) — 준비 SyncVar + `[ServerRpc]`(소유자 전용) + 로비 페이즈 가드.
+- `ConnectionService.cs` (신규, 순수 MonoBehaviour) — `InstanceFinder` 호출을 Core 계약 뒤로.
+- `RoundNetworkSync.cs` — 페이즈 상태기계 전면 개편(위 §2). `OnStartServer`는 이제 **로비 대기**로 시작.
+- `ValveNetworkSync.cs`·`TagNetworkSync.cs` — InGame 페이즈 가드(밸브는 회전 틱도 동결 — 라운드 종료 후 열림 방지).
+
+**Presentation (신규 1 / 수정 3)**
+- `UI/LobbyScreen.cs` (신규) — 접속 전(§12.2 H/J)·로비(§12.3 방코드/목록/준비완료 n/m/R 토글)·카운트다운 3상태 화면. sortingOrder 150(HUD 위, 결과 화면 아래).
+- `UI/HudFormatter.cs` — 로비·투표 문자열 5종(§12.3 "준비완료 (2/4)" 문구 그대로).
+- `UI/ResultScreen.cs` — 재시작 안내를 §12.5 투표 상태("리매치? (1/2 찬성) · 12초 · Enter — 찬성")로 승격.
+- `GameFlow/RoundCoordinator.cs` — 페이즈 미러링 + UI 패스스루 5종.
+
+**DebugTools (수정 1)**: `NetworkTestBootstrap.cs` — `ConnectionServiceRegistry.Current`가 있으면 **키 처리 전부 양보**(같은 H/J를 두 곳이 받아 이중 접속되는 것 방지). **제거는 하지 않았다** — 아래 §6.
+**Editor (수정 2)**: `NetworkPlayerSetupTool`(⑥ ReadyNetworkSync), `NetworkSetupDiagnostics`(프리팹 Ready + 씬 ConnectionService/LobbyScreen 점검).
+**씬**: `PulseSystem`에 `ConnectionService`·`LobbyScreen` 부착(순수 MB — YAML 안전 선례). 문서 354·중복 fileID 0.
+**Tests (신규 2 / 수정 1)**: `ServerLobbyDriverTests`(13)·`RematchVoteDriverTests`(15)·`HudFormatterTests`(+9).
+
+### 4. 테스트 결과
+
+- **신규 37케이스** — 로비 게이트 13(3초 상수·최소 인원·전원 준비·1회성 시작 신호·GAP-29 중단 3종·중단 후 전체 재카운트·리매치 직행·솔로 오버라이드·0명 공허 참 방지) · 리매치 15(15초 상수·과반표 5, 즉시 가결·만료 부결·멱등·래치·이탈 분모 축소·2인 만장일치) · 포맷터 9(§12.3/§12.5 문구 고정).
+- **회귀: 기존 314 + 신규 37 = 351 passed, 0 failed**(NUnitLite 실제 실행).
+- **전 어셈블리 컴파일 0 error / 0 warning**(경고 억제 없음) — Core+Presentation+Net+Editor+DebugTools.
+
+### 5. 기획서 대응 + 스펙 갭 (GAP-28·29, GAP-23 폐기)
+
+| 사양 | 구현 |
+|---|---|
+| §14.3 ReadyToggle (Client → Server, Server → All) | `ServerSetReady` RPC + SyncVar 복제(playerId는 소유권으로 암묵 검증) |
+| §14.3 JoinRoom (roomCode, playerName) | **GAP-28로 축소** — 아래 참조 |
+| §12.3 "전원 Ready 시 3초 카운트다운 후 역할 추첨" | `ServerLobbyDriver` + RoleAssign 페이즈, **사양 그대로** |
+| §12.3 준비 표시 "준비완료 (2/4)" | `FormatReadyCount` **문구 그대로**(테스트 고정) |
+| §12.5 "리매치 투표: 15초 카운트다운, 과반 찬성 시 즉시 재시작" | `RematchVoteDriver` **사양 그대로**(GAP-27 해소) |
+| §15.4 RoundEnd → Lobby(부결)/RoleAssign(가결) | 페이즈 상태기계 **표 그대로** |
+| §12.3 뮤테이터 투표 | 제외 — 기획서가 **v1.x 명시** |
+| §12.3 아바타 마이크 파문 | 제외 — 음성 파이프라인(§5.2) 스코프 |
+
+| GAP | 쟁점 | 결정 | 근거 |
+|---|---|---|---|
+| **GAP-28** | ① 4자리 방코드·playerName(§14.3 JoinRoom)이 Tugboat LAN 직결에는 존재하지 않음 ② 로비를 별도 씬으로 분리할 것인가 | ① 방코드 = **접속 주소로 대체 표시**, 이름 = P{OwnerId}. Steam 전환 시 §12.2 코드 매칭으로 대체 ② **로비 = Game 씬 내 페이즈**로 구현, 씬 분리는 18b로 명시 분할 | ② §12.3 스스로가 로비를 "이 화면 자체가 튜토리얼"(아바타가 걸어다니며 조작 학습)로 정의하고, §10.1 맵의 "입구 로비"가 도망자 스폰 구역이다 — pawn이 실제 맵의 로비 공간에서 파문을 확인하며 기다리는 현 구현이 그 컨셉의 직접 구현이다. 씬 분리는 검증 불가 리스크(아래 §7)가 커 서브 스프린트로 나눴다(지시서 §3 "서브 스프린트 권장") |
+| **GAP-29** | 카운트다운 중 준비 해제·이탈·신규 접속의 처리 미명시 | **조건이 깨지면 즉시 중단 → 로비**(전체 3초 재카운트). 준비 토글 자체는 **로비 페이즈에서만** 서버가 반영 | 전원 합의가 유지되는 동안만 진행하는 보수적 해석. 라운드 중 토글을 잠가 리매치 직행 경로(준비 상태 유지 전제)가 성립한다 |
+| GAP-23 (폐기) | "미배정 발생 시 즉시 배정" | 로비 게이트 도입으로 **RoleAssign 완료 시점 배정**으로 대체 | §15.4가 명시하는 시점이 생겼으므로 임시 규칙 폐기 |
+
+### 6. NetworkTestBootstrap 제거 — **보류(지시서 규칙대로)**
+
+지시서 §4가 "실기 검증 전 제거 금지"를 명시했고 이 세션은 라이브 에디터가 없어 실기 검증을 수행할 수 없다. 따라서 **양보 가드만 넣고 파일은 보존**했다 — `ConnectionServiceRegistry`에 정식 경로가 등록돼 있으면 키 처리를 전부 건너뛰므로 이중 접속 위험은 없다. **실기에서 §19 절차가 전부 통과하면 다음 정리 커밋에서 `Assets/_Project/DebugTools/` 전체(asmdef 포함)를 삭제**하면 된다(다른 곳에서 참조하지 않음 — 삭제는 폴더 제거만으로 끝난다).
+
+### 7. 씬 전환(18b) — 이번에 하지 않은 것과 이미 확인해 둔 것
+
+씬 전환을 이번에 구현하지 않은 이유: NetworkManager를 다른 씬으로 옮기고 PlayerSpawner 타이밍을 바꾸는 작업은 **에디터 자산 작업 + 실기 검증 없이는 정합성을 보증할 수 없는 조합**이고(스프린트 14의 "씬 저장 누락" 사고가 도구 기반 절차에서도 일어났다), 로비의 게임플레이 기능 전부(준비·게이팅·투표)는 씬 분리 없이도 완결된다. 대신 18b에 필요한 벤더 API를 **전부 이번에 확인해 뒀다**:
+
+| 확인 항목 | 결과(벤더 소스) |
+|---|---|
+| 전역 씬 로드 | `SceneManager.LoadGlobalScenes(SceneLoadData)` — 서버가 로드하면 전 클라이언트+후발 접속자에 동기화. `LoadConnectionScenes` 3종 오버로드도 존재 |
+| 씬 교체·오브젝트 이동 | `SceneLoadData.ReplaceScenes = ReplaceOption.All`, `MovedNetworkObjects`(pawn을 새 씬으로 운반) |
+| 오프라인↔온라인 자동 전환 | **`DefaultScene` 컴포넌트가 벤더에 존재**(`_offlineScene`/`_onlineScene`, 서버 시작 시 `LoadGlobalScenes` 자동 호출) — 손으로 짜지 않아도 된다 |
+| NM 중복 처리 | `NetworkManager.PersistenceType` 기본값 **DestroyNewest** — 기존 NM이 살아남고 새 씬의 사본이 파괴됨(MainMenu에 NM을 둬도 Game 씬 NM과 공존 규칙이 명확) |
+| 스폰 타이밍 | `PlayerSpawner`는 `SceneManager.OnClientLoadedStartScenes`에서 스폰 — 로비 씬 분리 시 이 훅을 커스텀 스포너로 대체해야 함(핵심 작업 항목) |
+
+18b 권장 경로: MainMenu(오프라인, NM+DefaultScene) → 온라인 씬 = Game 유지(최소) 또는 Lobby 경유(정식, `MovedNetworkObjects`로 pawn 운반). 세부는 실기 검증과 함께.
+
+### 8. 실기 검증 (다음 세션 — 이번 스프린트에서 가장 중요)
+
+`수동검증_절차.md §19`에 전체 절차를 남겼다. 핵심 확인 항목:
+1. **선행**: `Setup Network Player` 재실행(프리팹에 `ReadyNetworkSync` 추가) → **Reserialize NetworkObjects** → 씬 저장 → `Diagnose Network Setup` 전 항목 ✔.
+2. H/J(이제 LobbyScreen 경유) 접속 → 로비 화면(플레이어 목록·준비 상태) → **양쪽 모두 R** → 3초 카운트다운 → 역할 배정 → 라운드 시작.
+3. 준비 전에 밸브·태그가 서버에서 거부되는지("홀드 무시 — 라운드 중이 아님"), 발소리 파문은 로비에서도 전달되는지(§12.3 튜토리얼).
+4. 카운트다운 중 R(준비 해제) → 중단 → 로비 복귀(GAP-29).
+5. 라운드 종료 → 결과 화면에 투표 상태 → **한쪽만 Enter = 재시작 안 됨(과반 미달)** → 양쪽 Enter = 3초 카운트다운 → 재시작. 15초 방치 = 로비 복귀 + 전원 준비 해제.
+6. **지시서 §1.6 필수 관찰**: 상대 클라이언트 접속 종료 시 `NetworkObject.OnDestroy` NRE가 **Play 도중** 재현되는지 — 로비/게임 중 각각 끊어보고 Console 기록. 재현되면 별도 조사(스프린트 17 보류 조건 발동).
+7. 이탈 시나리오: 로비에서 이탈(목록 갱신), 카운트다운 중 이탈(중단), 투표 중 이탈(분모 축소).
+
+### 9. 남은 작업 우선순위 제안
+
+1. **실기 검증(§19)** — 이 스프린트의 성패가 여기 달렸다. 특히 §1.6 NRE 관찰.
+2. **18b: 씬 전환**(§7의 설계 노트 기반) + 검증 후 **DebugTools 삭제**.
+3. **술래 로테이션**(§2.2 "3판 1세트") — 리매치가 생겨 이제 자리가 있다. GAP-22(호스트 고정 술래) 해소.
+4. **음성 파이프라인**(§5.2/§5.8) — §12.3 로비 아바타 마이크 파문·어워드 집계의 전제.
+5. 어워드 3종 · §12.6 설정 화면.

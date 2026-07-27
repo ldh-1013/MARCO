@@ -154,5 +154,61 @@ namespace Marco.Core.Tests
         {
             Assert.IsEmpty(HudFormatter.FormatResultReason(RoundResult.InProgress, 100f));
         }
+
+        // ── 로비·리매치 표기 (스프린트 18, §12.3/§12.5) ────────────────────
+
+        [Test]
+        public void FormatReadyCount_MatchesDesignDocPhrase()
+        {
+            // §12.3 도식 문구 그대로: "준비완료 (2/4)".
+            Assert.AreEqual("준비완료 (2/4)", HudFormatter.FormatReadyCount(2, 4));
+        }
+
+        [Test]
+        public void FormatPlayerRow_ReadySelf_ShowsFilledMarkAndSelfTag()
+        {
+            string row = HudFormatter.FormatPlayerRow(1, isReady: true, isSelf: true);
+            StringAssert.Contains("●", row);
+            StringAssert.Contains("P1", row);
+            StringAssert.Contains("준비", row);
+            StringAssert.Contains("(나)", row);
+        }
+
+        [Test]
+        public void FormatPlayerRow_WaitingOther_ShowsHollowMarkNoSelfTag()
+        {
+            string row = HudFormatter.FormatPlayerRow(2, isReady: false, isSelf: false);
+            StringAssert.Contains("○", row);
+            StringAssert.Contains("대기", row);
+            StringAssert.DoesNotContain("(나)", row);
+        }
+
+        [TestCase(3f, "시작까지 3초")]
+        [TestCase(0.4f, "시작까지 1초")] // 타이머와 같은 올림 규칙 — 마지막 순간이 0초로 보이지 않게
+        [TestCase(0f, "시작까지 0초")]
+        public void FormatLobbyCountdown_CeilsSeconds(float seconds, string expected)
+        {
+            Assert.AreEqual(expected, HudFormatter.FormatLobbyCountdown(seconds));
+        }
+
+        [Test]
+        public void FormatRematchVote_MatchesDesignDocShape()
+        {
+            // §12.5 도식 "리매치? (3/4 찬성)" 문구 준용 + 15초 창 표시.
+            Assert.AreEqual("리매치? (1/2 찬성) · 12초", HudFormatter.FormatRematchVote(1, 2, 11.3f));
+        }
+
+        [Test]
+        public void FormatRoomCode_ShowsAddress_Gap28()
+        {
+            // GAP-28: MVP는 4자리 코드 대신 접속 주소가 방코드 역할을 한다.
+            Assert.AreEqual("방코드: localhost", HudFormatter.FormatRoomCode("localhost"));
+        }
+
+        [Test]
+        public void FormatRoomCode_EmptyAddress_ShowsDash()
+        {
+            Assert.AreEqual("방코드: -", HudFormatter.FormatRoomCode(""));
+        }
     }
 }

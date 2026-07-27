@@ -162,7 +162,35 @@ namespace Marco.EditorTools
             bool hudBannerOn = so.FindProperty("_showResultBanner")?.boolValue ?? false;
             report.AppendLine($"  ✔ 결과 화면(스프린트 17): '{result.gameObject.name}'에 ResultScreen 부착됨" +
                               (hudBannerOn ? " — ⚠ HUD의 Show Result Banner도 켜져 있어 결과가 두 번 표시됩니다" : ""));
-            return !hudBannerOn;
+
+            // 스프린트 18 로비: 접속 서비스(Net) + 로비 화면(Presentation). 둘 중 하나라도 없으면
+            // 정식 접속 경로가 성립하지 않는다(DebugTools H/J 폴백에 계속 의존하게 된다).
+            bool lobbyOk = true;
+            var connection = Object.FindAnyObjectByType<ConnectionService>(FindObjectsInactive.Include);
+            if (connection == null)
+            {
+                lobbyOk = false;
+                report.AppendLine("  ✖ 접속 서비스(스프린트 18): 씬에서 ConnectionService를 찾지 못했습니다 " +
+                                  "→ PulseSystem 오브젝트에 Connection Service 컴포넌트를 추가하세요.");
+            }
+            else
+            {
+                report.AppendLine($"  ✔ 접속 서비스(스프린트 18): '{connection.gameObject.name}'에 ConnectionService 부착됨");
+            }
+
+            var lobby = Object.FindAnyObjectByType<LobbyScreen>(FindObjectsInactive.Include);
+            if (lobby == null)
+            {
+                lobbyOk = false;
+                report.AppendLine("  ✖ 로비 화면(스프린트 18): 씬에서 LobbyScreen을 찾지 못했습니다 " +
+                                  "→ PulseSystem 오브젝트에 Lobby Screen 컴포넌트를 추가하세요.");
+            }
+            else
+            {
+                report.AppendLine($"  ✔ 로비 화면(스프린트 18): '{lobby.gameObject.name}'에 LobbyScreen 부착됨");
+            }
+
+            return !hudBannerOn && lobbyOk;
         }
 
         private static bool CheckPlayerPrefab(StringBuilder report)
@@ -179,6 +207,7 @@ namespace Marco.EditorTools
             ok &= CheckPrefabComponent<PlayerOwnershipGate>(report, prefab, "Setup Network Player");
             ok &= CheckPrefabComponent<TagNetworkSync>(report, prefab, "Setup Network Player");
             ok &= CheckPrefabComponent<RoleNetworkSync>(report, prefab, "Setup Network Player");
+            ok &= CheckPrefabComponent<ReadyNetworkSync>(report, prefab, "Setup Network Player");
 
             // 스프린트 12 실기 버그(프리팹 _role 기본값이 Seeker로 굳어 원격 러너가 인식되지 않던 것) 재발 감지.
             var controller = prefab.GetComponent<FirstPersonController>();

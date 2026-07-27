@@ -46,8 +46,10 @@ namespace Marco.Presentation.GameFlow
 
         // 스프린트 12: 같은 오브젝트의 서버 권위 브릿지(없으면 null — 로컬 전용).
         private IRoundNetworkBridge _bridge;
-        private RoundResult _lastServerResult = RoundResult.InProgress;
         private float _lastServerTimeLog;
+
+        // 스프린트 18: 마지막으로 미러링한 서버 페이즈(§15.4). Boot = 아직 아무것도 안 받음.
+        private GameFlowState _lastMirroredPhase = GameFlowState.Boot;
 
         public RoundTimer Timer => _timer;
         public RoundOutcomeTracker Outcome => _outcome;
@@ -74,6 +76,23 @@ namespace Marco.Presentation.GameFlow
 
         /// <summary>서버/로컬 어느 경로든 집계된 탈출자 수.</summary>
         public int EscapedCount => IsNetworkActive ? _bridge.EscapedCount : _outcome.EscapedCount;
+
+        // ── 스프린트 18: 로비·리매치 표시용 접근자(LobbyScreen·ResultScreen 소비) ──
+
+        /// <summary>현재 진행 페이즈(§15.4). 네트워크면 서버 확정값, 로컬이면 자체 상태기계.</summary>
+        public GameFlowState CurrentPhase => IsNetworkActive ? _bridge.Phase : _gameFlow.CurrentState;
+
+        /// <summary>§12.3 시작 카운트다운 남은 초(RoleAssign 페이즈에서만 의미).</summary>
+        public float CountdownRemaining => IsNetworkActive ? _bridge.CountdownRemaining : 0f;
+
+        /// <summary>§12.5 리매치 유효 찬성 수.</summary>
+        public int RematchVotesFor => IsNetworkActive ? _bridge.RematchVotesFor : 0;
+
+        /// <summary>§12.5 리매치 가결 필요 표(과반).</summary>
+        public int RematchVotesNeeded => IsNetworkActive ? _bridge.RematchVotesNeeded : 0;
+
+        /// <summary>§12.5 리매치 투표 남은 초.</summary>
+        public float RematchSecondsRemaining => IsNetworkActive ? _bridge.RematchSecondsRemaining : 0f;
 
         private void Awake()
         {
@@ -156,42 +175,64 @@ namespace Marco.Presentation.GameFlow
         {
             LogServerRemaining();
 
-            RoundResult serverResult = _bridge.Result;
+            // 스프린트 18: 진행의 단일 진실 소스가 결과 값에서 서버 페이즈(§15.4)로 바뀌었다.
+            // 결과 래치·해제 추론(스프린트 17)은 페이즈 미러링으로 대체 — 로비/카운트다운/부결 복귀까지
+            // 모든 진행 분기를 서버가 명시적으로 알려주므로 클라이언트가 추론할 것이 없다.
+            GameFlowState serverPhase = _bridge.Phase;
+            if (serverPhase == _lastMirroredPhase)
+                return;
 
-            // 스프린트 17: 서버가 재시작하면 결과가 승패 → InProgress로 돌아온다. 그때 종료 래치를
-            // 풀어야 새 라운드의 종료를 다시 반영할 수 있다(§15.4 RoundEnd → RoleAssign → InGame).
-            if (serverResult == RoundResult.InProgress)
+            MirrorPhase(serverPhase);
+            _lastMirroredPhase = serverPhase;
+
+            if (serverPhase == GameFlowState.RoundEnd)
             {
-                if (_lastServerResult != RoundResult.InProgress)
-                    BeginNewRoundFromServer();
-                return;
+                _timer.Stop();
+                Debug.Log($"[Round] 라운드 종료(서버 확정) — 판정: {_bridge.Result} " +
+                          $"(탈출 {_bridge.EscapedCount}명, 남은 시간 {_bridge.RemainingSeconds:0.0}초)");
             }
-
-            if (_lastServerResult != RoundResult.InProgress)
-                return;
-
-            _lastServerResult = serverResult;
-            _timer.Stop();
-            _gameFlow.TryTransition(GameFlowState.RoundEnd);
-
-            Debug.Log($"[Round] 라운드 종료(서버 확정) — 판정: {serverResult} " +
-                      $"(탈출 {_bridge.EscapedCount}명, 남은 시간 {_bridge.RemainingSeconds:0.0}초) " +
-                      $"→ 상태 {_gameFlow.CurrentState}");
+            else if (serverPhase == GameFlowState.InGame)
+            {
+                Debug.Log("[Round] 라운드 시작(서버 확정) — §15.4 InGame");
+            }
+            else if (serverPhase == GameFlowState.Lobby)
+            {
+                Debug.Log("[Round] 로비(서버 확정) — 전원 준비를 기다린다(§12.3)");
+            }
         }
 
         /// <summary>
-        /// 서버가 새 라운드를 시작했을 때 각 피어의 표시·상태기계를 맞춘다(스프린트 17).
-        /// 판정은 서버가 하므로 여기서는 래치 해제와 §15.4 전이만 수행한다.
+        /// 로컬 §15.4 상태기계를 서버 페이즈까지 **허용된 전이만 밟아** 이동시킨다(스프린트 18).
+        /// 전이표는 순서대로만 진행 가능하므로, 목표까지의 다음 단계를 반복해 시도한다.
+        /// (예: 접속 직전 로컬 스캐폴딩이 InGame까지 가 있었다면 InGame→RoundEnd→Lobby로 수렴.)
         /// </summary>
-        private void BeginNewRoundFromServer()
+        private void MirrorPhase(GameFlowState target)
         {
-            _lastServerResult = RoundResult.InProgress;
+            int guard = 0;
+            while (_gameFlow.CurrentState != target && guard++ < 8)
+            {
+                if (!_gameFlow.TryTransition(NextStepToward(_gameFlow.CurrentState, target)))
+                    break;
+            }
 
-            // §15.4 전이표: RoundEnd → RoleAssign → InGame 순서로만 InGame에 돌아갈 수 있다.
-            _gameFlow.TryTransition(GameFlowState.RoleAssign);
-            _gameFlow.TryTransition(GameFlowState.InGame);
+            if (_gameFlow.CurrentState != target)
+                Debug.LogWarning($"[Round] 페이즈 미러링 실패 — 로컬 {_gameFlow.CurrentState}, 서버 {target} (§15.4 전이표 확인 필요)");
+        }
 
-            Debug.Log($"[Round] 새 라운드 시작(서버 확정) — 상태 {_gameFlow.CurrentState}");
+        /// <summary>§15.4 전이표에서 <paramref name="target"/>을 향한 다음 한 걸음.</summary>
+        private static GameFlowState NextStepToward(GameFlowState current, GameFlowState target)
+        {
+            switch (current)
+            {
+                case GameFlowState.Boot: return GameFlowState.MainMenu;
+                case GameFlowState.MainMenu: return GameFlowState.Lobby;
+                case GameFlowState.Lobby: return GameFlowState.RoleAssign;
+                case GameFlowState.RoleAssign: return GameFlowState.InGame;
+                case GameFlowState.InGame: return GameFlowState.RoundEnd;
+                // §15.4 유일한 분기점: 부결 → Lobby, 가결/신규 → RoleAssign.
+                case GameFlowState.RoundEnd: return target == GameFlowState.Lobby ? GameFlowState.Lobby : GameFlowState.RoleAssign;
+                default: return target;
+            }
         }
 
         /// <summary>

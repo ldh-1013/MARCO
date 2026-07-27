@@ -108,6 +108,15 @@ namespace Marco.Net
             if (_driver == null)
                 return;
 
+            // 스프린트 18: 밸브는 라운드 중에만 조작 가능하다. 로비(§12.3 튜토리얼 자유 이동)·
+            // 카운트다운·결과 화면에서의 조작을 서버가 차단한다 — 파문은 §12.3상 로비에서도
+            // 의도된 기능(조작 학습)이라 게이트하지 않는 것과 대조적이다.
+            if (RoundNetworkSync.ServerPhase != Core.GameFlow.GameFlowState.InGame)
+            {
+                Debug.Log($"[ValveNet:Server] {name} 홀드 무시 — 라운드 중이 아님({RoundNetworkSync.ServerPhase})");
+                return;
+            }
+
             if (held)
                 _driver.BeginHold(playerId, role);
             else
@@ -123,6 +132,11 @@ namespace Marco.Net
             // 직접 호출하면 안 된다(NetworkActive 문서 참고) — Update는 매 프레임 도는
             // 경로라 이 가드가 없으면 연결 전 내내 예외가 반복된다.
             if (_driver == null || !NetworkActive || !IsServerStarted)
+                return;
+
+            // 스프린트 18: 라운드가 끝나는 순간 회전 중이던 밸브가 계속 돌아 결과 후에 열리는 것을
+            // 막는다(페이즈가 InGame을 벗어나면 타이머 동결 — 어차피 재시작 시 리셋된다).
+            if (RoundNetworkSync.ServerPhase != Core.GameFlow.GameFlowState.InGame)
                 return;
 
             if (!_driver.IsRotating)

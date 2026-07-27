@@ -50,13 +50,33 @@ namespace Marco.Core.GameFlow
         void SubmitEscapeIntent(ulong playerId, RoleType role);
 
         /// <summary>
-        /// 라운드 재시작을 서버에 요청한다(스프린트 17, §12.5 재시작 골격).
+        /// 리매치 **찬성 투표**를 서버에 보낸다(스프린트 18 — GAP-27 해소, §12.5 사양 승격).
         ///
-        /// 실제 재시작은 <b>서버만</b> 수행하며, 라운드 상태(타이머·탈출·판정)와 그 위에서
-        /// 도는 시스템(밸브·태그·역할)을 초기값으로 되돌린 뒤 새 라운드를 시작한다.
-        /// 정식 사양(§12.5 "리매치 투표 15초·과반 찬성")은 다음 단계이며, 지금은 요청이 오면
-        /// 즉시 재시작하는 최소 골격이다(GAP-27).
+        /// 스프린트 17의 "요청 즉시 재시작" 골격이 §12.5 정식 사양(15초 카운트다운·과반 찬성 시
+        /// 즉시 재시작)으로 대체됐다. 서버가 <c>RematchVoteDriver</c>로 집계·판정하며,
+        /// 가결 → RoleAssign(즉시 재시작) / 부결 → Lobby로 §15.4 분기를 따른다.
+        /// 중복 호출은 멱등이다(같은 플레이어의 표는 1표).
         /// </summary>
         void RequestRestart();
+
+        // ── 스프린트 18: 로비·리매치 상태 노출(표시 전용) ─────────────────
+
+        /// <summary>
+        /// 서버가 확정한 현재 진행 페이즈(§15.4). 로비 게이팅·카운트다운·결과 화면 전환의
+        /// 단일 진실 소스다. 쓰이는 값: Lobby / RoleAssign(3초 카운트다운) / InGame / RoundEnd.
+        /// </summary>
+        GameFlowState Phase { get; }
+
+        /// <summary>RoleAssign(카운트다운) 페이즈의 남은 초(§12.3 "3초 카운트다운").</summary>
+        float CountdownRemaining { get; }
+
+        /// <summary>리매치 유효 찬성 수(§12.5, 현재 접속자 기준).</summary>
+        int RematchVotesFor { get; }
+
+        /// <summary>리매치 가결에 필요한 표 수(과반 = 인원/2 + 1).</summary>
+        int RematchVotesNeeded { get; }
+
+        /// <summary>리매치 투표 남은 초(§12.5 "15초 카운트다운").</summary>
+        float RematchSecondsRemaining { get; }
     }
 }

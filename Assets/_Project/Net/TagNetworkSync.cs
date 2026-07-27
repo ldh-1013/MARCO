@@ -82,6 +82,14 @@ namespace Marco.Net
         [ServerRpc(RequireOwnership = false)]
         private void ServerRequestTag(ulong seekerId, RoleType seekerRole, NetworkConnection caller = null)
         {
+            // 스프린트 18: 태그는 라운드 중에만 성립한다(로비·카운트다운·결과 화면 차단).
+            // 부결 후 로비에서 직전 라운드의 술래 역할이 잠시 남아 있어도 여기서 걸린다.
+            if (RoundNetworkSync.ServerPhase != Core.GameFlow.GameFlowState.InGame)
+            {
+                Debug.Log($"[TagNet:Server] targetId={PlayerId} 태그 무시 — 라운드 중이 아님({RoundNetworkSync.ServerPhase})");
+                return;
+            }
+
             if (_tagged.Value)
                 return; // 이미 태그됨 — 재확정 불필요.
 

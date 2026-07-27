@@ -209,6 +209,13 @@ namespace Marco.EditorTools
                     root.AddComponent<RoleNetworkSync>();
                     Debug.Log("[NetworkPlayerSetupTool] Player 프리팹에 RoleNetworkSync 부착");
                 }
+
+                // ⑥ ReadyNetworkSync — 스프린트 18 로비 준비 상태(§12.3/§14.3 ReadyToggle). 설정할 값 없음.
+                if (root.GetComponent<ReadyNetworkSync>() == null)
+                {
+                    root.AddComponent<ReadyNetworkSync>();
+                    Debug.Log("[NetworkPlayerSetupTool] Player 프리팹에 ReadyNetworkSync 부착");
+                }
             }
 
             // EditPrefabContentsScope가 저장을 마친 뒤의 확정 에셋에서 참조를 다시 읽는다.

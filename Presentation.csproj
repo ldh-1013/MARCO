@@ -60,6 +60,7 @@
     <Compile Include="Assets\_Project\Presentation\SoundPulse\PulseVisualState.cs" />
     <Compile Include="Assets\_Project\Presentation\Objectives\EscapePointTrigger.cs" />
     <Compile Include="Assets\_Project\Presentation\Tagging\TagDetector.cs" />
+    <Compile Include="Assets\_Project\Presentation\UI\LobbyScreen.cs" />
     <Compile Include="Assets\_Project\Presentation\GameFlow\RoundTimer.cs" />
     <Compile Include="Assets\_Project\Presentation\Player\FirstPersonController.cs" />
     <Compile Include="Assets\_Project\Presentation\Objectives\ValveVisualIndicator.cs" />

@@ -209,9 +209,21 @@ namespace Marco.Presentation.UI
 
             _awardPlaceholder.color = new Color(NeutralColor().r, NeutralColor().g, NeutralColor().b, 0.5f);
 
-            _restartHintText.text = RestartUnlocked
-                ? $"{_restartKey} — 다음 라운드"
-                : "…";
+            // 스프린트 18: 네트워크면 §12.5 리매치 투표 상태(찬성 수·15초 창)를, 로컬이면
+            // 기존 즉시 재시작 안내를 보여준다. Enter는 양쪽 모두 RequestRestart로 이어지며,
+            // 네트워크에서는 "찬성 1표"를 의미한다(중복 투표는 서버가 멱등 처리).
+            if (_round.IsNetworkActive)
+            {
+                _restartHintText.text = RestartUnlocked
+                    ? $"{HudFormatter.FormatRematchVote(_round.RematchVotesFor, _round.RematchVotesNeeded, _round.RematchSecondsRemaining)}   ·   {_restartKey} — 찬성"
+                    : HudFormatter.FormatRematchVote(_round.RematchVotesFor, _round.RematchVotesNeeded, _round.RematchSecondsRemaining);
+            }
+            else
+            {
+                _restartHintText.text = RestartUnlocked
+                    ? $"{_restartKey} — 다음 라운드"
+                    : "…";
+            }
             _restartHintText.color = winnerColor;
 
             if (_dim != null)

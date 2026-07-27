@@ -82,6 +82,54 @@ namespace Marco.Presentation.UI
             }
         }
 
+        // ── 스프린트 18: 로비(§12.3) · 리매치 투표(§12.5) ─────────────────
+
+        /// <summary>§12.3 하단 준비 표시 문구 그대로 — "준비완료 (2/4)".</summary>
+        public static string FormatReadyCount(int readyCount, int totalPlayers)
+        {
+            if (readyCount < 0) readyCount = 0;
+            if (totalPlayers < 0) totalPlayers = 0;
+            return $"준비완료 ({readyCount}/{totalPlayers})";
+        }
+
+        /// <summary>
+        /// 로비 플레이어 한 줄. §12.3 아바타 그리드의 텍스트 대응 —
+        /// 채워진 원(●)=준비, 빈 원(○)=대기, 자기 자신은 "(나)" 표기.
+        /// </summary>
+        public static string FormatPlayerRow(ulong playerId, bool isReady, bool isSelf)
+        {
+            string mark = isReady ? "●" : "○";
+            string state = isReady ? "준비" : "대기";
+            string self = isSelf ? " (나)" : string.Empty;
+            return $"{mark} P{playerId} — {state}{self}";
+        }
+
+        /// <summary>§12.3 "3초 카운트다운" 표시. 타이머와 같은 이유로 올림(마지막 1초가 0으로 보이지 않게).</summary>
+        public static string FormatLobbyCountdown(float remainingSeconds)
+        {
+            if (remainingSeconds < 0f)
+                remainingSeconds = 0f;
+            return $"시작까지 {(int)System.Math.Ceiling(remainingSeconds)}초";
+        }
+
+        /// <summary>§12.5 리매치 투표 상태 — "리매치? (2/3 찬성) · 12초" 형식(도식 문구 준용).</summary>
+        public static string FormatRematchVote(int votesFor, int votesNeeded, float remainingSeconds)
+        {
+            if (votesFor < 0) votesFor = 0;
+            if (votesNeeded < 0) votesNeeded = 0;
+            if (remainingSeconds < 0f) remainingSeconds = 0f;
+            return $"리매치? ({votesFor}/{votesNeeded} 찬성) · {(int)System.Math.Ceiling(remainingSeconds)}초";
+        }
+
+        /// <summary>
+        /// §12.3 상단 "방코드" 줄. GAP-28: MVP는 Tugboat LAN 직결이라 4자리 코드 발급 체계가 없다 —
+        /// 접속 주소가 방코드의 역할을 대신하며, Steam 단계에서 §12.2 코드 매칭으로 대체된다.
+        /// </summary>
+        public static string FormatRoomCode(string address)
+        {
+            return $"방코드: {(string.IsNullOrWhiteSpace(address) ? "-" : address)}";
+        }
+
         /// <summary>
         /// 승패 <b>사유</b>를 §6.3 판정식에서 역으로 유도한다(스프린트 17).
         ///

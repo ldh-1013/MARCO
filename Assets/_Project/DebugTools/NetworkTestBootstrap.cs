@@ -61,6 +61,13 @@ namespace Marco.DebugTools
 
         private void Update()
         {
+            // 스프린트 18: 정식 접속 경로(LobbyScreen + ConnectionService)가 씬에 있으면 키 처리를
+            // 전부 양보한다 — 같은 H/J 키를 두 컴포넌트가 받아 접속이 이중 시작되는 것을 막는다.
+            // 이 부트스트랩은 로비 실기 검증이 끝날 때까지의 폴백으로만 남으며(지시서 §1.7),
+            // 검증 완료 후 DebugTools 어셈블리 전체와 함께 삭제된다.
+            if (Marco.Core.Net.ConnectionServiceRegistry.Current != null)
+                return;
+
             Keyboard keyboard = Keyboard.current;
             if (keyboard == null)
                 return;
