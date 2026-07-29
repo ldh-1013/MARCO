@@ -37,8 +37,14 @@ namespace Marco.DebugTools
 
         private void Awake()
         {
-            if (_fallbackCameraObject == null && Camera.main != null)
-                _fallbackCameraObject = Camera.main.gameObject;
+            // 스프린트 18b 후속: 예전에는 여기서 Camera.main을 자동으로 집어 폴백 카메라로 삼았다.
+            // 씬 분리 후에는 이 컴포넌트(맵 씬)가 **플레이어가 이미 스폰된 뒤**에 깨어나므로,
+            // Camera.main이 플레이어 자신의 카메라를 가리킬 수 있다. 그 상태로 OnLocalPlayerReady가
+            // 즉시 호출되면 **플레이어 카메라를 꺼 버려** 화면에 하늘만 남는다(실기에서 확인된 증상).
+            // 인스펙터로 명시 지정된 경우에만 폴백 카메라를 다루도록 자동 탐색을 제거했다.
+            if (_fallbackCameraObject == null)
+                Debug.Log("[NetworkTestBootstrap] 폴백 카메라가 지정되지 않아 카메라를 건드리지 않습니다 " +
+                          "(씬 분리 배치에서는 시스템 씬의 카메라가 그 역할을 합니다).");
         }
 
         private void OnEnable()

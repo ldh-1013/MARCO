@@ -1591,3 +1591,127 @@ Lobby ──(전원 Ready, ServerLobbyDriver)──▶ RoleAssign ──(3초 §
 3. **술래 로테이션**(§2.2 "3판 1세트") — 리매치가 생겨 이제 자리가 있다. GAP-22(호스트 고정 술래) 해소.
 4. **음성 파이프라인**(§5.2/§5.8) — §12.3 로비 아바타 마이크 파문·어워드 집계의 전제.
 5. 어워드 3종 · §12.6 설정 화면.
+
+---
+
+## 스프린트 18b — 씬 분리: MainMenu 독립 + 맵 지연 로드 + Lobby↔Game 네트워크 씬 전환 (§15.1/§15.4/§12.2)
+
+스프린트 18의 사양 이탈(로비를 Game 씬 내 페이즈로 구현)을 정정하는 스프린트. **코드·도구는 완성했고, 씬 자산 마이그레이션은 에디터에서 사용자가 실행해야 한다**(아래 §7 — 이 프로젝트가 스프린트 8~14에서 확립한 원칙 그대로).
+
+### 1. 스프린트 18 로직의 씬 독립성 — 코드로 검증 완료 (지시서 §5-1)
+
+지시서가 "스프린트 18의 자체 보고를 그대로 신뢰하지 말고 검증하라"고 했다. 검증 결과 **보고가 정확했다**:
+
+| 파일 | `SceneManagement` 의존 | 씬 오브젝트 탐색 | 판정 |
+|---|---|---|---|
+| `ServerLobbyDriver.cs` | 없음(using 0개) | 없음 | ✅ 순수 |
+| `RematchVoteDriver.cs` | 없음(`System.Collections.Generic`만) | 없음 | ✅ 순수 |
+| `ReadyNetworkSync.cs` | 없음 | 없음(자기 SyncVar + 정적 목록) | ✅ 씬 무관 |
+| `ConnectionService.cs` | 없음 | 없음(`InstanceFinder`) | ✅ 씬 무관 |
+
+→ **재설계 없이 재배선만으로 충분하다**는 전제가 성립했다. Ready-up·게이팅·투표 로직은 이번 스프린트에서 **한 줄도 바꾸지 않았다.**
+
+### 2. 씬 참조 그래프 조사 — 분리 시 끊어지는 지점을 먼저 특정
+
+씬 YAML의 `fileID` 참조를 전수 조사해 이동 안전성을 확인했다:
+
+| 오브젝트 | 외부 참조 | 이동 가능성 |
+|---|---|---|
+| **PulseSystem**(라운드 상태기계·HUD·결과·로비 UI·파문·밸브 집계) | **없음** — 모든 참조가 자기 자신의 컴포넌트 또는 팔레트 **에셋** | ✅ 다른 씬으로 이동 안전 |
+| NetworkManager | 없음(하위 매니저는 런타임 생성) | ✅ 안전 |
+| 밸브 3개 / 대역 러너 | 자기완결적 | ✅ 맵에 잔류 |
+| **EscapePoint** | `_roundCoordinator` → **PulseSystem** | ⚠ **유일한 교차 씬 파괴 지점** |
+
+또한 `ValveObjectiveTracker`가 `Awake`에서 밸브를 스캔하므로, **맵이 늦게 오면 빈 배열**이 되는 문제를 확인했다. 이 두 가지가 이번 스프린트의 실제 코드 작업 대상이었다.
+
+### 3. 확인한 FishNet 멀티 씬 API (벤더 소스 — 추측 없음)
+
+| 항목 | 확인 결과 |
+|---|---|
+| 전역 애디티브 로드 | `SceneManager.LoadGlobalScenes(SceneLoadData)` + `SceneLoadData.ReplaceScenes = ReplaceOption.None`. 전역 씬은 **이후 접속자에게도 자동 적용** |
+| 언로드 | `UnloadGlobalScenes(SceneUnloadData)`, `SceneUnloadData(string sceneName)` 생성자 존재 |
+| **런타임 로드 씬의 NetworkObject 스폰** | **자동** — `ServerObjects.SceneManager_sceneLoaded`가 `Scenes.GetSceneNetworkObjects` → `InitializeRootNetworkObjects` 수행(서버 시작 상태에서). 맵의 밸브 3개는 로드 시 스스로 스폰된다 |
+| NetworkManager 씬 생존 | `_dontDestroyOnLoad = true`(**기본값**) — NM이 씬 전환에 자동 생존. `PersistenceType.DestroyNewest`로 중복 시 새 사본이 파괴됨 |
+| 플레이어 스폰 시점 | `PlayerSpawner`가 `SceneManager.OnClientLoadedStartScenes`에서 스폰 → **시작 씬(=Lobby)에서 스폰**되므로 로비에 pawn이 존재한다(§12.3 아바타의 자리) |
+
+### 4. 수정·생성 파일
+
+**Core (신규 1)**
+- `GameFlow/SpawnAnchorRegistry.cs` — 맵의 스폰 지점(§10.1 입구 로비)을 씬 간 참조 없이 알리는 레지스트리 + `SpawnPose` 구조체. **Transform이 아니라 좌표 스냅샷 + 식별 토큰**을 보관한다(맵 언로드 시 파괴된 Transform을 붙들지 않기 위함 — 테스트 작성 중 발견한 개선).
+
+**Net (신규 1 / 수정 1)**
+- `SceneFlowController.cs` (신규) — §15.1 씬 흐름 구동자. 오프라인 전환(Boot→MainMenu→Lobby)은 Unity `SceneManager`, **맵 로드는 FishNet `LoadGlobalScenes`(애디티브)**. `MapLoaded`로 서버가 로드 완료를 판정.
+- `RoundNetworkSync.cs` — 카운트다운 완료 시 **맵 로드를 요청하고 완료를 기다린 뒤** 라운드를 시작한다(§15.4 "InGame: 맵 로드"). 부결로 로비 복귀 시 맵을 언로드. `MapReadyForRound()`는 `SceneFlowController`가 없으면 true를 반환해 **씬 분리 전 배치에서도 그대로 동작**한다(마이그레이션 안전장치).
+
+**Presentation (신규 4 / 수정 3)**
+- `UI/MainMenuScreen.cs` (신규) — §12.2 메인 메뉴. 접속 의도만 정적으로 남기고 로비 씬을 로드한다(**접속은 로비 도착 후** — `RoundNetworkSync`가 로비 씬의 씬 NetworkObject라 서버 시작 시 존재해야 하기 때문).
+- `GameFlow/LobbyEntry.cs` (신규) — 로비 씬에서 그 의도를 소비해 `IConnectionService`로 접속 시작.
+- `GameFlow/BootFlow.cs` (신규) — §15.4 Boot 행(마이크 권한은 §5.2 스코프라 자리표시자).
+- `GameFlow/SpawnAnchor.cs` (신규) — 맵의 스폰 지점 표시자.
+- `GameFlow/PawnPhaseTeleporter.cs` (신규) — 맵 도착 시 **로컬 소유 pawn만** 스폰 지점으로 이동(NetworkTransform 소유자 권위 준수). `CharacterController`를 잠시 끄는 표준 순간이동 처리.
+- `Objectives/ValveObjectiveTracker.cs` — `Rescan()` 추가 + **스스로** 씬 로드/언로드를 구독(Net이 Presentation을 호출하면 §15.2 위반이라 자체 구독으로 설계).
+- `Objectives/EscapePointTrigger.cs` — 라운드 지휘부를 **런타임 지연 탐색**(교차 씬 참조 파괴 대응). 못 찾아도 비활성화하지 않는다.
+- `UI/InGameHud.cs` — 밸브 핍을 §6.2 최대치(3개) 고정 생성 후 실제 개수만큼 표시. 매 프레임 집계기에서 최신 배열을 읽는다(맵 0↔3 변동 대응).
+
+**Editor (신규 1 / 수정 1)**
+- `SceneFlowSetupTool.cs` (신규) — 4단계 마이그레이션 메뉴(`Tools/MARCO/Scene Flow — 1~4`): 드라이런 점검 → Lobby 씬 구성(시스템 이동 + 임시 바닥) → 맵 씬 정리(스폰 앵커) → Boot·MainMenu 구성 + Build Settings 등록. 각 단계 멱등, 파괴적 단계는 확인 대화상자.
+- `NetworkSetupDiagnostics.cs` — 씬 흐름 점검 추가(SceneFlowController 유무로 18/18b 배치 구분).
+
+**Tests (신규 1)**: `SpawnAnchorRegistryTests`(8) — 등록/해제/토큰 불일치/맵 재로드 시나리오.
+
+### 5. 테스트 결과
+
+- **신규 8케이스**. **회귀: 기존 351 + 8 = 359 passed, 0 failed**.
+- **전 어셈블리 컴파일 0 error / 0 warning**(경고 억제 없음).
+- 작성 중 발견·수정: ① `SceneFlowController`가 `ValveObjectiveTracker`(Presentation)를 직접 호출해 **§15.2 경계를 위반**하고 있었다 → 집계기 자체 씬 구독으로 전환. ② 테스트가 `GameObject`/`Quaternion.Euler`(둘 다 네이티브 호출)를 써서 하네스에서 실패 → 레지스트리를 좌표 스냅샷 기반으로 재설계하고 Quaternion을 (x,y,z,w) 생성자로 교체. **이 프로젝트 EditMode 테스트는 Unity 런타임 없이 돌아야 한다는 제약을 다시 확인**한 사례다.
+
+### 6. 기획서 대응 + 스펙 갭 (GAP-30·31)
+
+| 사양 | 구현 |
+|---|---|
+| §15.1 `Boot → MainMenu → Lobby → Game(맵별 어디티브 로드)` | 4씬 흐름 + **맵을 `ReplaceOption.None`(애디티브)로 로드** — "어디티브"를 문자 그대로 구현 |
+| §15.4 `InGame: 맵 로드, 타이머 시작` | 카운트다운 완료 → 맵 로드 → **로드 완료 후** 타이머 시작 |
+| §15.4 `RoundEnd → Lobby(부결)` | 맵 언로드 + 전원 준비 해제 |
+| §12.2 방 만들기 / 코드 입장 | `MainMenuScreen`(독립 씬) |
+| §12.2 솔로 연습장(오프라인 씬) | **제외 — GAP-31로 이월**(지시서 명시) |
+| §12.3 로비 = UI 화면 | 로비 씬에 UI만. pawn은 임시 바닥 위에서 대기(§12.3 아바타의 최소 대응) |
+
+| GAP | 쟁점 | 결정 | 근거 |
+|---|---|---|---|
+| **GAP-30** | 맵 로드 중의 페이즈가 §15.4에 없다(Loading 상태 부재) | **RoleAssign 페이즈를 유지**하며 로드한다. 3초 카운트다운이 끝나도 맵이 안 오면 그 페이즈에 머문다 | §15.4는 RoleAssign을 "3초 연출"로, InGame을 "맵 로드"로 적었지만 **연출 중 로드**가 자연스러운 해석이다(로딩 화면을 새로 만들지 않고 카운트다운 표시를 그대로 쓴다). 라운드 타이머는 로드 완료 후 시작하므로 §6.2 제한시간이 로딩 시간에 잠식되지 않는다 |
+| **GAP-31** | §12.2 솔로 연습장(오프라인 씬) | 이번 스코프 제외, 별도 스프린트로 이월 | 지시서 §2가 명시적으로 제외. 마이크 캘리브레이션 겸용이라 §5.2 음성 파이프라인과 함께 하는 것이 자연스럽다 |
+
+### 7. 씬 자산 마이그레이션 — **도구 제공, 실행은 사용자** (가장 중요한 한계)
+
+**이번 스프린트는 씬 파일을 직접 바꾸지 않았다.** 이유:
+- NetworkObject의 `SceneId`·`ComponentIndex`는 FishNet/Unity 에디터가 생성하는 값이라 씬 YAML로 손댈 수 없다(스프린트 8~14 원칙). PulseSystem을 다른 씬으로 옮기면 **SceneId가 바뀌므로** 반드시 에디터 API + 씬 저장 + Reserialize를 거쳐야 한다.
+- Game 씬은 모든 작업이 의존하는 단일 자산이다. 검증할 수 없는 대규모 씬 수술을 무검증으로 커밋하면 실패 시 전체 작업이 막힌다.
+
+그래서 **마이그레이션을 도구로 만들고**(`SceneFlowSetupTool`, 4단계·멱등·드라이런), 코드는 **분리 전/후 두 배치에서 모두 동작하도록** 작성했다(`MapReadyForRound()`가 `SceneFlowController` 부재 시 true, `EscapePointTrigger`·`ValveObjectiveTracker`가 지연 탐색·재스캔). 즉 **도구를 실행하기 전에도 현재 프로젝트는 스프린트 18 상태로 정상 동작하고**, 도구 실행 후 §15.1 구조로 전환된다.
+
+실행 순서(§20 절차서에 상세):
+1. `Tools/MARCO/Scene Flow — 1. 현재 상태 점검` (변경 없음, 무엇이 어디 있는지 확인)
+2. `— 2. Lobby 씬 구성(시스템 이동)` → **두 씬 저장(Ctrl+S)** → **Reserialize NetworkObjects**
+3. `— 3. 맵 씬 정리(스폰 앵커)` → 저장
+4. `— 4. Boot·MainMenu 구성 + 빌드 설정`
+5. `Diagnose Network Setup`으로 전 항목 확인
+
+### 8. 실기 검증 (다음 세션) — NRE 재검토 조건 포함
+
+`수동검증_절차.md §20`에 절차서를 남겼다. 핵심:
+1. 마이그레이션 4단계 실행 후 `Boot`에서 Play → MainMenu → H/J → Lobby(**맵 미로드 확인**: 그레이박스가 보이지 않고 밸브 카운트가 `⚙ 0/0`) → 양쪽 준비 → 3초 → **맵 로드 확인**(그레이박스 등장 + `⚙ 0/3` + pawn이 §10.1 입구 로비로 이동) → 라운드.
+2. 부결(15초 방치) → **맵 언로드 확인**(그레이박스 사라짐, `⚙ 0/0`) → 로비 복귀.
+3. 가결 → 맵 유지 + 월드 리셋 → 3초 → 새 라운드.
+4. **⚠ 스프린트 17 NRE 재검토 조건**: 접속 종료 **및 이번에 추가된 씬 언로드 시점**에 `NetworkObject.OnDestroy` NRE가 Play 도중 재현되는지 관찰. 맵 언로드는 다수의 씬 NetworkObject(밸브 3개)를 한꺼번에 파괴하므로 **재현 가능성이 가장 높은 새 시나리오**다 — 반드시 기록할 것.
+5. `MovedNetworkObjects`는 이번 설계에서 쓰지 않았다(pawn은 시스템 씬에 계속 머물고 좌표만 이동) — 씬 간 오브젝트 운반의 위험을 피한 선택이며, 대신 pawn이 맵 씬에 속하지 않는다는 차이를 확인할 것.
+
+### 9. `NetworkTestBootstrap` 제거 가능 여부
+
+**아직 아니다.** 스프린트 18의 양보 가드가 그대로 유효하고(정식 경로 등록 시 키 처리 건너뜀), §20 실기 검증이 통과해야 제거 조건이 충족된다. 다만 이번에 `MainMenuScreen`이 §12.2 접속 UI를 정식으로 제공하므로, **제거 후에도 접속 경로가 비지 않는다**는 조건은 갖춰졌다.
+
+### 10. 남은 작업 우선순위
+
+1. **§20 마이그레이션 + 실기 검증** — 이번 스프린트의 성패. 특히 맵 언로드 시 NRE 관찰.
+2. **DebugTools 삭제**(§20 통과 후).
+3. **솔로 연습장**(GAP-31) — §5.2 음성 파이프라인과 묶어서.
+4. 술래 로테이션(§2.2), 어워드 3종, §12.6 설정 화면.

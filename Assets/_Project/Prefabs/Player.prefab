@@ -108,6 +108,7 @@ GameObject:
   - component: {fileID: 5779659941918705331}
   - component: {fileID: 3381629495904837641}
   - component: {fileID: 2632874382875680094}
+  - component: {fileID: 8359692817228717581}
   m_Layer: 0
   m_Name: Player
   m_TagString: Untagged
@@ -254,6 +255,7 @@ MonoBehaviour:
   - {fileID: 5779659941918705331}
   - {fileID: 3381629495904837641}
   - {fileID: 2632874382875680094}
+  - {fileID: 8359692817228717581}
   InitializedParentNetworkBehaviour: {fileID: 0}
   InitializedNestedNetworkObjects: []
   RuntimeParentNetworkBehaviour: {fileID: 0}
@@ -264,7 +266,7 @@ MonoBehaviour:
   _initializeOrder: 0
   _preventDespawnOnDisconnect: 0
   _defaultDespawnType: 0
-  _initializedTimestamp: -8584165377052904418
+  _initializedTimestamp: -8584162797004872066
 --- !u!114 &4428196590212668294
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -354,6 +356,21 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Net::Marco.Net.RoleNetworkSync
   _componentIndexCache: 3
+  _addedNetworkObject: {fileID: 405541516152503632}
+  _networkObjectCache: {fileID: 405541516152503632}
+--- !u!114 &8359692817228717581
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1290075914969322122}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 18293a4b5c6d7e8f90a1b2c3d4e5f607, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Net::Marco.Net.ReadyNetworkSync
+  _componentIndexCache: 4
   _addedNetworkObject: {fileID: 405541516152503632}
   _networkObjectCache: {fileID: 405541516152503632}
 --- !u!1 &1803192958280037329

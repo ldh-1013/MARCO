@@ -61,6 +61,7 @@
     <Compile Include="Assets\_Project\Net\PlayerOwnershipGate.cs" />
     <Compile Include="Assets\_Project\Net\PulseNetworkSync.cs" />
     <Compile Include="Assets\_Project\Net\ConnectionService.cs" />
+    <Compile Include="Assets\_Project\Net\SceneFlowController.cs" />
     <Compile Include="Assets\_Project\Net\Transports\FishyFacepunch\Core\FishyConnectionManager.cs" />
     <Compile Include="Assets\_Project\Net\RoleNetworkSync.cs" />
     <Compile Include="Assets\_Project\Net\TagNetworkSync.cs" />

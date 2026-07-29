@@ -37,7 +37,8 @@ namespace Marco.EditorTools
         [MenuItem("Tools/MARCO/Setup Network Player")]
         public static void Run()
         {
-            bool proceed = EditorUtility.DisplayDialog(
+            // 전체 셋업 파이프라인이 부를 때는 확인을 건너뛴다(개별 메뉴 실행 시에는 기존 동작 그대로).
+            bool proceed = MarcoSetupPipeline.Automated || EditorUtility.DisplayDialog(
                 "네트워크 플레이어 구성 (§10 자동화)",
                 "이 작업은 현재 씬과 프로젝트 자산을 수정합니다:\n" +
                 "  • NetworkManager(+Tugboat+PlayerSpawner) 오브젝트 배치\n" +

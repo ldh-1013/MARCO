@@ -95,7 +95,14 @@ namespace Marco.Presentation.Player
         public void SetLocalControl(bool isLocallyControlled)
         {
             if (IsLocallyControlled == isLocallyControlled)
+            {
+                // 값이 같아도 **등록 상태는 다시 확정한다**. 원격 pawn이 스폰되며 레지스트리를
+                // 덮어썼다가 해제해 Current가 비어 있을 수 있는데, 여기서 조기 반환해 버리면
+                // 이미 true인 로컬 pawn이 영영 재등록되지 않는다(실기에서 확정된 버그).
+                // Register는 이미 등록된 대상이면 즉시 반환하므로 중복 부작용이 없다.
+                PublishRegistration();
                 return;
+            }
 
             IsLocallyControlled = isLocallyControlled;
             ApplyLocalControlState();

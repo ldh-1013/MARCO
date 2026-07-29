@@ -65,6 +65,7 @@ namespace Marco.Net
         private ServerRoundDriver _driver;      // InGame 동안만 존재(서버 전용)
         private ServerLobbyDriver _lobby;       // 서버 전용
         private RematchVoteDriver _vote;        // RoundEnd 동안만 존재(서버 전용)
+        private bool _waitingForMap;            // 스프린트 18b: 맵 로드 완료를 기다리는 중(서버 전용)
 
         // 재사용 버퍼(매 프레임 할당 방지 — T8 성능 조사의 무할당 원칙).
         private readonly List<RoleNetworkSync> _assignBuffer = new List<RoleNetworkSync>();
@@ -168,9 +169,32 @@ namespace Marco.Net
                     // §15.4 RoleAssign: "3초 연출, 역할 배정" — 배정을 카운트다운 완료 시점에
                     // 1회 수행한다(중단 시 되돌릴 배정이 없도록 끝에서 확정).
                     EnsureRolesAssigned();
-                    BeginRound();
+
+                    // 스프린트 18b: §15.4 "InGame: **맵 로드**" — 맵이 올라온 뒤에 라운드를 시작한다.
+                    // 맵 없이 시작하면 밸브가 0개라 §6.1 배수로 게이트가 영구히 닫혀 라운드가 성립하지 않는다.
+                    _waitingForMap = true;
+                    SceneFlowController.Instance?.ServerLoadMap();
                     break;
             }
+
+            // 맵 로드 대기 중이면 완료되는 프레임에 라운드를 시작한다(페이즈는 RoleAssign 유지 — GAP-30).
+            if (_waitingForMap && MapReadyForRound())
+            {
+                _waitingForMap = false;
+                BeginRound();
+            }
+        }
+
+        /// <summary>
+        /// 라운드를 시작해도 되는 맵 상태인가(스프린트 18b).
+        ///
+        /// 씬 흐름 컨트롤러가 없는 구성(맵과 시스템이 한 씬에 있는 스프린트 18 이전 배치)에서는
+        /// 항상 true다 — 씬 분리 전/후 어느 배치에서도 동작하게 하려는 것이다(마이그레이션 안전장치).
+        /// </summary>
+        private static bool MapReadyForRound()
+        {
+            SceneFlowController flow = SceneFlowController.Instance;
+            return flow == null || flow.MapLoaded;
         }
 
         private void TickRound(float dt)
@@ -219,8 +243,14 @@ namespace Marco.Net
                     ServerResetWorld();
                     ClearAllReady();
                     _lobby.ResetForLobby();
+
+                    // 스프린트 18b: 로비로 돌아가면 맵을 내린다(§15.4상 맵은 InGame의 것이다).
+                    // 다음 라운드에서 새로 로드되므로 밸브·탈출 지점도 깨끗한 상태로 다시 온다.
+                    _waitingForMap = false;
+                    SceneFlowController.Instance?.ServerUnloadMap();
+
                     SetPhase(GameFlowState.Lobby);
-                    Debug.Log("[RoundNet:Server] 리매치 부결(15초 만료) — 로비로 복귀, 전원 준비 해제(§12.5/§15.4)");
+                    Debug.Log("[RoundNet:Server] 리매치 부결(15초 만료) — 로비로 복귀, 전원 준비 해제 + 맵 언로드(§12.5/§15.4)");
                     break;
             }
         }

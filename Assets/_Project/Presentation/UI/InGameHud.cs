@@ -69,7 +69,8 @@ namespace Marco.Presentation.UI
         private Text _resultText;
         private Image[] _valvePips;
 
-        private ValveBehaviour[] _valveBehaviours;
+        /// <summary>§6.2상 맵당 밸브는 최대 3개다. 맵이 오갈 때를 대비해 이만큼 미리 만들어 둔다.</summary>
+        private const int MaxValvePips = 3;
 
         private bool Colorblind =>
             _colorblindSource != null ? _colorblindSource.ColorblindMode : _colorblindFallback;
@@ -82,9 +83,6 @@ namespace Marco.Presentation.UI
                 _valves = GetComponent<ValveObjectiveTracker>() ?? FindAnyObjectByType<ValveObjectiveTracker>();
             if (_colorblindSource == null)
                 _colorblindSource = FindAnyObjectByType<PulseVisualRenderer>();
-
-            // 개별 밸브 상태 표시용. 집계기가 이미 씬을 찾아뒀으므로 그 목록을 그대로 읽는다.
-            _valveBehaviours = _valves != null ? _valves.Valves : System.Array.Empty<ValveBehaviour>();
 
             BuildHud();
         }
@@ -173,10 +171,16 @@ namespace Marco.Presentation.UI
             return text;
         }
 
-        /// <summary>밸브 개수만큼 작은 사각형 표시를 만든다(개방/회전중/닫힘을 색으로 구분).</summary>
+        /// <summary>
+        /// 밸브 표시용 사각형을 만든다(개방/회전중/닫힘을 색으로 구분).
+        ///
+        /// 스프린트 18b: 맵이 애디티브로 오가면서 밸브 수가 0 ↔ N으로 변하므로, HUD 구축 시점의
+        /// 개수에 맞춰 만들 수 없다. §6.2 최대치(맵당 3개)만큼 미리 만들어 두고 실제 밸브 수에 따라
+        /// 보이거나 숨긴다 — 런타임에 UI 오브젝트를 만들고 없애는 것보다 단순하고 할당도 없다.
+        /// </summary>
         private Image[] CreateValvePips()
         {
-            int count = _valveBehaviours != null ? _valveBehaviours.Length : 0;
+            int count = MaxValvePips;
             var pips = new Image[count];
 
             // 밸브 카운트 텍스트("⚙ 0/3") 오른쪽에 나란히 배치한다.
@@ -274,7 +278,11 @@ namespace Marco.Presentation.UI
                 if (pip == null)
                     continue;
 
-                ValveBehaviour valve = i < _valveBehaviours.Length ? _valveBehaviours[i] : null;
+                // 스프린트 18b: 밸브 목록은 맵 로드·언로드에 따라 바뀌므로 매 프레임 집계기에서
+                // 최신 배열을 읽는다(집계기가 씬 이벤트로 재스캔한다). 맵이 없으면 길이 0이라
+                // 모든 핍이 숨는다.
+                ValveBehaviour[] valves = _valves.Valves;
+                ValveBehaviour valve = i < valves.Length ? valves[i] : null;
                 if (valve == null)
                 {
                     pip.enabled = false;

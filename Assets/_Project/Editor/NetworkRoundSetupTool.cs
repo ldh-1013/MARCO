@@ -38,7 +38,8 @@ namespace Marco.EditorTools
 
             GameObject go = coordinator.gameObject;
 
-            bool proceed = EditorUtility.DisplayDialog(
+            // 전체 셋업 파이프라인이 부를 때는 확인을 건너뛴다(개별 메뉴 실행 시에는 기존 동작 그대로).
+            bool proceed = MarcoSetupPipeline.Automated || EditorUtility.DisplayDialog(
                 "네트워크 라운드 구성 (스프린트 12)",
                 $"'{go.name}' 오브젝트(RoundCoordinator)에 NetworkObject + RoundNetworkSync를 부착합니다.\n\n" +
                 "SceneId 등은 FishNet이 자동 생성하므로, 실행 후 반드시 씬을 저장(Ctrl+S)하고 " +

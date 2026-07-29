@@ -44,12 +44,45 @@ namespace Marco.Presentation.Objectives
 
         private void Awake()
         {
+            Rescan();
+        }
+
+        /// <summary>
+        /// 씬의 밸브를 다시 찾는다(스프린트 18b — 맵 애디티브 로드 대응).
+        ///
+        /// **왜 필요한가**: §15.4상 맵은 InGame 진입 시점에 로드되므로(§15.1 "Game(맵별 어디티브 로드)"),
+        /// 이 집계기가 시스템 씬에서 <see cref="Awake"/>를 돌 때는 밸브가 **아직 존재하지 않는다**.
+        /// 맵이 로드·언로드될 때마다 <c>SceneFlowController</c>가 이 메서드를 호출해 목록을 갱신한다.
+        /// 맵이 없으면 빈 배열이 되어 <see cref="TotalValves"/>=0 → <see cref="IsEscapeGateOpen"/>=false다
+        /// (로비에서 탈출·게이트 개방이 성립하지 않는 올바른 상태).
+        /// </summary>
+        public void Rescan()
+        {
             _valves = FindObjectsByType<ValveBehaviour>();
+            OpenedCount = 0;
+            _lastOpenedCount = -1; // 다음 Update에서 로그를 한 번 다시 찍게 한다
         }
 
         // Net(RoundNetworkSync)이 §15.2를 넘어 게이트 상태를 읽도록 Core 레지스트리에 등록한다.
-        private void OnEnable() => EscapeGateRegistry.Register(this);
-        private void OnDisable() => EscapeGateRegistry.Unregister(this);
+        private void OnEnable()
+        {
+            EscapeGateRegistry.Register(this);
+
+            // 스프린트 18b: 맵(Game 씬)이 애디티브로 오갈 때마다 밸브 목록을 다시 맞춘다.
+            // **스스로** 구독하는 이유: Net이 이 Presentation 타입을 호출하면 §15.2 경계가 깨진다.
+            UnityEngine.SceneManagement.SceneManager.sceneLoaded += OnSceneLoaded;
+            UnityEngine.SceneManagement.SceneManager.sceneUnloaded += OnSceneUnloaded;
+        }
+
+        private void OnDisable()
+        {
+            EscapeGateRegistry.Unregister(this);
+            UnityEngine.SceneManagement.SceneManager.sceneLoaded -= OnSceneLoaded;
+            UnityEngine.SceneManagement.SceneManager.sceneUnloaded -= OnSceneUnloaded;
+        }
+
+        private void OnSceneLoaded(UnityEngine.SceneManagement.Scene scene, UnityEngine.SceneManagement.LoadSceneMode mode) => Rescan();
+        private void OnSceneUnloaded(UnityEngine.SceneManagement.Scene scene) => Rescan();
 
         private void Update()
         {

@@ -33,17 +33,22 @@ namespace Marco.EditorTools
                 return;
             }
 
-            bool proceed = EditorUtility.DisplayDialog(
-                "네트워크 밸브 구성 (스프린트 10)",
-                $"씬의 밸브 {valves.Length}개에 NetworkObject + ValveNetworkSync를 부착합니다.\n\n" +
-                "SceneId 등은 FishNet이 자동 생성하므로, 실행 후 반드시 씬을 저장(Ctrl+S)하세요. " +
-                "씬 변경은 Ctrl+Z로 되돌릴 수 있지만 작업 전 Assets/Scenes/Game.unity 백업을 권장합니다.\n\n계속하시겠습니까?",
-                "계속", "취소");
-
-            if (!proceed)
+            // 전체 셋업 파이프라인이 부를 때는 확인을 건너뛴다(사람 개입 없이 도는 것이 목적).
+            // 개별 메뉴 실행 시에는 Automated가 항상 false라 기존 동작 그대로다.
+            if (!MarcoSetupPipeline.Automated)
             {
-                Debug.Log("[NetworkValveSetupTool] 사용자가 취소했습니다. 변경 없음.");
-                return;
+                bool proceed = EditorUtility.DisplayDialog(
+                    "네트워크 밸브 구성 (스프린트 10)",
+                    $"씬의 밸브 {valves.Length}개에 NetworkObject + ValveNetworkSync를 부착합니다.\n\n" +
+                    "SceneId 등은 FishNet이 자동 생성하므로, 실행 후 반드시 씬을 저장(Ctrl+S)하세요. " +
+                    "씬 변경은 Ctrl+Z로 되돌릴 수 있지만 작업 전 Assets/Scenes/Game.unity 백업을 권장합니다.\n\n계속하시겠습니까?",
+                    "계속", "취소");
+
+                if (!proceed)
+                {
+                    Debug.Log("[NetworkValveSetupTool] 사용자가 취소했습니다. 변경 없음.");
+                    return;
+                }
             }
 
             Undo.SetCurrentGroupName("Setup Network Valves");
