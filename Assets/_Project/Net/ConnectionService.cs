@@ -9,9 +9,9 @@ namespace Marco.Net
     /// <see cref="IConnectionService"/>(Core) 구현체 — 로비 UI(Presentation)가 §15.2를 넘어
     /// FishNet 접속을 시작할 수 있게 한다.
     ///
-    /// 지금까지 이 역할은 <c>DebugTools/NetworkTestBootstrap</c>의 H/J 키가 임시로 맡았다.
-    /// 이 서비스가 등록되면 부트스트랩은 키 처리를 양보하고(중복 시작 방지), 로비 실기 검증이
-    /// 끝나면 부트스트랩과 DebugTools 어셈블리 전체를 제거한다(스프린트 18 지시서 §1.7).
+    /// 스프린트 8~18b 동안 이 역할은 임시 도구(<c>DebugTools/NetworkTestBootstrap</c>)의 H/J 키가
+    /// 맡았다. 로비 실기 검증이 끝나 **스프린트 19에서 그 도구와 어셈블리를 전부 제거**했고,
+    /// 이제 접속 경로는 이 서비스 하나뿐이다(§12.2 MainMenu → LobbyEntry).
     ///
     /// NetworkBehaviour가 아니다 — 접속 시작은 스폰 전에 가능해야 하므로 평범한 MonoBehaviour로
     /// 두고 `InstanceFinder`(FishNet 정적 진입점)를 쓴다. 씬 YAML로 안전하게 배선 가능

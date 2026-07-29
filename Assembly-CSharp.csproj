@@ -1455,7 +1455,6 @@
   <ItemGroup>
     <ProjectReference Include="FishNet.Demos.csproj" />
     <ProjectReference Include="Presentation.csproj" />
-    <ProjectReference Include="Marco.DebugTools.csproj" />
     <ProjectReference Include="Core.csproj" />
     <ProjectReference Include="Marco.Editor.csproj" />
     <ProjectReference Include="FishNet.Codegen.Cecil.csproj" />

@@ -341,6 +341,22 @@ namespace Marco.EditorTools
                                   "— 맵 로드 시 자동으로 물러납니다.");
             }
 
+            // 스프린트 19: 제거된 디버그 도구의 씬 잔재. 타입이 없어졌으므로 이름으로 확인한다
+            // (남아 있으면 "Missing script" 경고가 계속 나고, 빌드에도 빈 오브젝트가 들어간다).
+            for (int i = 0; i < SceneManager.sceneCount; i++)
+            {
+                foreach (GameObject root in SceneManager.GetSceneAt(i).GetRootGameObjects())
+                {
+                    if (root.name != "NetworkTestBootstrap")
+                        continue;
+
+                    ok = false;
+                    report.AppendLine($"  ✖ 디버그 도구 잔재(스프린트 19): '{root.name}' 오브젝트가 " +
+                                      $"{root.scene.name} 씬에 남아 있습니다(스크립트는 삭제됨) → " +
+                                      "Tools/MARCO/Cleanup Debug Tools 실행 후 **씬 저장(Ctrl+S)**");
+                }
+            }
+
             var escape = Object.FindAnyObjectByType<EscapePointTrigger>(FindObjectsInactive.Include);
             if (escape == null)
             {
@@ -408,8 +424,9 @@ namespace Marco.EditorTools
             report.AppendLine($"  ✔ 결과 화면(스프린트 17): '{result.gameObject.name}'에 ResultScreen 부착됨" +
                               (hudBannerOn ? " — ⚠ HUD의 Show Result Banner도 켜져 있어 결과가 두 번 표시됩니다" : ""));
 
-            // 스프린트 18 로비: 접속 서비스(Net) + 로비 화면(Presentation). 둘 중 하나라도 없으면
-            // 정식 접속 경로가 성립하지 않는다(DebugTools H/J 폴백에 계속 의존하게 된다).
+            // 스프린트 18 로비: 접속 서비스(Net) + 로비 화면(Presentation). 스프린트 19에서 임시
+            // 폴백(DebugTools H/J)을 제거했으므로 **이제 이것이 유일한 접속 경로**다 — 하나라도
+            // 없으면 게임에 접속할 방법 자체가 사라진다.
             bool lobbyOk = true;
             var connection = Object.FindAnyObjectByType<ConnectionService>(FindObjectsInactive.Include);
             if (connection == null)
@@ -461,6 +478,20 @@ namespace Marco.EditorTools
             {
                 report.AppendLine($"  ✔ 씬 흐름(스프린트 18b): '{flow.gameObject.name}'에 SceneFlowController 부착됨 " +
                                   $"(맵 씬: {flow.MapSceneName})");
+
+                // 스프린트 20: 낙하 복구가 없으면 맵 밖으로 떨어진 플레이어가 영영 돌아오지 못한다
+                // (상대 화면에서는 접속이 끊긴 것처럼 보인다).
+                if (flow.GetComponent<FallRecoveryDriver>() == null)
+                {
+                    lobbyOk = false;
+                    report.AppendLine("  ✖ 낙하 복구(스프린트 20): SceneFlow 오브젝트에 FallRecoveryDriver가 없습니다 — " +
+                                      "맵 밖으로 떨어지면 되돌아올 방법이 없습니다. " +
+                                      "→ Tools/MARCO/Scene Flow — 5. 로비 배선 정리 실행 후 씬 저장");
+                }
+                else
+                {
+                    report.AppendLine("  ✔ 낙하 복구(스프린트 20): FallRecoveryDriver 부착됨");
+                }
             }
 
             return !hudBannerOn && lobbyOk;

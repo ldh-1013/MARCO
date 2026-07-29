@@ -119,6 +119,7 @@ namespace Marco.EditorTools
             EnsureComponent<SceneFlowController>(flowGo);
             EnsureComponent<LobbyEntry>(flowGo);
             EnsureComponent<PawnPhaseTeleporter>(flowGo);
+            EnsureComponent<FallRecoveryDriver>(flowGo); // 스프린트 20: 맵 밖 낙하 복구
 
             // 로비에서 pawn이 무한 낙하하지 않도록 임시 바닥(맵 로드 전 대기용).
             EnsureLobbyFloor(lobby);
@@ -354,6 +355,12 @@ namespace Marco.EditorTools
             if (lobbyScene.IsValid() && lobbyScene.isLoaded)
             {
                 EnsureLobbyFloor(lobbyScene);
+
+                // ③ 나중 스프린트에서 추가된 SceneFlow 컴포넌트도 기존 씬에 보강한다
+                //    (2단계를 다시 돌리지 않아도 최신 구성이 되도록).
+                GameObject flowGo = EnsureSceneObject(lobbyScene, "SceneFlow");
+                EnsureComponent<FallRecoveryDriver>(flowGo);
+
                 EditorSceneManager.MarkSceneDirty(lobbyScene);
             }
 

@@ -7,8 +7,8 @@ namespace Marco.Core.Net
     ///
     /// **왜 필요한가**: 접속 시작은 FishNet(`InstanceFinder.ServerManager` 등)을 호출해야 하는데,
     /// 로비 화면(<c>LobbyScreen</c>)은 Presentation이라 §15.2상 FishNet을 참조할 수 없다.
-    /// 지금까지는 제3 어셈블리(<c>DebugTools</c>)의 H/J 키가 이 틈을 임시로 메웠다 —
-    /// 이 계약이 그 역할을 정식 UI 경로로 대체하며, 실기 검증 후 DebugTools를 제거할 수 있게 한다.
+    /// 스프린트 18b까지는 제3 어셈블리(<c>DebugTools</c>)의 H/J 키가 이 틈을 임시로 메웠다 —
+    /// 이 계약이 그 역할을 정식 UI 경로로 대체했고, 그 도구는 스프린트 19에서 제거됐다.
     /// </summary>
     public interface IConnectionService
     {

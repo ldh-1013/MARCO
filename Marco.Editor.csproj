@@ -61,6 +61,7 @@
     <Compile Include="Assets\_Project\Editor\GrayboxMaterialFixTool.cs" />
     <Compile Include="Assets\_Project\Editor\SceneFlowSetupTool.cs" />
     <Compile Include="Assets\_Project\Editor\MarcoSetupPipeline.cs" />
+    <Compile Include="Assets\_Project\Editor\DebugToolsCleanupTool.cs" />
     <Compile Include="Assets\_Project\Editor\NetworkPlayerSetupTool.cs" />
   </ItemGroup>
   <ItemGroup>

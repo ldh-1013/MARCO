@@ -192,6 +192,14 @@ namespace Marco.EditorTools
             if (!Step(log, "Fix Graybox Materials (URP 셰이더 복원)", GrayboxMaterialFixTool.Run))
                 return false;
 
+            // ── 8. 디버그 도구 잔재 정리(스프린트 19) ────────────────────
+            // 코드는 삭제됐으므로 씬에 남은 오브젝트만 치운다. 맵 씬을 다시 열어 처리한다.
+            EditorSceneManager.OpenScene(MapScene, OpenSceneMode.Single);
+            if (!Step(log, "Cleanup Debug Tools (씬 잔재 제거)", DebugToolsCleanupTool.Run))
+                return false;
+
+            SaveOpenScenes(log);
+
             AssetDatabase.SaveAssets();
             return true;
         }

@@ -82,6 +82,16 @@ namespace Marco.Presentation.Player
         public void SetPlayerId(ulong playerId) => PlayerId = playerId;
 
         /// <summary>
+        /// 누적된 낙하 속도를 지운다(스프린트 20 리스폰 전용).
+        ///
+        /// **왜 필요한가**: 중력은 상한 없이 누적되므로 오래 떨어지면 초당 수백 m에 이른다.
+        /// 그 상태로 순간이동시키면 다음 프레임에 한 번의 <c>Move</c>로 바닥을 뚫고 다시
+        /// 떨어진다(접지 판정 전에 이동량이 바닥 두께를 넘는다). 이동 규칙 자체는 바꾸지 않고
+        /// 리스폰 시점에만 속도를 0으로 되돌린다.
+        /// </summary>
+        public void ResetVerticalVelocity() => _verticalVelocity = 0f;
+
+        /// <summary>
         /// 로컬 플레이어가 조종하는가. 네트워크가 없는 로컬 단독 실행에서는 아무도
         /// <see cref="SetLocalControl"/>을 호출하지 않으므로 true로 남아, 스프린트 3~7의
         /// 로컬 스모크 리그가 그대로 동작한다.
