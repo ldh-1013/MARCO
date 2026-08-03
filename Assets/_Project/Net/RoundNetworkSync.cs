@@ -2,10 +2,12 @@ using System.Collections.Generic;
 using FishNet.Connection;
 using FishNet.Object;
 using FishNet.Object.Synchronizing;
+using Marco.Core.Awards;
 using Marco.Core.GameFlow;
 using Marco.Core.Net;
 using Marco.Core.Objectives;
 using Marco.Core.Role;
+using Marco.Core.Sound;
 using UnityEngine;
 
 namespace Marco.Net
@@ -52,6 +54,15 @@ namespace Marco.Net
         /// </summary>
         internal static GameFlowState ServerPhase { get; private set; } = GameFlowState.Boot;
 
+        /// <summary>서버에서 동작 중인 인스턴스(§8 어워드 집계 유입점 — <c>PulseNetworkSync</c>가 쓴다).</summary>
+        private static RoundNetworkSync ServerInstance { get; set; }
+
+        /// <summary>
+        /// 한 프레임에 이 거리를 넘게 움직였으면 이동이 아니라 순간이동(스폰·리스폰)으로 본다.
+        /// §4.2 최고 속도는 질주 7.5m/s라, 프레임당 2m는 정상 이동으로 도달할 수 없는 값이다.
+        /// </summary>
+        private const float MaxDistancePerFrame = 2f;
+
         // 서버가 확정해 전 클라이언트에 전파하는 권위 상태.
         private readonly SyncVar<GameFlowState> _phase = new(); // 기본값 Boot(0) — 스폰 전 표시는 소비자가 NetworkActive로 거른다
         private readonly SyncVar<float> _remaining = new();
@@ -61,6 +72,23 @@ namespace Marco.Net
         private readonly SyncVar<int> _votesFor = new();         // §12.5 리매치 찬성 수
         private readonly SyncVar<int> _votesNeeded = new();      // §12.5 과반 기준
         private readonly SyncVar<float> _voteRemaining = new();  // §12.5 15초 창
+
+        /// <summary>
+        /// 통산 라운드 번호(0-기반). §2.3 술래 로테이션의 순번 기준이며, 세트/판수 표시에도 쓴다.
+        /// 첫 라운드가 0이 되도록 -1에서 시작한다.
+        /// </summary>
+        private readonly SyncVar<int> _roundNumber = new();
+
+        // §8 어워드 3종 수상자(플레이어 id, -1이면 수상자 없음). 서버가 집계해 결과만 전파한다.
+        private readonly SyncVar<int> _awardScream = new();
+        private readonly SyncVar<int> _awardSilent = new();
+        private readonly SyncVar<int> _awardLiar = new();
+
+        /// <summary>§8 "세션 로그" 기준 누적 집계(서버 전용).</summary>
+        private readonly AwardTally _awards = new AwardTally();
+
+        /// <summary>이동거리 집계용 직전 위치(서버 전용, 플레이어 id → 위치).</summary>
+        private readonly Dictionary<int, Vector3> _lastPositions = new Dictionary<int, Vector3>();
 
         private ServerRoundDriver _driver;      // InGame 동안만 존재(서버 전용)
         private ServerLobbyDriver _lobby;       // 서버 전용
@@ -84,6 +112,10 @@ namespace Marco.Net
         public int RematchVotesFor => _votesFor.Value;
         public int RematchVotesNeeded => _votesNeeded.Value;
         public float RematchSecondsRemaining => _voteRemaining.Value;
+        public int RoundNumber => _roundNumber.Value;
+        public int AwardLoudestScream => _awardScream.Value;
+        public int AwardSilentSurvivor => _awardSilent.Value;
+        public int AwardBestLiar => _awardLiar.Value;
 
         public void SubmitEscapeIntent(ulong playerId, RoleType role)
         {
@@ -115,6 +147,17 @@ namespace Marco.Net
             _escaped.Value = 0;
             _result.Value = RoundResult.InProgress;
             _countdown.Value = 0f;
+
+            // 첫 라운드가 0번이 되도록 -1에서 시작한다(§2.3 로테이션 순번 기준).
+            _roundNumber.Value = -1;
+
+            // §8 어워드는 "세션 로그" 기준이라 세션 시작에 한 번만 비운다(라운드마다 비우지 않는다).
+            ServerInstance = this;
+            _awards.Reset();
+            _lastPositions.Clear();
+            _awardScream.Value = AwardTally.NoWinner;
+            _awardSilent.Value = AwardTally.NoWinner;
+            _awardLiar.Value = AwardTally.NoWinner;
 
             SetPhase(GameFlowState.Lobby);
             Debug.Log($"[RoundNet:Server] 로비 대기 시작 — 최소 {_minPlayers}명 전원 준비 시 " +
@@ -166,6 +209,10 @@ namespace Marco.Net
                     break;
 
                 case LobbyTickResult.StartRound:
+                    // §2.3 술래 로테이션: 배정 **전에** 라운드 번호를 확정한다 — 이 번호가 이번 판의
+                    // 술래 순번을 정하고, 라운드 중 늦게 들어온 플레이어의 재배정에도 같은 값이 쓰인다.
+                    _roundNumber.Value++;
+
                     // §15.4 RoleAssign: "3초 연출, 역할 배정" — 배정을 카운트다운 완료 시점에
                     // 1회 수행한다(중단 시 되돌릴 배정이 없도록 끝에서 확정).
                     EnsureRolesAssigned();
@@ -204,6 +251,9 @@ namespace Marco.Net
 
             // 라운드 중 접속한 플레이어도 배정을 받는다(스프린트 13 동작 보존).
             EnsureRolesAssigned();
+
+            // §8 어워드: 이동거리는 라운드 진행 중에만 센다(로비 이동은 집계 대상이 아니다).
+            AccumulateDistances();
 
             if (_driver.IsDecided)
                 return;
@@ -312,6 +362,9 @@ namespace Marco.Net
                 return;
 
             _result.Value = _driver.Result;
+
+            // §8 "결과 화면 전환 즉시 어워드 3종 판정" — RoundEnd 진입과 같은 시점에 확정한다.
+            PublishAwards();
 
             // 스프린트 18: 판정 확정 = RoundEnd 진입 + §12.5 리매치 투표 창(15초) 개시.
             _vote = new RematchVoteDriver();
@@ -476,21 +529,92 @@ namespace Marco.Net
             _assignBuffer.Sort(CompareByOrderKey);
 
             int playerCount = _assignBuffer.Count;
+
+            // §2.3 술래 로테이션(스프린트 21, GAP-22 해소): 통산 라운드 번호로 술래 순번을 옮긴다.
+            // 정렬 규칙(OwnerId 오름차순)은 스프린트 13 그대로이고, 그 안에서 **몇 번째가 술래인가**만
+            // 라운드마다 달라진다.
+            int seekerOrder = SeekerRotation.SeekerOrderIndex(_roundNumber.Value, playerCount);
+
             for (int i = 0; i < playerCount; i++)
             {
                 RoleNetworkSync p = _assignBuffer[i];
                 if (p.IsTaggedOut)
                     continue; // 메아리는 배정 대상 제외(태그 결과 보존)
 
-                p.ServerAssign(RoleAssigner.RoleForOrder(i, playerCount));
+                p.ServerAssign(RoleAssigner.RoleForOrder(i, playerCount, seekerOrder));
             }
 
             Debug.Log($"[RoleNet:Server] 역할 배정 완료 — 인원 {playerCount}명 " +
-                      $"(술래 {RoleAssigner.SeekersFor(playerCount)} / 러너 {RoleAssigner.RunnersFor(playerCount)}, §6.2 표)");
+                      $"(술래 {RoleAssigner.SeekersFor(playerCount)} / 러너 {RoleAssigner.RunnersFor(playerCount)}, §6.2 표). " +
+                      $"§2.3 로테이션: {SeekerRotation.SetNumber(_roundNumber.Value)}세트 " +
+                      $"{SeekerRotation.RoundInSet(_roundNumber.Value)}/{SeekerRotation.RoundsPerSet}판 — " +
+                      $"술래는 정렬 {seekerOrder}번(OwnerId {_assignBuffer[seekerOrder].OrderKey}).");
         }
 
         private static int CompareByOrderKey(RoleNetworkSync a, RoleNetworkSync b) =>
             a.OrderKey.CompareTo(b.OrderKey);
+
+        // ── §8 어워드 집계 (서버 전용) ────────────────────────────────────
+
+        /// <summary>
+        /// 파문 1건을 세션 집계에 기록한다. <c>PulseNetworkSync</c>의 ServerRpc가 발생원을 확정한
+        /// 직후 호출한다 — 클라이언트 보고가 아니라 **서버가 받은 사실**만 센다.
+        /// </summary>
+        internal static void ServerRecordPulse(int playerId, SoundType type)
+        {
+            RoundNetworkSync instance = ServerInstance;
+            if (instance == null)
+                return;
+
+            instance._awards.RecordPulse(playerId, type);
+        }
+
+        /// <summary>
+        /// 라운드 중 플레이어 이동 거리를 누적한다(§8 "이동거리 대비 파문 발생 0회"의 이동거리).
+        /// 서버가 자기 쪽 위치 변화를 재므로 클라이언트가 값을 부풀릴 수 없다.
+        /// </summary>
+        private void AccumulateDistances()
+        {
+            List<RoleNetworkSync> spawned = RoleNetworkSync.Spawned;
+            for (int i = 0; i < spawned.Count; i++)
+            {
+                RoleNetworkSync p = spawned[i];
+                if (p == null || p.OrderKey < 0)
+                    continue;
+
+                Vector3 current = p.transform.position;
+                if (_lastPositions.TryGetValue(p.OrderKey, out Vector3 previous))
+                {
+                    float moved = Vector3.Distance(previous, current);
+
+                    // 스폰·리스폰 순간이동을 이동거리로 세지 않는다(한 프레임에 걸을 수 없는 거리).
+                    if (moved <= MaxDistancePerFrame)
+                        _awards.AddDistance(p.OrderKey, moved);
+                }
+                else
+                {
+                    _awards.Track(p.OrderKey); // 움직이지 않아도 후보로는 잡히게
+                }
+
+                _lastPositions[p.OrderKey] = current;
+            }
+        }
+
+        /// <summary>§8 판정 결과를 SyncVar로 전파한다(서버 전용).</summary>
+        private void PublishAwards()
+        {
+            AwardResults results = _awards.Evaluate();
+            _awardScream.Value = results.LoudestScream;
+            _awardSilent.Value = results.SilentSurvivor;
+            _awardLiar.Value = results.BestLiar;
+
+            Debug.Log($"[Awards:Server] §8 어워드 판정 — 최다 비명상={Describe(results.LoudestScream)}, " +
+                      $"무성 생존상={Describe(results.SilentSurvivor)}, 최고의 거짓말상={Describe(results.BestLiar)}. " +
+                      "비명은 §5.2 음성 파이프라인, 노크는 §3.2 메아리 능력이 있어야 집계된다(GAP-37).");
+        }
+
+        private static string Describe(int playerId) =>
+            playerId == AwardTally.NoWinner ? "수상자 없음" : $"플레이어 {playerId}";
 
         // ── 전 피어: 확정 결과 수신 로깅(양쪽 창에서 반영 확인용) ───────────
 

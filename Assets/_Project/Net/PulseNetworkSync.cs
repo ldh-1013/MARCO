@@ -150,6 +150,10 @@ namespace Marco.Net
                 return;
             }
 
+            // §8 어워드 집계(스프린트 22): 서버가 실제로 등록한 파문만 센다 —
+            // 클라이언트 보고를 그대로 믿지 않는다(최다 비명상·무성 생존상의 입력).
+            RoundNetworkSync.ServerRecordPulse(caller.ClientId, type);
+
             if (_logServerDeliveries)
                 Debug.Log($"[PulseNet:Server] 파문 등록 pulse={pulseId} type={type} sourceId={sourceId} (서버 위치 기준)");
 

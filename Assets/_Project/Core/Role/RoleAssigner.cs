@@ -60,12 +60,28 @@ namespace Marco.Core.Role
         ///
         /// 배정 불가 인원이면 항상 <see cref="RoleType.Runner"/>다.
         /// </summary>
-        public static RoleType RoleForOrder(int orderIndex, int playerCount)
+        public static RoleType RoleForOrder(int orderIndex, int playerCount) =>
+            RoleForOrder(orderIndex, playerCount, seekerOrderIndex: 0);
+
+        /// <summary>
+        /// 술래 자리를 <paramref name="seekerOrderIndex"/>로 지정한 배정(스프린트 21 로테이션).
+        ///
+        /// 기존 규칙(§6.2 "술래 1인 고정, 나머지 전원 도망자")은 그대로이고, **누가 그 1인인가만**
+        /// 호출자가 정한다 — <see cref="SeekerRotation.SeekerOrderIndex"/>가 라운드마다 다른 값을
+        /// 준다. 이 최소 확장으로 GAP-22("항상 가장 낮은 OwnerId = 호스트")가 해소된다.
+        ///
+        /// 범위를 벗어난 값은 0으로 접는다 — 인원이 줄어든 뒤 옛 인덱스가 들어와도 술래가
+        /// 사라지지 않게 하려는 것이다(술래 0명이면 라운드가 성립하지 않는다).
+        /// </summary>
+        public static RoleType RoleForOrder(int orderIndex, int playerCount, int seekerOrderIndex)
         {
             if (!CanAssign(playerCount))
                 return RoleType.Runner;
 
-            return orderIndex >= 0 && orderIndex < SeekerCount ? RoleType.Seeker : RoleType.Runner;
+            if (seekerOrderIndex < 0 || seekerOrderIndex >= playerCount)
+                seekerOrderIndex = 0;
+
+            return orderIndex == seekerOrderIndex ? RoleType.Seeker : RoleType.Runner;
         }
     }
 }

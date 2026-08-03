@@ -52,7 +52,7 @@ namespace Marco.Presentation.UI
         private Image _dim;
         private Text _bannerText;
         private Text _reasonText;
-        private Text _awardPlaceholder;
+        private Text[] _awardCards;
         private Text _restartHintText;
 
         private bool _visible;
@@ -107,11 +107,13 @@ namespace Marco.Presentation.UI
 
             _bannerText = CreateText(font, "Banner", _bannerFontSize, new Vector2(0.5f, 0.62f));
             _reasonText = CreateText(font, "Reason", _bodyFontSize, new Vector2(0.5f, 0.52f));
-            _awardPlaceholder = CreateText(font, "Awards", _bodyFontSize, new Vector2(0.5f, 0.42f));
             _restartHintText = CreateText(font, "RestartHint", _bodyFontSize, new Vector2(0.5f, 0.28f));
 
-            // §12.5 어워드 카드 3종 자리 — 집계 로직(§8)이 없어 다음 단계임을 알리는 문구만.
-            _awardPlaceholder.text = "어워드 3종 — 다음 단계에서 집계";
+            // §12.5 어워드 카드 3종(스프린트 22) — 도식대로 가로 3열로 배치한다.
+            _awardCards = new Text[3];
+            _awardCards[0] = CreateText(font, "AwardScream", _bodyFontSize, new Vector2(0.25f, 0.42f));
+            _awardCards[1] = CreateText(font, "AwardSilent", _bodyFontSize, new Vector2(0.5f, 0.42f));
+            _awardCards[2] = CreateText(font, "AwardLiar", _bodyFontSize, new Vector2(0.75f, 0.42f));
         }
 
         private static void StretchFull(RectTransform rect)
@@ -207,7 +209,14 @@ namespace Marco.Presentation.UI
             _reasonText.text = HudFormatter.FormatResultReason(result, _round.RemainingSeconds);
             _reasonText.color = NeutralColor();
 
-            _awardPlaceholder.color = new Color(NeutralColor().r, NeutralColor().g, NeutralColor().b, 0.5f);
+            // §12.5 어워드 카드 3종 — §8 판정 결과(서버 확정)를 그대로 보여준다.
+            Color awardColor = new Color(NeutralColor().r, NeutralColor().g, NeutralColor().b, 0.85f);
+            _awardCards[0].text = HudFormatter.FormatAward("최다 비명상", _round.AwardLoudestScream);
+            _awardCards[1].text = HudFormatter.FormatAward("무성 생존상", _round.AwardSilentSurvivor);
+            _awardCards[2].text = HudFormatter.FormatAward("최고의 거짓말상", _round.AwardBestLiar);
+
+            for (int i = 0; i < _awardCards.Length; i++)
+                _awardCards[i].color = awardColor;
 
             // 스프린트 18: 네트워크면 §12.5 리매치 투표 상태(찬성 수·15초 창)를, 로컬이면
             // 기존 즉시 재시작 안내를 보여준다. Enter는 양쪽 모두 RequestRestart로 이어지며,

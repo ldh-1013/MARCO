@@ -210,5 +210,26 @@ namespace Marco.Core.Tests
         {
             Assert.AreEqual("방코드: -", HudFormatter.FormatRoomCode(""));
         }
+
+        // ── §12.5 어워드 카드 (스프린트 22) ──────────────────────────────
+
+        [Test]
+        public void FormatAward_ShowsWinnerId()
+        {
+            string text = HudFormatter.FormatAward("최다 비명상", 2);
+
+            StringAssert.Contains("최다 비명상", text);
+            StringAssert.Contains("플레이어 2", text);
+        }
+
+        [Test]
+        public void FormatAward_StatesWhenNobodyQualified()
+        {
+            // 빈칸으로 두면 "집계 고장"과 "조건 미달"을 구분할 수 없다.
+            string text = HudFormatter.FormatAward("무성 생존상", -1);
+
+            StringAssert.Contains("무성 생존상", text);
+            StringAssert.Contains("수상자 없음", text);
+        }
     }
 }

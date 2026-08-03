@@ -32,6 +32,8 @@ namespace Marco.Presentation.GameFlow
         [SerializeField] private int _spawnSlots = SpawnRing.DefaultSlots;
 
         private bool _placedForCurrentMap;
+        private int _placedForRound = int.MinValue;
+        private RoundCoordinator _round;
         private bool _loggedAlive;
         private bool _loggedWaitingAnchor;
         private bool _loggedWaitingPlayer;
@@ -62,7 +64,15 @@ namespace Marco.Presentation.GameFlow
                 return;
             }
 
-            if (_placedForCurrentMap)
+            // 리매치 스폰 리셋(스프린트 22): 맵이 유지된 채 새 라운드가 시작되면(리매치 가결)
+            // 라운드 번호가 바뀐다. 그 순간을 "다시 배치할 때"로 삼는다 — 맵 로드 신호만 보던
+            // 기존 구조로는 리매치 때 아무도 움직이지 않아 직전 라운드 자리에서 재시작됐다.
+            //
+            // 순서 보장: 서버는 배정(EnsureRolesAssigned) **직후** 라운드 번호를 올리고 그 뒤에
+            // 라운드를 시작하므로, 클라이언트가 새 번호를 관측한 시점에는 역할이 이미 확정돼 있다.
+            // 스폰 슬롯 자체는 PlayerId로만 정해져 역할과 무관하다.
+            int round = CurrentRoundNumber();
+            if (_placedForCurrentMap && round == _placedForRound)
                 return;
 
             FirstPersonController player = LocalPlayerRegistry.Current;
@@ -79,6 +89,19 @@ namespace Marco.Presentation.GameFlow
 
             PlaceAtAnchor(player, SpawnAnchorRegistry.Pose);
             _placedForCurrentMap = true;
+            _placedForRound = round;
+        }
+
+        /// <summary>
+        /// 현재 라운드 번호. 라운드 지휘부를 찾지 못하거나 로컬 단독 실행이면 0으로 고정되어
+        /// 기존(맵 로드 1회 배치) 동작이 그대로 유지된다.
+        /// </summary>
+        private int CurrentRoundNumber()
+        {
+            if (_round == null)
+                _round = FindAnyObjectByType<RoundCoordinator>();
+
+            return _round != null ? _round.RoundNumber : 0;
         }
 
         private void PlaceAtAnchor(FirstPersonController player, SpawnPose anchor)

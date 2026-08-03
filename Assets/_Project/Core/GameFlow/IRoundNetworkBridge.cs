@@ -78,5 +78,20 @@ namespace Marco.Core.GameFlow
 
         /// <summary>리매치 투표 남은 초(§12.5 "15초 카운트다운").</summary>
         float RematchSecondsRemaining { get; }
+
+        /// <summary>
+        /// 통산 라운드 번호(0-기반, 스프린트 21). §2.3 술래 로테이션의 순번 기준이며,
+        /// 소비자는 이 값이 **바뀌는 순간을 "새 라운드 시작" 신호**로도 쓴다(리매치 스폰 리셋).
+        /// </summary>
+        int RoundNumber { get; }
+
+        /// <summary>§8 최다 비명상 수상자(플레이어 id). -1이면 수상자 없음.</summary>
+        int AwardLoudestScream { get; }
+
+        /// <summary>§8 무성 생존상 수상자(플레이어 id). -1이면 수상자 없음.</summary>
+        int AwardSilentSurvivor { get; }
+
+        /// <summary>§8 최고의 거짓말상 수상자(플레이어 id). -1이면 수상자 없음.</summary>
+        int AwardBestLiar { get; }
     }
 }

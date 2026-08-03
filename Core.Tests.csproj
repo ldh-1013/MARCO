@@ -56,6 +56,7 @@
     <Compile Include="Assets\_Project\Tests\EditMode\PlayerIdentityTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\HudFormatterTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\TagTargetRegistryTests.cs" />
+    <Compile Include="Assets\_Project\Tests\EditMode\AwardTallyTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\SpawnRingTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\ServerPulseDriverTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\ServerRoundDriverTests.cs" />
@@ -71,8 +72,10 @@
     <Compile Include="Assets\_Project\Tests\EditMode\GameFlowManagerTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\ServerValveDriverTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\RematchVoteDriverTests.cs" />
+    <Compile Include="Assets\_Project\Tests\EditMode\SeekerRotationTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\PulseVisualRegistryTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\LocomotionSimulatorTests.cs" />
+    <Compile Include="Assets\_Project\Tests\EditMode\FallRecoveryTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\TaggingTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\LocalPulsePipelineTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\LocalControlGateTests.cs" />

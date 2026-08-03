@@ -94,6 +94,17 @@ namespace Marco.Presentation.GameFlow
         /// <summary>§12.5 리매치 투표 남은 초.</summary>
         public float RematchSecondsRemaining => IsNetworkActive ? _bridge.RematchSecondsRemaining : 0f;
 
+        /// <summary>
+        /// 통산 라운드 번호(스프린트 21). 로컬 단독 실행에는 서버 카운터가 없어 0으로 고정한다 —
+        /// 소비자(스폰 리셋)는 "값이 바뀌면 새 라운드"로만 쓰므로 로컬에서는 리셋이 일어나지 않는다.
+        /// </summary>
+        public int RoundNumber => IsNetworkActive ? _bridge.RoundNumber : 0;
+
+        /// <summary>§8 어워드 수상자(플레이어 id). 로컬 단독 실행이면 수상자 없음(-1).</summary>
+        public int AwardLoudestScream => IsNetworkActive ? _bridge.AwardLoudestScream : -1;
+        public int AwardSilentSurvivor => IsNetworkActive ? _bridge.AwardSilentSurvivor : -1;
+        public int AwardBestLiar => IsNetworkActive ? _bridge.AwardBestLiar : -1;
+
         private void Awake()
         {
             // 같은 오브젝트에 Net의 RoundNetworkSync가 있으면 Core 인터페이스로만 잡는다.

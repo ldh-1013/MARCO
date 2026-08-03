@@ -143,6 +143,18 @@ namespace Marco.Presentation.UI
         /// 판정이 확정되면 타이머를 멈추므로(<c>ServerRoundDriver.Tick</c>) 확정 시점의 값이
         /// 그대로 남아 있다 — 그래서 이 유도가 성립한다.
         /// </summary>
+        /// <summary>
+        /// §12.5 어워드 카드 한 장. 수상자가 없으면(-1) 그 사실을 밝힌다 — 빈칸으로 두면
+        /// "집계가 고장났다"와 "조건을 만족한 사람이 없다"를 구분할 수 없다.
+        ///
+        /// 플레이어 이름 체계가 아직 없어 id로 표시한다(§12.3 도식의 닉네임은 미구현 — GAP-41).
+        /// </summary>
+        public static string FormatAward(string awardName, int winnerPlayerId)
+        {
+            string winner = winnerPlayerId < 0 ? "수상자 없음" : $"플레이어 {winnerPlayerId}";
+            return $"{awardName}\n{winner}";
+        }
+
         public static string FormatResultReason(RoundResult result, float remainingSeconds)
         {
             switch (result)

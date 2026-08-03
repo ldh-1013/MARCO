@@ -61,11 +61,13 @@
     <Compile Include="Assets\_Project\Core\SoundPulse\SoundPulseResolver.cs" />
     <Compile Include="Assets\_Project\Core\Objectives\Valve.cs" />
     <Compile Include="Assets\_Project\Core\Net\IReadyState.cs" />
+    <Compile Include="Assets\_Project\Core\GameFlow\FallRecovery.cs" />
     <Compile Include="Assets\_Project\Core\SoundPulse\PulseNetworkRegistry.cs" />
     <Compile Include="Assets\_Project\Core\Net\ILocalControlGate.cs" />
     <Compile Include="Assets\_Project\Core\Net\ReadyStateRegistry.cs" />
     <Compile Include="Assets\_Project\Core\Objectives\IEscapeGateState.cs" />
     <Compile Include="Assets\_Project\Core\Net\TagTargetRegistry.cs" />
+    <Compile Include="Assets\_Project\Core\Awards\AwardTally.cs" />
     <Compile Include="Assets\_Project\Core\GameFlow\GameFlowState.cs" />
     <Compile Include="Assets\_Project\Core\Objectives\ValveState.cs" />
     <Compile Include="Assets\_Project\Core\GameFlow\RematchVoteDriver.cs" />
@@ -81,6 +83,7 @@
     <Compile Include="Assets\_Project\Core\Tagging\TagRules.cs" />
     <Compile Include="Assets\_Project\Core\Objectives\RoundResult.cs" />
     <Compile Include="Assets\_Project\Core\Locomotion\LocomotionSimulator.cs" />
+    <Compile Include="Assets\_Project\Core\Role\SeekerRotation.cs" />
     <Compile Include="Assets\_Project\Core\GameFlow\SpawnAnchorRegistry.cs" />
     <Compile Include="Assets\_Project\Core\SoundPulse\ServerPulseDriver.cs" />
     <Compile Include="Assets\_Project\Core\SoundPulse\IOcclusionProbe.cs" />
