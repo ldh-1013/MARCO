@@ -32,6 +32,43 @@ namespace Marco.Core.GameFlow
     ///
     /// 맵이 언로드되면 <see cref="HasAnchor"/>가 false가 되어 "맵이 로드된 상태인가"의 신호로도 쓰인다.
     /// </summary>
+    /// <summary>
+    /// §10.1 술래 격리 공간의 위치를 알리는 지연 바인딩 지점(스프린트 24).
+    /// <see cref="SpawnAnchorRegistry"/>와 같은 패턴이며, 맵에 격리 앵커가 없으면
+    /// 호출자가 도망자 스폰 지점으로 대체한다(격리 없이도 라운드는 성립해야 한다).
+    /// </summary>
+    public static class IsolationAnchorRegistry
+    {
+        private static object _token;
+
+        /// <summary>격리 공간의 위치·회전. <see cref="HasAnchor"/>가 false면 의미 없음.</summary>
+        public static SpawnPose Pose { get; private set; }
+
+        public static bool HasAnchor => _token != null;
+
+        public static void Register(object token, SpawnPose pose)
+        {
+            if (token == null)
+                return;
+
+            _token = token;
+            Pose = pose;
+        }
+
+        public static void Unregister(object token)
+        {
+            if (token != null && ReferenceEquals(_token, token))
+                _token = null;
+        }
+
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        public static void ResetForNewSession()
+        {
+            _token = null;
+            Pose = default;
+        }
+    }
+
     public static class SpawnAnchorRegistry
     {
         private static object _token;

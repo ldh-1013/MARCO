@@ -45,6 +45,13 @@ namespace Marco.EditorTools
         private static readonly Vector3 SpawnPosition = new Vector3(12f, 0.05f, 27f);
         private static readonly Vector3 SpawnEuler = new Vector3(0f, 180f, 0f);
 
+        /// <summary>
+        /// §10.1 술래 격리 공간(스프린트 24). 기획서에 위치·크기가 없어(GAP-45) 도망자 스폰
+        /// `(12, 0.05, 27)`에서 z축으로 10m 떨어뜨렸다 — 스폰 링 지름(8m)보다 멀어 라운드 시작
+        /// 즉시 조우하지 않으며, 맵 바닥 범위(x 0~45, z 0~35) 안이다.
+        /// </summary>
+        private static readonly Vector3 IsolationPosition = new Vector3(12f, 0.05f, 17f);
+
         // ── 드라이런 ──────────────────────────────────────────────────────
 
         [MenuItem("Tools/MARCO/Scene Flow — 1. 현재 상태 점검(변경 없음)", priority = 200)]
@@ -120,6 +127,7 @@ namespace Marco.EditorTools
             EnsureComponent<LobbyEntry>(flowGo);
             EnsureComponent<PawnPhaseTeleporter>(flowGo);
             EnsureComponent<FallRecoveryDriver>(flowGo); // 스프린트 20: 맵 밖 낙하 복구
+            EnsureComponent<SettingsScreen>(flowGo);    // 스프린트 23: §12.6 설정 화면
 
             // 로비에서 pawn이 무한 낙하하지 않도록 임시 바닥(맵 로드 전 대기용).
             EnsureLobbyFloor(lobby);
@@ -254,6 +262,23 @@ namespace Marco.EditorTools
                 Debug.Log("[SceneFlow] SpawnAnchor가 이미 있습니다 — 건너뜀");
             }
 
+            // §10.1 술래 격리 공간(스프린트 24). 기획서에 위치가 없어(GAP-45) 도망자 스폰에서
+            // 스폰 링 지름보다 멀리 떨어진 지점에 만든다 — 시작 즉시 조우하지 않게 하려는 것이며,
+            // 실제 맵 지오메트리에 맞는 자리는 이 오브젝트를 옮겨 조정한다.
+            var isolation = Object.FindAnyObjectByType<SeekerIsolationAnchor>(FindObjectsInactive.Include);
+            if (isolation == null)
+            {
+                var go = new GameObject("SeekerIsolationAnchor");
+                go.transform.SetPositionAndRotation(IsolationPosition, Quaternion.Euler(SpawnEuler));
+                go.AddComponent<SeekerIsolationAnchor>();
+                Debug.Log($"[SceneFlow] 맵 씬에 SeekerIsolationAnchor 생성 — {IsolationPosition} " +
+                          "(§10.1 술래 격리 공간, 위치는 GAP-45라 조정 가능).");
+            }
+            else
+            {
+                Debug.Log("[SceneFlow] SeekerIsolationAnchor가 이미 있습니다 — 건너뜀");
+            }
+
             EditorSceneManager.MarkSceneDirty(map);
             Debug.Log("[SceneFlow] 맵 씬 정리 완료 — 저장(Ctrl+S) 후 4단계로 진행하세요.");
         }
@@ -360,6 +385,7 @@ namespace Marco.EditorTools
                 //    (2단계를 다시 돌리지 않아도 최신 구성이 되도록).
                 GameObject flowGo = EnsureSceneObject(lobbyScene, "SceneFlow");
                 EnsureComponent<FallRecoveryDriver>(flowGo);
+                EnsureComponent<SettingsScreen>(flowGo);
 
                 EditorSceneManager.MarkSceneDirty(lobbyScene);
             }

@@ -198,6 +198,12 @@ namespace Marco.EditorTools
             if (!Step(log, "Cleanup Debug Tools (씬 잔재 제거)", DebugToolsCleanupTool.Run))
                 return false;
 
+            // ── 9. 맵 씬 관측 조건(스프린트 25 후속) ─────────────────────
+            // SceneCondition이 없으면 서버가 맵 로드 즉시 밸브를 스폰해, 아직 씬을 로드하지
+            // 않은 클라이언트가 그 스폰을 버린다 → 클라이언트에서 밸브가 영영 안 보인다.
+            if (!Step(log, "Setup Scene Observers (맵 씬 오브젝트)", SceneObserverSetupTool.Run))
+                return false;
+
             SaveOpenScenes(log);
 
             AssetDatabase.SaveAssets();

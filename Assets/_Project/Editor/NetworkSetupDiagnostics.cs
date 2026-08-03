@@ -172,6 +172,10 @@ namespace Marco.EditorTools
             return true;
         }
 
+        /// <summary>열린 씬들의 NetworkManager 수. 0이면 Play해도 네트워크가 시작되지 않는다.</summary>
+        private static int CountNetworkManagers() =>
+            Object.FindObjectsByType<FishNet.Managing.NetworkManager>(FindObjectsInactive.Include).Length;
+
         private static bool IsSceneLoaded(string name)
         {
             Scene scene = SceneManager.GetSceneByName(name);
@@ -271,6 +275,20 @@ namespace Marco.EditorTools
             if (wired == valves.Length)
             {
                 report.AppendLine($"  ✔ 밸브(스프린트 10): {valves.Length}개 전부 NetworkObject + ValveNetworkSync 부착됨");
+
+                // 스프린트 18b 이후: NetworkManager는 시스템 씬(Lobby)에 있다. 맵 씬만 열고 Play하면
+                // NetworkManager가 없어 FishNet이 씬 NetworkObject를 비활성화하므로
+                // (NetworkObject.Start → TryStartDeactivation → SetActive(false)) **밸브만 안 보인다**.
+                // 벽·바닥은 NetworkObject가 없어 그대로 보이기 때문에 "밸브만 사라진" 것처럼 보인다.
+                if (CountNetworkManagers() == 0)
+                {
+                    report.AppendLine("  ✖ 이 구성으로 Play하면 **밸브가 보이지 않습니다** — 열린 씬에 NetworkManager가 " +
+                                      "없습니다(스프린트 18b 이후 NetworkManager는 Lobby 씬에 있습니다). FishNet이 접속 전 " +
+                                      "씬 NetworkObject를 비활성화하는데, 시작할 NetworkManager 자체가 없어 영영 켜지지 " +
+                                      "않습니다. → **Boot 씬에서 Play**하세요(§15.1 Boot→MainMenu→Lobby→Game).");
+                    return false;
+                }
+
                 return true;
             }
 
@@ -355,6 +373,25 @@ namespace Marco.EditorTools
                                       $"{root.scene.name} 씬에 남아 있습니다(스크립트는 삭제됨) → " +
                                       "Tools/MARCO/Cleanup Debug Tools 실행 후 **씬 저장(Ctrl+S)**");
                 }
+            }
+
+            // 스프린트 24: §10.1 술래 격리 공간. 없어도 3초 대기 규칙은 적용되지만, 술래가
+            // 도망자와 같은 스폰 링에서 시작해 "격리"가 성립하지 않는다.
+            var isolation = Object.FindAnyObjectByType<SeekerIsolationAnchor>(FindObjectsInactive.Include);
+            if (isolation == null)
+            {
+                if (!_mapSceneClosed)
+                {
+                    ok = false;
+                    report.AppendLine("  ✖ 술래 격리 공간(스프린트 24): 맵 씬에서 SeekerIsolationAnchor를 찾지 못했습니다 " +
+                                      "→ Tools/MARCO/Scene Flow — 3. 맵 씬 정리 실행 후 **씬 저장(Ctrl+S)**. " +
+                                      "없으면 술래가 도망자와 같은 스폰 링에서 시작합니다(§10.1 위반).");
+                }
+            }
+            else
+            {
+                report.AppendLine($"  ✔ 술래 격리 공간(§10.1): '{isolation.gameObject.name}'" +
+                                  $"({isolation.gameObject.scene.name} 씬) 위치 {isolation.transform.position}");
             }
 
             var escape = Object.FindAnyObjectByType<EscapePointTrigger>(FindObjectsInactive.Include);
@@ -491,6 +528,18 @@ namespace Marco.EditorTools
                 else
                 {
                     report.AppendLine("  ✔ 낙하 복구(스프린트 20): FallRecoveryDriver 부착됨");
+                }
+
+                // 스프린트 23: §12.6 설정 화면. 없으면 색맹 모드·감도를 바꿀 정식 경로가 사라진다.
+                if (flow.GetComponent<SettingsScreen>() == null)
+                {
+                    lobbyOk = false;
+                    report.AppendLine("  ✖ 설정 화면(스프린트 23): SceneFlow 오브젝트에 SettingsScreen이 없습니다 " +
+                                      "→ Tools/MARCO/Scene Flow — 5. 로비 배선 정리 실행 후 씬 저장");
+                }
+                else
+                {
+                    report.AppendLine("  ✔ 설정 화면(스프린트 23): SettingsScreen 부착됨(F1로 열림)");
                 }
             }
 

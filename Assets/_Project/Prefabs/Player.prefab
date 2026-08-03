@@ -173,6 +173,7 @@ MonoBehaviour:
   _role: 1
   _cameraTransform: {fileID: 8226035136475508314}
   _mouseSensitivity: 0.12
+  _invertY: 0
   _pitchLimit: 89
 --- !u!114 &3693726996775619226
 MonoBehaviour:
@@ -266,7 +267,7 @@ MonoBehaviour:
   _initializeOrder: 0
   _preventDespawnOnDisconnect: 0
   _defaultDespawnType: 0
-  _initializedTimestamp: -8584162797004872066
+  _initializedTimestamp: -8584158220828432230
 --- !u!114 &4428196590212668294
 MonoBehaviour:
   m_ObjectHideFlags: 0

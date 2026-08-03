@@ -34,6 +34,7 @@ namespace Marco.Presentation.GameFlow
         private bool _placedForCurrentMap;
         private int _placedForRound = int.MinValue;
         private RoundCoordinator _round;
+        private readonly SeekerIsolation _isolation = new SeekerIsolation();
         private bool _loggedAlive;
         private bool _loggedWaitingAnchor;
         private bool _loggedWaitingPlayer;
@@ -49,6 +50,9 @@ namespace Marco.Presentation.GameFlow
 
         private void Update()
         {
+            // §10.1 격리 대기는 배치 여부와 무관하게 매 프레임 흘러야 한다.
+            TickIsolation();
+
             bool mapReady = SpawnAnchorRegistry.HasAnchor;
 
             // 맵이 언로드되면 다음 로드에서 다시 배치하도록 래치를 푼다(리매치·부결 복귀 대응).
@@ -87,10 +91,75 @@ namespace Marco.Presentation.GameFlow
                 return; // 아직 스폰 전 — 다음 프레임에 다시 시도한다.
             }
 
-            PlaceAtAnchor(player, SpawnAnchorRegistry.Pose);
+            // §10.1 술래 격리(스프린트 24): 술래는 도망자 스폰 지점이 아니라 격리 공간에서
+            // 시작하고 3초 뒤에 움직일 수 있다. 러너·메아리는 종전대로 스폰 링에 배치된다.
+            bool isolate = SeekerIsolation.AppliesTo(player.Role);
+            if (isolate && IsolationAnchorRegistry.HasAnchor)
+                PlaceExactly(player, IsolationAnchorRegistry.Pose);
+            else
+                PlaceAtAnchor(player, SpawnAnchorRegistry.Pose);
+
             _placedForCurrentMap = true;
             _placedForRound = round;
+
+            // 격리 앵커가 없어도 대기 자체는 건다 — §10.1의 "3초 후 진입"은 위치가 아니라
+            // 시간 규칙이고, 앵커 누락으로 규칙까지 사라지면 안 된다(GAP-45).
+            _isolation.Begin(player.Role);
+            player.SetMovementLocked(_isolation.IsHolding);
+
+            if (isolate && !IsolationAnchorRegistry.HasAnchor)
+            {
+                Debug.LogWarning("[Isolation] 격리 앵커(SeekerIsolationAnchor)가 맵에 없어 술래를 " +
+                                 "스폰 링에 배치했습니다 — 3초 대기는 그대로 적용됩니다. " +
+                                 "Tools/MARCO/Scene Flow — 3. 맵 씬 정리로 앵커를 생성하세요.");
+            }
+            else if (isolate)
+            {
+                Debug.Log($"[Isolation] 술래를 격리 공간 {IsolationAnchorRegistry.Pose.Position}에 배치 — " +
+                          $"{SeekerIsolation.IsolationSeconds:0}초 후 이동 가능(§10.1).");
+            }
         }
+
+        /// <summary>격리 공간은 한 지점이라 스폰 링 분산을 적용하지 않는다(술래는 1인 — §6.2).</summary>
+        private void PlaceExactly(FirstPersonController player, SpawnPose pose)
+        {
+            Vector3 target = pose.Position + Vector3.up * _verticalOffset;
+
+            var controller = player.GetComponent<CharacterController>();
+            bool wasEnabled = controller != null && controller.enabled;
+            if (wasEnabled)
+                controller.enabled = false;
+
+            player.transform.SetPositionAndRotation(target, pose.Rotation);
+
+            if (wasEnabled)
+                controller.enabled = true;
+        }
+
+        /// <summary>§10.1 격리 대기를 흘리고, 끝나면 이동을 풀어 준다.</summary>
+        private void TickIsolation()
+        {
+            if (!_isolation.IsHolding)
+                return;
+
+            FirstPersonController player = LocalPlayerRegistry.Current;
+            if (player == null)
+                return;
+
+            _isolation.Tick(Time.deltaTime);
+
+            if (_isolation.IsHolding)
+            {
+                player.SetMovementLocked(true);
+                return;
+            }
+
+            player.SetMovementLocked(false);
+            Debug.Log("[Isolation] 격리 해제 — 술래가 맵으로 진입합니다(§10.1).");
+        }
+
+        /// <summary>격리 대기의 남은 초(HUD 표시용). 대기 중이 아니면 0.</summary>
+        public float IsolationRemaining => _isolation.Remaining;
 
         /// <summary>
         /// 현재 라운드 번호. 라운드 지휘부를 찾지 못하거나 로컬 단독 실행이면 0으로 고정되어

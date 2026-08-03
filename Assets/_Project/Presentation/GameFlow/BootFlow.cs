@@ -20,6 +20,13 @@ namespace Marco.Presentation.GameFlow
         private float _elapsed;
         private bool _advanced;
 
+        private void Start()
+        {
+            // §12.6 설정은 세션 시작에 한 번 불러와 적용한다(플레이어는 나중에 스폰되므로
+            // 준비되는 시점에 다시 적용된다). 저장은 PlayerPrefs라 게임을 껐다 켜도 유지된다.
+            Settings.SettingsStore.ApplyWhenPlayerReady();
+        }
+
         private void Update()
         {
             if (_advanced)

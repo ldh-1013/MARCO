@@ -42,6 +42,9 @@ namespace Marco.Presentation.Player
         [Header("카메라")]
         [SerializeField] private Transform _cameraTransform;
         [SerializeField] private float _mouseSensitivity = 0.12f;
+
+        [Tooltip("§12.6 조작 탭 'Y축 반전'. 설정 화면이 런타임에 바꾼다.")]
+        [SerializeField] private bool _invertY;
         [SerializeField] private float _pitchLimit = 89f;
 
         private CharacterController _characterController;
@@ -90,6 +93,28 @@ namespace Marco.Presentation.Player
         /// 리스폰 시점에만 속도를 0으로 되돌린다.
         /// </summary>
         public void ResetVerticalVelocity() => _verticalVelocity = 0f;
+
+        /// <summary>
+        /// §12.6 조작 탭 설정을 적용한다(스프린트 23). 설정 화면과 저장소가 부르며,
+        /// 이동·태그 등 게임플레이 규칙에는 관여하지 않는다.
+        /// </summary>
+        /// <summary>
+        /// §10.1 격리 대기처럼 **이동만** 잠글 때 쓴다(스프린트 24).
+        ///
+        /// <c>ILocalControlGate.SetLocalControl(false)</c>를 재사용하지 않는 이유: 그쪽은
+        /// 소유권용이라 카메라·커서를 끄고 <c>LocalPlayerRegistry</c> 등록까지 해제한다.
+        /// 격리에 그것을 쓰면 로컬 플레이어 참조가 사라져 HUD·스폰 배치가 전부 어긋난다
+        /// (스프린트 22에서 실제로 겪은 등록 유실과 같은 유형의 사고가 된다).
+        /// </summary>
+        public bool MovementLocked { get; private set; }
+
+        public void SetMovementLocked(bool locked) => MovementLocked = locked;
+
+        public void ApplyLookSettings(float mouseSensitivity, bool invertY)
+        {
+            _mouseSensitivity = mouseSensitivity;
+            _invertY = invertY;
+        }
 
         /// <summary>
         /// 로컬 플레이어가 조종하는가. 네트워크가 없는 로컬 단독 실행에서는 아무도
@@ -187,7 +212,13 @@ namespace Marco.Presentation.Player
             if (!IsLocallyControlled)
                 return;
 
+            // 시점 회전은 항상 허용한다 — §10.1 격리 중에도 술래가 주변을 볼 수 있어야
+            // "격리 공간에서 대기"가 성립한다(눈까지 막으라는 규칙은 없다).
             ApplyLook();
+
+            if (MovementLocked)
+                return;
+
             ApplyMovement();
         }
 
@@ -201,7 +232,9 @@ namespace Marco.Presentation.Player
 
             transform.Rotate(0f, delta.x, 0f);
 
-            _pitch = Mathf.Clamp(_pitch - delta.y, -_pitchLimit, _pitchLimit);
+            // §12.6 조작 탭 "Y축 반전" — 설정에서만 바뀌며 기본값은 종전과 동일(끔)이다.
+            float pitchDelta = _invertY ? delta.y : -delta.y;
+            _pitch = Mathf.Clamp(_pitch + pitchDelta, -_pitchLimit, _pitchLimit);
             _cameraTransform.localRotation = Quaternion.Euler(_pitch, 0f, 0f);
         }
 

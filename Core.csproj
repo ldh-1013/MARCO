@@ -94,10 +94,12 @@
     <Compile Include="Assets\_Project\Core\GameFlow\GameFlowManager.cs" />
     <Compile Include="Assets\_Project\Core\Net\IConnectionService.cs" />
     <Compile Include="Assets\_Project\Core\Role\RoleType.cs" />
+    <Compile Include="Assets\_Project\Core\GameFlow\SeekerIsolation.cs" />
     <Compile Include="Assets\_Project\Core\Net\ITagTarget.cs" />
     <Compile Include="Assets\_Project\Core\Locomotion\MovementState.cs" />
     <Compile Include="Assets\_Project\Core\GameFlow\IRoundNetworkBridge.cs" />
     <Compile Include="Assets\_Project\Core\GameFlow\ServerRoundDriver.cs" />
+    <Compile Include="Assets\_Project\Core\Settings\GameSettings.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Assets\_Project\Core\Core.asmdef" />

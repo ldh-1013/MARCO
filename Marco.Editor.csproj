@@ -63,6 +63,7 @@
     <Compile Include="Assets\_Project\Editor\MarcoSetupPipeline.cs" />
     <Compile Include="Assets\_Project\Editor\DebugToolsCleanupTool.cs" />
     <Compile Include="Assets\_Project\Editor\NetworkPlayerSetupTool.cs" />
+    <Compile Include="Assets\_Project\Editor\SceneObserverSetupTool.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Assets\_Project\Editor\Marco.Editor.asmdef" />
