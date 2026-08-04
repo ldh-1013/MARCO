@@ -80,13 +80,11 @@ namespace Marco.Core.Tests
             Assert.AreEqual(Valve.DefaultRotationSeconds, d);
         }
 
-        [TestCase(SoundType.Whisper)]
-        [TestCase(SoundType.Talk)]
-        [TestCase(SoundType.Shout)]
         [TestCase(SoundType.Knock)]
         public void TryGetPulseSpec_UnsupportedTypes_AreRejected(SoundType type)
         {
-            // 음성 등급은 §5.2 파이프라인 스코프, 노크는 메아리 능력(미구현) — 아직 대상이 아니다.
+            // 노크는 메아리 능력(§3.2)이 미구현이라 아직 대상이 아니다.
+            // (음성 3등급은 스프린트 26b에서 §5.2 파이프라인이 들어오며 지원 대상이 됐다.)
             Assert.IsFalse(ServerPulseDriver.TryGetPulseSpec(type, out _, out _));
         }
 
@@ -94,8 +92,60 @@ namespace Marco.Core.Tests
         public void AddPulse_UnsupportedType_ReturnsNegativeAndAddsNothing()
         {
             var d = new ServerPulseDriver();
-            Assert.AreEqual(-1, d.AddPulse(SourceId, SoundType.Shout, Vector3.zero, 0f));
+            Assert.AreEqual(-1, d.AddPulse(SourceId, SoundType.Knock, Vector3.zero, 0f));
             Assert.AreEqual(0, d.ActivePulseCount);
+        }
+
+        // ── §5.2 음성 3등급 (스프린트 26b) ────────────────────────────────
+
+        [Test]
+        public void TryGetPulseSpec_Whisper_MatchesDesignDoc()
+        {
+            // §5.1 "속삭임 | 4m | 0.6초"
+            Assert.IsTrue(ServerPulseDriver.TryGetPulseSpec(SoundType.Whisper, out float r, out float d));
+            Assert.AreEqual(4f, r, 0.001f);
+            Assert.AreEqual(0.6f, d, 0.001f);
+        }
+
+        [Test]
+        public void TryGetPulseSpec_Talk_MatchesDesignDoc()
+        {
+            // §5.1 "대화 | 9m | 1.2초"
+            Assert.IsTrue(ServerPulseDriver.TryGetPulseSpec(SoundType.Talk, out float r, out float d));
+            Assert.AreEqual(9f, r, 0.001f);
+            Assert.AreEqual(1.2f, d, 0.001f);
+        }
+
+        [Test]
+        public void TryGetPulseSpec_Shout_MatchesDesignDoc()
+        {
+            // §5.1 "고함 | 22m | 2.5초"
+            Assert.IsTrue(ServerPulseDriver.TryGetPulseSpec(SoundType.Shout, out float r, out float d));
+            Assert.AreEqual(22f, r, 0.001f);
+            Assert.AreEqual(2.5f, d, 0.001f);
+        }
+
+        [Test]
+        public void VoiceRadii_AreOrderedByLoudness()
+        {
+            // 속삭임 < 대화 < 고함. 순서가 뒤집히면 "크게 말할수록 안전"해져 §2.1 훅이 무너진다.
+            ServerPulseDriver.TryGetPulseSpec(SoundType.Whisper, out float whisper, out _);
+            ServerPulseDriver.TryGetPulseSpec(SoundType.Talk, out float talk, out _);
+            ServerPulseDriver.TryGetPulseSpec(SoundType.Shout, out float shout, out _);
+
+            Assert.Less(whisper, talk);
+            Assert.Less(talk, shout);
+        }
+
+        [Test]
+        public void AddPulse_Shout_IsAcceptedAndTracked()
+        {
+            var d = new ServerPulseDriver();
+
+            int id = d.AddPulse(SourceId, SoundType.Shout, Vector3.zero, 0f);
+
+            Assert.GreaterOrEqual(id, 0, "고함은 §5.1 표에 있으므로 서버가 파문을 만들어야 한다.");
+            Assert.AreEqual(1, d.ActivePulseCount);
         }
 
         [Test]

@@ -7,6 +7,7 @@ using Marco.Presentation.GameFlow;
 using Marco.Presentation.Objectives;
 using Marco.Presentation.Sound;
 using Marco.Presentation.UI;
+using Voice = Marco.Presentation.Voice;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -128,6 +129,7 @@ namespace Marco.EditorTools
             EnsureComponent<PawnPhaseTeleporter>(flowGo);
             EnsureComponent<FallRecoveryDriver>(flowGo); // 스프린트 20: 맵 밖 낙하 복구
             EnsureComponent<SettingsScreen>(flowGo);    // 스프린트 23: §12.6 설정 화면
+            EnsureComponent<Voice.LocalVoicePipeline>(flowGo); // 스프린트 26a: §5.2 음성 1단계
 
             // 로비에서 pawn이 무한 낙하하지 않도록 임시 바닥(맵 로드 전 대기용).
             EnsureLobbyFloor(lobby);
@@ -386,6 +388,7 @@ namespace Marco.EditorTools
                 GameObject flowGo = EnsureSceneObject(lobbyScene, "SceneFlow");
                 EnsureComponent<FallRecoveryDriver>(flowGo);
                 EnsureComponent<SettingsScreen>(flowGo);
+                EnsureComponent<Voice.LocalVoicePipeline>(flowGo);
 
                 EditorSceneManager.MarkSceneDirty(lobbyScene);
             }

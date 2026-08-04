@@ -541,6 +541,21 @@ namespace Marco.EditorTools
                 {
                     report.AppendLine("  ✔ 설정 화면(스프린트 23): SettingsScreen 부착됨(F1로 열림)");
                 }
+
+                // 스프린트 26b: 음성이 §5.1 파문 경로에 들어오면서 **핵심 기능**이 됐다.
+                // 26a에서는 ⓘ(안내)였지만, 이제 없으면 발화가 파문으로 전달되지 않고
+                // 최다 비명상(§8)도 영영 수상자가 나오지 않으므로 실패로 잡는다.
+                if (flow.GetComponent<Marco.Presentation.Voice.LocalVoicePipeline>() == null)
+                {
+                    lobbyOk = false;
+                    report.AppendLine("  ✖ 음성 파이프라인(스프린트 26a/26b): SceneFlow에 LocalVoicePipeline이 없습니다 — " +
+                                      "**[Voice] 로그도 HUD 음성 표시도 나오지 않고, 발화가 파문으로 전달되지 않습니다.** " +
+                                      "→ Tools/MARCO/Scene Flow — 5. 로비 배선 정리 실행 후 **Lobby 씬 저장(Ctrl+S)**");
+                }
+                else
+                {
+                    report.AppendLine("  ✔ 음성 파이프라인(스프린트 26a): LocalVoicePipeline 부착됨(§5.2 1단계)");
+                }
             }
 
             return !hudBannerOn && lobbyOk;

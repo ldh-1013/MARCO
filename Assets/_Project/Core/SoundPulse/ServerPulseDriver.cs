@@ -36,9 +36,9 @@ namespace Marco.Core.Sound
         /// §5.1 표의 반경·지속을 소리 종류에서 서버가 재계산한다. 표에 없는 종류는 false —
         /// 클라이언트가 임의 종류를 보내도 서버가 파문을 만들지 않는다.
         ///
-        /// 지원 범위(이번 스프린트에 네트워크화된 소리): 걷기·질주(§5.1 발소리) + 밸브 회전
-        /// (§5.1/§6.1 "의도된 유인 장치" — 이게 빠지면 네트워크에서 밸브가 무음이 되어
-        /// 유인 설계가 붕괴한다). 음성 등급(속삭임·대화·고함)은 §5.2 음성 파이프라인 스코프이고,
+        /// 지원 범위: 걷기·질주(§5.1 발소리) + 밸브 회전(§5.1/§6.1 "의도된 유인 장치" — 이게
+        /// 빠지면 네트워크에서 밸브가 무음이 되어 유인 설계가 붕괴한다) + **음성 3등급**
+        /// (속삭임·대화·고함 — 스프린트 26b에서 §5.2 파이프라인이 들어오며 추가).
         /// 노크는 메아리 능력(미구현)이라 아직 대상이 아니다.
         /// </summary>
         public static bool TryGetPulseSpec(SoundType type, out float radius, out float duration)
@@ -58,6 +58,23 @@ namespace Marco.Core.Sound
                 case SoundType.Valve:
                     radius = Valve.SoundRadiusMeters;                // §5.1 12m
                     duration = Valve.DefaultRotationSeconds;         // §5.1 "회전 내내"(4인 MVP 3초)
+                    return true;
+
+                // §5.2 음성 파이프라인(스프린트 26b). 클라이언트는 **등급만** 주장하고,
+                // 반경·지속·위치는 여기서 서버가 정한다 — 발소리·밸브와 완전히 같은 규칙이다(GAP-24).
+                case SoundType.Whisper:
+                    radius = Voice.VoiceConfig.WhisperRadiusMeters;    // §5.1 4m
+                    duration = Voice.VoiceConfig.WhisperDurationSeconds; // §5.1 0.6s
+                    return true;
+
+                case SoundType.Talk:
+                    radius = Voice.VoiceConfig.TalkRadiusMeters;       // §5.1 9m
+                    duration = Voice.VoiceConfig.TalkDurationSeconds;  // §5.1 1.2s
+                    return true;
+
+                case SoundType.Shout:
+                    radius = Voice.VoiceConfig.ShoutRadiusMeters;      // §5.1 22m
+                    duration = Voice.VoiceConfig.ShoutDurationSeconds; // §5.1 2.5s
                     return true;
 
                 default:

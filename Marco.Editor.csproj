@@ -57,6 +57,7 @@
     <Compile Include="Assets\_Project\Editor\NetworkPulseSetupTool.cs" />
     <Compile Include="Assets\_Project\Editor\NetworkValveSetupTool.cs" />
     <Compile Include="Assets\_Project\Editor\NetworkRoundSetupTool.cs" />
+    <Compile Include="Assets\_Project\Editor\VoicePipelineTestWindow.cs" />
     <Compile Include="Assets\_Project\Editor\NetworkSetupDiagnostics.cs" />
     <Compile Include="Assets\_Project\Editor\GrayboxMaterialFixTool.cs" />
     <Compile Include="Assets\_Project\Editor\SceneFlowSetupTool.cs" />

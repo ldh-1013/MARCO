@@ -21,6 +21,8 @@ namespace Marco.Presentation.GameFlow
     {
         private void Start()
         {
+            WarnIfVoiceMissing();
+
             MainMenuScreen.Intent intent = MainMenuScreen.Consume();
             if (intent == MainMenuScreen.Intent.None)
                 return; // 메인 메뉴를 거치지 않음 — LobbyScreen의 H/J 패널로 접속한다.
@@ -45,6 +47,28 @@ namespace Marco.Presentation.GameFlow
                 connection.StartHost();
             else
                 connection.StartClient(MainMenuScreen.PendingAddress);
+        }
+
+        /// <summary>
+        /// §5.2 음성 파이프라인이 씬에 없으면 **Play 시작 시점에** 알린다(스프린트 26b 후속).
+        ///
+        /// **왜 런타임 경고인가**: 26a에서 컴포넌트를 <c>SceneFlowSetupTool</c>에 추가했지만,
+        /// 도구를 실행하지 않으면 씬에는 반영되지 않는다. 그 상태에서는 <c>[Voice]</c> 로그도
+        /// HUD 음성 표시도 **아무 흔적 없이 조용히 없어서**, "왜 안 되지"를 씬 파일을 열어
+        /// 확인해야만 알 수 있다. 이 프로젝트에서 같은 유형의 사고가 반복됐으므로
+        /// (스프린트 14 씬 저장 누락, 18b 머티리얼 미적용) Play만 해도 보이게 한다.
+        ///
+        /// 게임 진행은 막지 않는다 — 밸브·태그·라운드는 음성과 무관하다.
+        /// </summary>
+        private static void WarnIfVoiceMissing()
+        {
+            if (FindAnyObjectByType<Voice.LocalVoicePipeline>() != null)
+                return;
+
+            Debug.LogWarning("[Voice] 씬에 LocalVoicePipeline이 없습니다 — 발화 분류·전송이 동작하지 않습니다" +
+                             "([Voice] 로그도 HUD 음성 표시도 나오지 않습니다). " +
+                             "Tools/MARCO/Scene Flow — 5. 로비 배선 정리를 실행하고 Lobby 씬을 저장하세요. " +
+                             "밸브·태그·라운드는 음성과 무관하므로 게임 진행에는 지장이 없습니다.");
         }
     }
 }

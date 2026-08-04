@@ -53,6 +53,7 @@
     <Analyzer Include="C:\Program Files\Unity\Hub\Editor\6000.5.4f1\Editor\Data\BCLExtensions\TargetingPacks\netstandard2.1\analyzers\dotnet\roslyn4.0\cs\System.Text.Json.SourceGeneration.dll" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Assets\_Project\Core\Voice\VoiceGate.cs" />
     <Compile Include="Assets\_Project\Core\Objectives\EscapeGateRegistry.cs" />
     <Compile Include="Assets\_Project\Core\Locomotion\LocomotionConfig.cs" />
     <Compile Include="Assets\_Project\Core\SoundPulse\ActivePulseTracker.cs" />
@@ -62,12 +63,15 @@
     <Compile Include="Assets\_Project\Core\Objectives\Valve.cs" />
     <Compile Include="Assets\_Project\Core\Net\IReadyState.cs" />
     <Compile Include="Assets\_Project\Core\GameFlow\FallRecovery.cs" />
+    <Compile Include="Assets\_Project\Core\Voice\VoiceCalibration.cs" />
     <Compile Include="Assets\_Project\Core\SoundPulse\PulseNetworkRegistry.cs" />
     <Compile Include="Assets\_Project\Core\Net\ILocalControlGate.cs" />
     <Compile Include="Assets\_Project\Core\Net\ReadyStateRegistry.cs" />
     <Compile Include="Assets\_Project\Core\Objectives\IEscapeGateState.cs" />
     <Compile Include="Assets\_Project\Core\Net\TagTargetRegistry.cs" />
+    <Compile Include="Assets\_Project\Core\Voice\VoiceBandpass.cs" />
     <Compile Include="Assets\_Project\Core\Awards\AwardTally.cs" />
+    <Compile Include="Assets\_Project\Core\Voice\VoiceConfig.cs" />
     <Compile Include="Assets\_Project\Core\GameFlow\GameFlowState.cs" />
     <Compile Include="Assets\_Project\Core\Objectives\ValveState.cs" />
     <Compile Include="Assets\_Project\Core\GameFlow\RematchVoteDriver.cs" />
@@ -78,6 +82,7 @@
     <Compile Include="Assets\_Project\Core\GameFlow\SpawnRing.cs" />
     <Compile Include="Assets\_Project\Core\SoundPulse\PerceivedPulse.cs" />
     <Compile Include="Assets\_Project\Core\GameFlow\ServerLobbyDriver.cs" />
+    <Compile Include="Assets\_Project\Core\SoundPulse\DirectionGaugeRules.cs" />
     <Compile Include="Assets\_Project\Core\SoundPulse\SoundType.cs" />
     <Compile Include="Assets\_Project\Core\Objectives\ServerValveDriver.cs" />
     <Compile Include="Assets\_Project\Core\Tagging\TagRules.cs" />
@@ -100,6 +105,7 @@
     <Compile Include="Assets\_Project\Core\GameFlow\IRoundNetworkBridge.cs" />
     <Compile Include="Assets\_Project\Core\GameFlow\ServerRoundDriver.cs" />
     <Compile Include="Assets\_Project\Core\Settings\GameSettings.cs" />
+    <Compile Include="Assets\_Project\Core\Voice\VoiceClassifier.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Assets\_Project\Core\Core.asmdef" />

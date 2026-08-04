@@ -508,6 +508,7 @@ GameObject:
   - component: {fileID: 1302611213}
   - component: {fileID: 1302611215}
   - component: {fileID: 1302611214}
+  - component: {fileID: 1302611216}
   m_Layer: 0
   m_Name: SceneFlow
   m_TagString: Untagged
@@ -618,6 +619,23 @@ MonoBehaviour:
   _sampleIntervalSeconds: 0.5
   _verticalOffset: 0.05
   _logRecovery: 1
+--- !u!114 &1302611216
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1302611208}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 248ca8166f9e91e438f64f59dad6d209, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Presentation::Marco.Presentation.Voice.LocalVoicePipeline
+  _muteKey: 53
+  _pushToTalkKey: 36
+  _logGradeChanges: 1
+  _logLevels: 0
+  _levelLogInterval: 1
 --- !u!1 &1786705894
 GameObject:
   m_ObjectHideFlags: 0

@@ -1,4 +1,6 @@
 using Marco.Core.Settings;
+using Marco.Core.Voice;
+using Voice = Marco.Presentation.Voice;
 using Marco.Presentation.Settings;
 using UnityEngine;
 using UnityEngine.InputSystem;
@@ -31,10 +33,13 @@ namespace Marco.Presentation.UI
             FieldOfView,
             MasterVolume,
             ShowFrameRate,
+            VoiceMode,
+            InputGain,
+            Calibrate,
             RestoreDefaults
         }
 
-        private const int RowCount = 7;
+        private const int RowCount = 10;
 
         [Header("키 (정식 포인터 UI는 GAP-44)")]
         [SerializeField] private Key _toggleKey = Key.F1;
@@ -157,6 +162,27 @@ namespace Marco.Presentation.UI
                 case Row.MasterVolume:
                     settings.MasterVolume += step * 0.05f;
                     break;
+                case Row.VoiceMode:
+                    // §5.8: PTT를 고르면 "핵심 긴장감이 줄어든다"는 안내를 노출해야 한다.
+                    settings.VoiceMode = settings.VoiceMode == VoiceActivationMode.VoiceActivation
+                        ? VoiceActivationMode.PushToTalk
+                        : VoiceActivationMode.VoiceActivation;
+                    break;
+                case Row.InputGain:
+                    settings.InputGainDb += step * 1f;
+                    break;
+                case Row.Calibrate:
+                    // §12.6 "발화 감도 재보정 | 버튼 → 3초 프롬프트(5.2절) 재실행"
+                    if (activate)
+                    {
+                        var pipeline = FindAnyObjectByType<Voice.LocalVoicePipeline>();
+                        if (pipeline != null)
+                            pipeline.BeginCalibration();
+                        else
+                            Debug.LogWarning("[Settings] 음성 파이프라인이 씬에 없어 재보정을 시작할 수 없습니다.");
+                    }
+
+                    return;
                 case Row.RestoreDefaults:
                     if (activate)
                     {
@@ -191,12 +217,18 @@ namespace Marco.Presentation.UI
             SetRow(Row.FieldOfView, $"FOV                {s.FieldOfView:0}°");
             SetRow(Row.MasterVolume, $"마스터 볼륨        {s.MasterVolume * 100f:0}%");
             SetRow(Row.ShowFrameRate, $"프레임 표시        {OnOff(s.ShowFrameRate)}");
+            SetRow(Row.VoiceMode, $"발화 방식          {(s.VoiceMode == VoiceActivationMode.VoiceActivation ? "VAD(기본)" : "PTT(대체)")}");
+            SetRow(Row.InputGain, $"입력 게인          {s.InputGainDb:+0.#;-0.#;0} dB");
+            SetRow(Row.Calibrate, CalibrationRowText(s));
             SetRow(Row.RestoreDefaults, "기본값 복원        [Enter]");
 
             _footerText.text =
                 "↑↓ 항목 · ←→ 변경 · Enter 실행 · Esc 닫기\n" +
-                "준비 중(선행 시스템 필요): 마이크 장치·입력 게인·발화 감도 재보정 · 효과음/UI 개별 볼륨 · " +
-                "밝기 · 키 리바인딩 · VAD/PTT · 파문 자막 · 오프닝 가이드";
+                "준비 중(선행 시스템 필요): 마이크 장치 선택 · 효과음/UI 개별 볼륨 · " +
+                "밝기 · 키 리바인딩 · 파문 자막 · 오프닝 가이드" +
+                (SettingsStore.Current.VoiceMode == VoiceActivationMode.PushToTalk
+                    ? "\n⚠ PTT는 대체 방식입니다 — 말이 새어나가는 긴장감이 줄어듭니다(§5.8)."
+                    : string.Empty);
             _footerText.color = new Color(0.5f, 0.5f, 0.5f);
         }
 
@@ -210,6 +242,20 @@ namespace Marco.Presentation.UI
         }
 
         private static string OnOff(bool value) => value ? "켬" : "끔";
+
+        /// <summary>§12.6 "발화 감도 재보정" 행. 측정 중이면 남은 초를, 아니면 저장된 보정값을 보여준다.</summary>
+        private string CalibrationRowText(GameSettings s)
+        {
+            var pipeline = FindAnyObjectByType<Voice.LocalVoicePipeline>();
+            if (pipeline != null && pipeline.IsCalibrating)
+                return $"발화 감도 재보정    측정 중… {pipeline.CalibrationRemaining:0.0}초 (가장 작은 목소리로)";
+
+            string current = Mathf.Approximately(s.VoiceCalibrationOffsetDb, 0f)
+                ? "미보정"
+                : $"{s.VoiceCalibrationOffsetDb:+0.0;-0.0} dB";
+
+            return $"발화 감도 재보정    {current}  [Enter]";
+        }
 
         private Color Highlight() =>
             _palette != null ? _palette.GetInteractable(SettingsStore.Current.ColorblindMode)

@@ -1,3 +1,5 @@
+using Marco.Core.Voice;
+
 namespace Marco.Core.Settings
 {
     /// <summary>
@@ -39,6 +41,22 @@ namespace Marco.Core.Settings
         public float FieldOfView;
         public float MasterVolume;
 
+        /// <summary>
+        /// §12.6 게임플레이 탭 "발화 방식(VAD/PTT)". §5.8이 **VAD를 기본**으로 못박았다 —
+        /// "말이 새어나가는 순간의 공포"가 핵심 훅이라 PTT는 그 훅을 구조적으로 무력화한다.
+        /// (스프린트 26a에서 음성 파이프라인이 들어오며 GAP-42의 이 항목이 풀렸다.)
+        /// </summary>
+        public VoiceActivationMode VoiceMode;
+
+        /// <summary>§12.6 오디오 탭 "입력 게인 | 슬라이더(-20dB~+20dB) | 0dB".</summary>
+        public float InputGainDb;
+
+        /// <summary>
+        /// §5.2-3 개인 캘리브레이션 오프셋(dB). "발화 감도 재보정" 버튼이 측정해 저장한다.
+        /// 0이면 보정 없음 — 측정 실패도 0이므로 조용히 잘못된 보정이 남지 않는다.
+        /// </summary>
+        public float VoiceCalibrationOffsetDb;
+
         /// <summary>§12.6 "기본값 복원" 버튼이 되돌릴 상태.</summary>
         public static GameSettings Default => new GameSettings
         {
@@ -47,7 +65,10 @@ namespace Marco.Core.Settings
             ShowFrameRate = false,       // §12.6 프레임 표시 기본 "끔"
             MouseSensitivity = DefaultMouseSensitivity,
             FieldOfView = DefaultFieldOfView,
-            MasterVolume = DefaultMasterVolume
+            MasterVolume = DefaultMasterVolume,
+            VoiceMode = VoiceActivationMode.VoiceActivation, // §5.8 기본값
+            InputGainDb = VoiceConfig.DefaultInputGainDb,     // §12.6 0dB
+            VoiceCalibrationOffsetDb = 0f                     // 보정 없음
         };
 
         /// <summary>저장값이 손상됐거나 범위를 벗어나도 안전한 값으로 되돌린다.</summary>
@@ -58,6 +79,10 @@ namespace Marco.Core.Settings
                                             DefaultMouseSensitivity);
             result.FieldOfView = Clamp(FieldOfView, MinFieldOfView, MaxFieldOfView, DefaultFieldOfView);
             result.MasterVolume = Clamp(MasterVolume, 0f, 1f, DefaultMasterVolume);
+            result.InputGainDb = Clamp(InputGainDb, VoiceConfig.MinInputGainDb, VoiceConfig.MaxInputGainDb,
+                                       VoiceConfig.DefaultInputGainDb);
+            result.VoiceCalibrationOffsetDb = Clamp(VoiceCalibrationOffsetDb,
+                                                    -VoiceCalibration.MaxOffsetDb, VoiceCalibration.MaxOffsetDb, 0f);
             return result;
         }
 

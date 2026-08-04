@@ -23,6 +23,9 @@ namespace Marco.Presentation.Settings
         private const string KeySensitivity = "marco.settings.mouseSensitivity";
         private const string KeyFov = "marco.settings.fov";
         private const string KeyMasterVolume = "marco.settings.masterVolume";
+        private const string KeyVoiceMode = "marco.settings.voiceMode";      // §12.6 발화 방식(VAD/PTT)
+        private const string KeyInputGain = "marco.settings.inputGainDb";    // §12.6 입력 게인
+        private const string KeyVoiceCalibration = "marco.settings.voiceCalibrationDb"; // §5.2-3 개인 보정
 
         private static GameSettings _current = GameSettings.Default;
         private static bool _loaded;
@@ -51,7 +54,12 @@ namespace Marco.Presentation.Settings
                 ShowFrameRate = GetBool(KeyShowFps, defaults.ShowFrameRate),
                 MouseSensitivity = PlayerPrefs.GetFloat(KeySensitivity, defaults.MouseSensitivity),
                 FieldOfView = PlayerPrefs.GetFloat(KeyFov, defaults.FieldOfView),
-                MasterVolume = PlayerPrefs.GetFloat(KeyMasterVolume, defaults.MasterVolume)
+                MasterVolume = PlayerPrefs.GetFloat(KeyMasterVolume, defaults.MasterVolume),
+                VoiceMode = (Marco.Core.Voice.VoiceActivationMode)PlayerPrefs.GetInt(
+                    KeyVoiceMode, (int)defaults.VoiceMode),
+                InputGainDb = PlayerPrefs.GetFloat(KeyInputGain, defaults.InputGainDb),
+                VoiceCalibrationOffsetDb = PlayerPrefs.GetFloat(KeyVoiceCalibration,
+                                                                defaults.VoiceCalibrationOffsetDb)
             };
 
             _current = loaded.Clamped();
@@ -70,6 +78,9 @@ namespace Marco.Presentation.Settings
             PlayerPrefs.SetFloat(KeySensitivity, _current.MouseSensitivity);
             PlayerPrefs.SetFloat(KeyFov, _current.FieldOfView);
             PlayerPrefs.SetFloat(KeyMasterVolume, _current.MasterVolume);
+            PlayerPrefs.SetInt(KeyVoiceMode, (int)_current.VoiceMode);
+            PlayerPrefs.SetFloat(KeyInputGain, _current.InputGainDb);
+            PlayerPrefs.SetFloat(KeyVoiceCalibration, _current.VoiceCalibrationOffsetDb);
             PlayerPrefs.Save();
 
             ApplyToScene();

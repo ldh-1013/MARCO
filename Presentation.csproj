@@ -76,10 +76,12 @@
     <Compile Include="Assets\_Project\Presentation\SoundPulse\PhysicsOcclusionProbe.cs" />
     <Compile Include="Assets\_Project\Presentation\Objectives\ValveBehaviour.cs" />
     <Compile Include="Assets\_Project\Presentation\GameFlow\SpawnAnchor.cs" />
+    <Compile Include="Assets\_Project\Presentation\Voice\LocalVoicePipeline.cs" />
     <Compile Include="Assets\_Project\Presentation\UI\SettingsScreen.cs" />
     <Compile Include="Assets\_Project\Presentation\GameFlow\RoundOutcomeTracker.cs" />
     <Compile Include="Assets\_Project\Presentation\Objectives\ValveInteractionController.cs" />
     <Compile Include="Assets\_Project\Presentation\SoundPulse\PulseVisualRenderer.cs" />
+    <Compile Include="Assets\_Project\Presentation\Voice\MicrophoneCapture.cs" />
     <Compile Include="Assets\_Project\Presentation\GameFlow\LobbyEntry.cs" />
     <Compile Include="Assets\_Project\Presentation\Player\LocalPlayerRegistry.cs" />
     <Compile Include="Assets\_Project\Presentation\GameFlow\RoundCoordinator.cs" />

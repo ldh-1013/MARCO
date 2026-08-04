@@ -67,6 +67,8 @@ namespace Marco.Presentation.UI
         private Text _roleText;
         private Text _gateHintText;
         private Text _resultText;
+        private Text _voiceText;              // 스프린트 26a 음성 등급(개발용 표시)
+        private Voice.LocalVoicePipeline _voice; // 지연 탐색 — 씬에 없으면 표시하지 않는다
         private Image[] _valvePips;
 
         /// <summary>§6.2상 맵당 밸브는 최대 3개다. 맵이 오갈 때를 대비해 이만큼 미리 만들어 둔다.</summary>
@@ -127,6 +129,11 @@ namespace Marco.Presentation.UI
             // 결과 배너: 정식 결과 화면(§12.5)은 다음 단계라, 화면 중앙에 최소 문구만.
             _resultText = CreateText(font, "result", TextAnchor.MiddleCenter, new Vector2(0.5f, 0.5f), Vector2.zero);
             _resultText.fontSize = _fontSize * 2;
+
+            // 음성 등급(스프린트 26a 진단): §12.4 도식에 없는 **개발용 표시**다. 빈 좌하단에 두고
+            // 네트워크 연결 여부와 무관하게 항상 갱신한다 — 에디터 단독 Play로 마이크를 확인하려는 것이다.
+            _voiceText = CreateText(font, "voice", TextAnchor.LowerLeft, new Vector2(0f, 0f),
+                new Vector2(_screenMargin.x, _screenMargin.y));
         }
 
         /// <summary>
@@ -223,6 +230,46 @@ namespace Marco.Presentation.UI
             UpdateRole();
             UpdateGateHint();
             UpdateResult();
+            UpdateVoice();
+        }
+
+        /// <summary>
+        /// 음성 등급 실시간 표시(스프린트 26a). **네트워크 연결과 무관하게 항상 갱신**한다 —
+        /// 에디터 단독 Play(접속 없음)로 마이크를 확인할 수 있어야 하기 때문이다.
+        /// 씬에 <c>LocalVoicePipeline</c>이 없으면 줄 자체를 비운다(§12.4 도식에 없는 개발용 표시라
+        /// 없을 때 자리를 차지하면 안 된다).
+        /// </summary>
+        private void UpdateVoice()
+        {
+            if (_voiceText == null)
+                return;
+
+            if (_voice == null)
+                _voice = FindAnyObjectByType<Voice.LocalVoicePipeline>();
+
+            if (_voice == null)
+            {
+                _voiceText.text = string.Empty;
+                return;
+            }
+
+            if (!_voice.CaptureActive)
+            {
+                _voiceText.text = "🎤 마이크 없음";
+                _voiceText.color = PulseColor();
+                return;
+            }
+
+            _voiceText.text = $"🎤 {_voice.CurrentGrade}  {_voice.CurrentDbfs:0.0} dBFS";
+
+            // 등급이 올라갈수록 눈에 띄게 — 색맹 모드에서도 팔레트를 그대로 따른다(§16.2).
+            _voiceText.color = _voice.CurrentGrade switch
+            {
+                Core.Voice.VoiceGrade.Shout => SeekerColor(),
+                Core.Voice.VoiceGrade.Talk => RunnerColor(),
+                Core.Voice.VoiceGrade.Whisper => PulseColor(),
+                _ => new Color(0.5f, 0.5f, 0.5f)
+            };
         }
 
         private void UpdateTimer()
