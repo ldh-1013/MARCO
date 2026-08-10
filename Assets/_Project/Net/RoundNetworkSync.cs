@@ -59,7 +59,8 @@ namespace Marco.Net
 
         /// <summary>
         /// 한 프레임에 이 거리를 넘게 움직였으면 이동이 아니라 순간이동(스폰·리스폰)으로 본다.
-        /// §4.2 최고 속도는 질주 7.5m/s라, 프레임당 2m는 정상 이동으로 도달할 수 없는 값이다.
+        /// 최고 속도는 메아리 8.0m/s(<c>LocomotionConfig.EchoSpeed</c> — 러너 질주 7.5m/s보다 빠르다)라,
+        /// 프레임당 2m는 정상 이동으로 도달할 수 없는 값이다.
         /// </summary>
         private const float MaxDistancePerFrame = 2f;
 
@@ -95,6 +96,17 @@ namespace Marco.Net
         private RematchVoteDriver _vote;        // RoundEnd 동안만 존재(서버 전용)
         private bool _waitingForMap;            // 스프린트 18b: 맵 로드 완료를 기다리는 중(서버 전용)
 
+        /// <summary>
+        /// 이번 판의 술래 순번(§2.3 로테이션). 라운드 배정 시점에 **한 번만** 확정하고 그 뒤로는
+        /// 재계산하지 않는다. -1은 미확정.
+        ///
+        /// <b>왜 고정해야 하는가</b>: <see cref="SeekerRotation.SeekerOrderIndex"/>는
+        /// <c>roundNumber % playerCount</c>라 인원수에 의존한다. 라운드 중 한 명만 합류해도 값이
+        /// 달라져, 진행 중이던 술래가 러너로 강등되고 다른 러너가 술래가 됐다. 더 나쁜 경우로는
+        /// 새 순번이 이미 태그당한 플레이어를 가리켜 <b>술래가 0명</b>이 되기도 했다.
+        /// </summary>
+        private int _fixedSeekerOrder = -1;
+
         // 재사용 버퍼(매 프레임 할당 방지 — T8 성능 조사의 무할당 원칙).
         private readonly List<RoleNetworkSync> _assignBuffer = new List<RoleNetworkSync>();
         private readonly List<ulong> _liveIdBuffer = new List<ulong>();
@@ -117,12 +129,17 @@ namespace Marco.Net
         public int AwardSilentSurvivor => _awardSilent.Value;
         public int AwardBestLiar => _awardLiar.Value;
 
+        /// <summary>
+        /// 탈출 의사만 보낸다 — <paramref name="playerId"/>·<paramref name="role"/>은 **전송하지 않고**
+        /// 서버가 호출자에서 직접 읽는다(<see cref="ServerSubmitEscape"/>). 인자는
+        /// <see cref="IRoundNetworkBridge"/> 계약을 로컬 단독 실행 경로와 공유하기 위해 남아 있다.
+        /// </summary>
         public void SubmitEscapeIntent(ulong playerId, RoleType role)
         {
             if (!NetworkActive)
                 return;
 
-            ServerSubmitEscape(playerId, role);
+            ServerSubmitEscape();
         }
 
         public void RequestRestart()
@@ -215,7 +232,8 @@ namespace Marco.Net
 
                     // §15.4 RoleAssign: "3초 연출, 역할 배정" — 배정을 카운트다운 완료 시점에
                     // 1회 수행한다(중단 시 되돌릴 배정이 없도록 끝에서 확정).
-                    EnsureRolesAssigned();
+                    // 이 호출만이 술래 순번을 정한다(_fixedSeekerOrder 확정).
+                    EnsureRolesAssigned(roundStart: true);
 
                     // 스프린트 18b: §15.4 "InGame: **맵 로드**" — 맵이 올라온 뒤에 라운드를 시작한다.
                     // 맵 없이 시작하면 밸브가 0개라 §6.1 배수로 게이트가 영구히 닫혀 라운드가 성립하지 않는다.
@@ -249,7 +267,8 @@ namespace Marco.Net
             if (_driver == null)
                 return;
 
-            // 라운드 중 접속한 플레이어도 배정을 받는다(스프린트 13 동작 보존).
+            // 라운드 중 접속한 플레이어도 배정을 받는다(스프린트 13 동작 보존) —
+            // 단 **신규 접속자만** 러너로 채우고 기존 배정은 건드리지 않는다.
             EnsureRolesAssigned();
 
             // §8 어워드: 이동거리는 라운드 진행 중에만 센다(로비 이동은 집계 대상이 아니다).
@@ -328,14 +347,26 @@ namespace Marco.Net
 
         /// <summary>
         /// 탈출은 특정 플레이어가 소유하지 않는 라운드 오브젝트에서 처리되므로 소유권 검사를 끈다.
-        /// <paramref name="caller"/>는 FishNet이 주입하는 탈출 요청자의 커넥션(위치 스푸핑 방지는
-        /// 밸브 GAP-17과 동종으로 이월 — GAP-20).
+        /// <paramref name="caller"/>는 FishNet이 주입하는 탈출 요청자의 커넥션 —
+        /// **플레이어 ID와 역할을 서버가 여기서 읽는다**(GAP-20 역할 부분 해소).
+        ///
+        /// 이전에는 클라이언트가 <c>role</c>을 주장했고 <see cref="ServerRoundDriver.TryRegisterEscape"/>가
+        /// 그 값으로 GAP-11("러너만 탈출 집계")을 판정했다. 술래나 메아리가 <c>role=Runner</c>를
+        /// 보내면 게이트만 열려 있으면 라운드를 RunnersWin으로 끝낼 수 있었다.
+        /// 위치 재검증(거리)은 여전히 이월이다 — §14.4-3 "안티치트 과투자 금지".
         /// </summary>
         [ServerRpc(RequireOwnership = false)]
-        private void ServerSubmitEscape(ulong playerId, RoleType role, NetworkConnection caller = null)
+        private void ServerSubmitEscape(NetworkConnection caller = null)
         {
             if (_phase.Value != GameFlowState.InGame || _driver == null || _driver.IsDecided)
                 return;
+
+            // 호출자의 플레이어 오브젝트를 못 찾으면 신원을 확정할 수 없다 — 폐기(NRE 가드 겸용).
+            if (!RoleNetworkSync.TryGetCallerIdentity(caller, out RoleType role, out ulong playerId))
+            {
+                Debug.LogWarning("[RoundNet:Server] 탈출 폐기 — 호출자의 플레이어 오브젝트/역할을 찾을 수 없습니다.");
+                return;
+            }
 
             bool gateOpen = CurrentGateOpen();
             if (!_driver.TryRegisterEscape(playerId, role, gateOpen))
@@ -432,6 +463,9 @@ namespace Marco.Net
             for (int i = 0; i < roles.Count; i++)
                 roles[i]?.ServerClearAssignmentForNewRound();
 
+            // 술래 순번도 미확정으로 되돌린다 — 다음 라운드 배정이 새 라운드 번호로 다시 정한다.
+            _fixedSeekerOrder = -1;
+
             // ③ 밸브 초기화(닫힘·진행도 0).
             List<ValveNetworkSync> valves = ValveNetworkSync.Spawned;
             for (int i = 0; i < valves.Count; i++)
@@ -492,14 +526,27 @@ namespace Marco.Net
         // ── 서버: 역할 배정 (스프린트 13 — 호출 시점만 로비 게이트 뒤로 이동) ──
 
         /// <summary>
-        /// 미배정 플레이어가 있으면 접속 인원 전체에 §6.2 배정을 (재)수행한다. 서버 전용.
+        /// §6.2 역할 배정. 서버 전용. 호출 목적이 둘로 나뉜다:
+        ///
+        /// <list type="bullet">
+        /// <item><paramref name="roundStart"/> = true — 라운드 배정(카운트다운 완료 1회).
+        /// 이번 판의 술래 순번(<see cref="_fixedSeekerOrder"/>)을 **여기서만** 확정하고 전원에게
+        /// §6.2 표대로 배정한다.</item>
+        /// <item><paramref name="roundStart"/> = false — 라운드 중 합류 처리(InGame 매 프레임).
+        /// **미배정자만 러너로 채우고 기존 배정은 절대 건드리지 않는다.**</item>
+        /// </list>
         ///
         /// 스프린트 18: 호출 지점이 "매 프레임"에서 **RoleAssign 완료 시점 + InGame 중**으로
         /// 옮겨졌다(§15.4 "RoleAssign: 역할 배정" — 로비에서는 배정하지 않는다. GAP-23의
-        /// "미배정 발생 시 즉시"는 로비 게이트가 생기며 폐기). 배정 규칙 자체(§6.2 표·GAP-22
-        /// 결정론적 정렬·메아리 제외)는 무변경이다.
+        /// "미배정 발생 시 즉시"는 로비 게이트가 생기며 폐기).
+        ///
+        /// <b>두 경로를 나눈 이유</b>: 이전에는 미배정자가 하나라도 생기면 **전원 재배정**이
+        /// 돌았고, 술래 순번이 <c>roundNumber % playerCount</c>라 인원이 바뀌면 값이 달라졌다.
+        /// 그래서 라운드 중 한 명만 합류해도 술래가 교체되거나(증상 1), 새 순번이 태그당한
+        /// 플레이어를 가리켜 <c>IsTaggedOut</c> 스킵에 걸리면 술래가 0명이 됐다(증상 2).
+        /// 배정 규칙 자체(§6.2 표·OwnerId 오름차순 정렬·메아리 제외)는 무변경이다.
         /// </summary>
-        private void EnsureRolesAssigned()
+        private void EnsureRolesAssigned(bool roundStart = false)
         {
             _assignBuffer.Clear();
             List<RoleNetworkSync> spawned = RoleNetworkSync.Spawned;
@@ -523,17 +570,23 @@ namespace Marco.Net
                 }
             }
 
-            if (!anyUnassigned)
+            if (!anyUnassigned && !roundStart)
                 return; // 전원 배정 완료 — 매 프레임 정렬 비용을 피한다.
 
             _assignBuffer.Sort(CompareByOrderKey);
 
             int playerCount = _assignBuffer.Count;
 
-            // §2.3 술래 로테이션(스프린트 21, GAP-22 해소): 통산 라운드 번호로 술래 순번을 옮긴다.
+            if (!roundStart)
+            {
+                AssignLateJoinersAsRunners(playerCount);
+                return;
+            }
+
+            // §2.3 술래 로테이션(스프린트 21): 통산 라운드 번호로 술래 순번을 옮긴다.
             // 정렬 규칙(OwnerId 오름차순)은 스프린트 13 그대로이고, 그 안에서 **몇 번째가 술래인가**만
-            // 라운드마다 달라진다.
-            int seekerOrder = SeekerRotation.SeekerOrderIndex(_roundNumber.Value, playerCount);
+            // 라운드마다 달라진다. 이 값은 이번 판 내내 고정된다.
+            _fixedSeekerOrder = SeekerRotation.SeekerOrderIndex(_roundNumber.Value, playerCount);
 
             for (int i = 0; i < playerCount; i++)
             {
@@ -541,14 +594,36 @@ namespace Marco.Net
                 if (p.IsTaggedOut)
                     continue; // 메아리는 배정 대상 제외(태그 결과 보존)
 
-                p.ServerAssign(RoleAssigner.RoleForOrder(i, playerCount, seekerOrder));
+                p.ServerAssign(RoleAssigner.RoleForOrder(i, playerCount, _fixedSeekerOrder));
             }
 
             Debug.Log($"[RoleNet:Server] 역할 배정 완료 — 인원 {playerCount}명 " +
                       $"(술래 {RoleAssigner.SeekersFor(playerCount)} / 러너 {RoleAssigner.RunnersFor(playerCount)}, §6.2 표). " +
                       $"§2.3 로테이션: {SeekerRotation.SetNumber(_roundNumber.Value)}세트 " +
                       $"{SeekerRotation.RoundInSet(_roundNumber.Value)}/{SeekerRotation.RoundsPerSet}판 — " +
-                      $"술래는 정렬 {seekerOrder}번(OwnerId {_assignBuffer[seekerOrder].OrderKey}).");
+                      $"술래는 정렬 {_fixedSeekerOrder}번(OwnerId {_assignBuffer[_fixedSeekerOrder].OrderKey}), 이번 판 고정.");
+        }
+
+        /// <summary>
+        /// 라운드 중 합류한 플레이어를 러너로 채운다(서버 전용, 이미 정렬된 <see cref="_assignBuffer"/> 기준).
+        ///
+        /// **기존 배정은 읽지도 쓰지도 않는다** — 술래는 라운드 시작 시점에 확정됐고(§6.2 "술래 1인 고정"),
+        /// 늦게 들어온 사람이 그 자리를 뺏을 이유가 없다. 술래가 도중에 이탈해도 재추첨하지 않는다:
+        /// 진행 중인 라운드에서 역할을 바꾸는 것이 술래 공석보다 더 큰 혼란이고, §2.3 로테이션은
+        /// 다음 판에 정상 동작한다.
+        /// </summary>
+        private void AssignLateJoinersAsRunners(int playerCount)
+        {
+            for (int i = 0; i < playerCount; i++)
+            {
+                RoleNetworkSync p = _assignBuffer[i];
+                if (p.HasAssignment || p.IsTaggedOut)
+                    continue;
+
+                p.ServerAssign(RoleType.Runner);
+                Debug.Log($"[RoleNet:Server] 라운드 중 합류 — ownerId={p.OrderKey} 러너로 배정. " +
+                          $"이번 판 술래(정렬 {_fixedSeekerOrder}번)는 그대로 유지된다(§6.2).");
+            }
         }
 
         private static int CompareByOrderKey(RoleNetworkSync a, RoleNetworkSync b) =>
@@ -588,7 +663,12 @@ namespace Marco.Net
                     float moved = Vector3.Distance(previous, current);
 
                     // 스폰·리스폰 순간이동을 이동거리로 세지 않는다(한 프레임에 걸을 수 없는 거리).
-                    if (moved <= MaxDistancePerFrame)
+                    //
+                    // 메아리(태그 아웃)는 이동거리에서 제외한다(GAP-56): §3.2상 발소리를 내지 않아
+                    // §8 무성 생존상의 "파문 발생 0회"를 **구조적으로** 충족하는데, 이동속도까지
+                    // 가장 빨라(8.0m/s) 그대로 두면 먼저 태그당한 플레이어가 상을 독식한다.
+                    // 태그 전까지 쌓인 거리는 그대로 남는다 — 러너로 실제 움직인 몫이기 때문이다.
+                    if (moved <= MaxDistancePerFrame && !p.IsTaggedOut)
                         _awards.AddDistance(p.OrderKey, moved);
                 }
                 else

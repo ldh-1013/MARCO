@@ -82,7 +82,9 @@ namespace Marco.Net
             _lastSentHeld = held;
             _lastSentPlayer = playerId;
 
-            ServerSubmitHold(playerId, role, held);
+            // playerId·role은 **전송하지 않는다** — 서버가 호출자에서 직접 읽는다(아래 ServerSubmitHold).
+            // 여기서 받은 값은 송신 디듀프 판단에만 쓴다.
+            ServerSubmitHold(held);
         }
 
         // ── 서버: 검증·타이밍 ────────────────────────────────────────────
@@ -100,13 +102,26 @@ namespace Marco.Net
         /// <summary>
         /// 밸브는 특정 플레이어가 소유하지 않으므로 소유권 검사를 끈다
         /// (<see cref="RpcAttribute"/> 기본값은 소유자만 호출 허용).
-        /// <paramref name="caller"/>는 FishNet이 주입하는 실제 호출자 — 스푸핑 대응(GAP-16)에서 쓴다.
+        ///
+        /// <b>클라이언트는 "누르고 있다/뗐다"만 보낸다(GAP-16 해소)</b>. 플레이어 ID와 역할은
+        /// FishNet이 주입한 <paramref name="caller"/>에서 서버가 직접 읽는다 —
+        /// <see cref="RoleNetworkSync.TryGetCallerIdentity"/>. 페이로드에 주장할 값 자체가 없으므로
+        /// 메아리가 <c>role=Runner</c>를 보내 GAP-5(§3.2 물리 상호작용 불가)를 우회하던 경로가 닫힌다.
+        /// <c>PulseNetworkSync</c>가 소리 종류만 받고 나머지를 서버가 확정하는 것과 같은 원칙이다(GAP-24).
         /// </summary>
         [ServerRpc(RequireOwnership = false)]
-        private void ServerSubmitHold(ulong playerId, RoleType role, bool held, NetworkConnection caller = null)
+        private void ServerSubmitHold(bool held, NetworkConnection caller = null)
         {
             if (_driver == null)
                 return;
+
+            // 호출자의 플레이어 오브젝트를 못 찾으면 신원을 확정할 수 없다 — 폐기(NRE 가드 겸용).
+            if (!RoleNetworkSync.TryGetCallerIdentity(caller, out RoleType role, out ulong playerId))
+            {
+                Debug.LogWarning($"[ValveNet:Server] {name} 홀드 폐기 — 호출자의 플레이어 오브젝트/역할을 " +
+                                 "찾을 수 없어 서버 측 신원을 확정할 수 없습니다.");
+                return;
+            }
 
             // 스프린트 18: 밸브는 라운드 중에만 조작 가능하다. 로비(§12.3 튜토리얼 자유 이동)·
             // 카운트다운·결과 화면에서의 조작을 서버가 차단한다 — 파문은 §12.3상 로비에서도

@@ -54,6 +54,44 @@ namespace Marco.Tests.EditMode
             Assert.AreEqual(VoiceGrade.Talk, gate.AcceptedGrade);
         }
 
+        // ── 게이트의 시간 기준 = **벽시계** (스프린트 26 더블체크) ────────────
+        //
+        // §5.2-7의 "0.15초"와 §5.1 지속시간은 실제로 흐른 시간을 말한다. 파이프라인이
+        // 렌더 프레임 시간(Time.deltaTime)을 넘기면 오디오 프레임을 못 읽고 빠져나간
+        // 프레임의 시간이 유실돼, 60fps에서 디바운스가 0.30초·재발신이 2.4초로 늘어났다.
+        // 아래 두 테스트는 "몇 번 호출됐는가"가 아니라 "얼마나 흘렀는가"가 기준임을 고정한다.
+
+        [Test]
+        public void Gate_Debounce_MeasuresElapsedTime_NotTickCount()
+        {
+            // 프레임이 드문드문 들어와도(틱당 50ms) 0.15초가 차면 통과해야 한다.
+            // 연속성 3프레임도 함께 만족하는 최소 조합이다.
+            var gate = new VoiceGate();
+
+            bool emitted = false;
+            for (int i = 0; i < 3; i++) // 3틱 × 50ms = 150ms
+                emitted |= gate.Tick(VoiceGrade.Talk, 0.05f, VoiceConfig.TalkDurationSeconds);
+
+            Assert.IsTrue(emitted, "0.15초가 흘렀는데도 막히면 디바운스가 틱 수를 세고 있는 것이다.");
+        }
+
+        [Test]
+        public void Gate_ReEmitInterval_MeasuresElapsedTime_NotTickCount()
+        {
+            var gate = new VoiceGate();
+
+            bool first = false;
+            for (int i = 0; i < 10 && !first; i++)
+                first = gate.Tick(VoiceGrade.Talk, Frame, VoiceConfig.TalkDurationSeconds);
+            Assert.IsTrue(first);
+
+            // 큰 deltaTime 한 번으로 §5.1 지속시간(1.2초)을 넘기면 즉시 재발신 가능해야 한다.
+            bool afterExpiry = gate.Tick(VoiceGrade.Talk, VoiceConfig.TalkDurationSeconds + 0.01f,
+                VoiceConfig.TalkDurationSeconds);
+
+            Assert.IsTrue(afterExpiry, "재발신 주기가 실제 경과 시간이 아니라 호출 횟수를 따르고 있다.");
+        }
+
         [Test]
         public void Gate_FlickeringGrade_RestartsContinuity()
         {

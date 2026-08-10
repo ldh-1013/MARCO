@@ -40,12 +40,21 @@ namespace Marco.Core.Sound
         public readonly PulseDeliveryKind Kind;
         public readonly PerceivedPulse? Perceived;
 
-        public PulseDelivery(ulong listenerId, int pulseId, PulseDeliveryKind kind, PerceivedPulse? perceived)
+        /// <summary>
+        /// §3.4 방향 게이지를 밝혀야 하는가(<see cref="DirectionGaugeRules"/> 판정 결과).
+        /// **서버가 역할·등급·사거리를 전부 확인한 뒤 내리는 결론**이며, 클라이언트는 이 값을
+        /// 그대로 그리기만 한다 — 술래 전용 정보이므로 판정을 클라에 맡기면 안 된다.
+        /// </summary>
+        public readonly bool GaugeLit;
+
+        public PulseDelivery(ulong listenerId, int pulseId, PulseDeliveryKind kind, PerceivedPulse? perceived,
+            bool gaugeLit = false)
         {
             ListenerId = listenerId;
             PulseId = pulseId;
             Kind = kind;
             Perceived = perceived;
+            GaugeLit = gaugeLit;
         }
     }
 
@@ -131,14 +140,23 @@ namespace Marco.Core.Sound
                     PerceivedPulse? current = SoundPulseResolver.Resolve(
                         tracked.Pulse, listener.PlayerId, listener.Position, listener.Role, occlusionProbe);
 
+                    // §3.4 방향 게이지(GAP-4 결정: "§5.6을 통과한 펄스만 트리거").
+                    // 사거리는 §5.7 배율이 곱해지지 않은 **물리 반경**(§5.1) 기준이다 —
+                    // 그 해석에서만 §3.4 표의 13.5m/33m이 나온다.
+                    bool gaugeLit = current != null && DirectionGaugeRules.ShouldLight(
+                        tracked.Pulse.Type,
+                        listener.Role,
+                        tracked.Pulse.Radius,
+                        Vector3.Distance(tracked.Pulse.Position, listener.Position));
+
                     tracked.LastResults.TryGetValue(listener.PlayerId, out PerceivedPulse? previous);
 
                     if (previous == null && current != null)
-                        deliveries.Add(new PulseDelivery(listener.PlayerId, tracked.Id, PulseDeliveryKind.Appeared, current));
+                        deliveries.Add(new PulseDelivery(listener.PlayerId, tracked.Id, PulseDeliveryKind.Appeared, current, gaugeLit));
                     else if (previous != null && current == null)
                         deliveries.Add(new PulseDelivery(listener.PlayerId, tracked.Id, PulseDeliveryKind.Disappeared, null));
                     else if (previous != null && current != null && !AreEqual(previous.Value, current.Value))
-                        deliveries.Add(new PulseDelivery(listener.PlayerId, tracked.Id, PulseDeliveryKind.Updated, current));
+                        deliveries.Add(new PulseDelivery(listener.PlayerId, tracked.Id, PulseDeliveryKind.Updated, current, gaugeLit));
 
                     tracked.LastResults[listener.PlayerId] = current;
                 }

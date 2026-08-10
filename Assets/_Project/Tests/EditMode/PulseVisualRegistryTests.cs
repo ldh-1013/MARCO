@@ -239,5 +239,52 @@ namespace Marco.Core.Tests
 
             Assert.AreEqual(0, buffer.Count, "이전 프레임 잔여물이 남으면 사라진 파문이 계속 그려진다");
         }
+
+        // ── §3.4 게이지 플래그 전달 (스프린트 26 더블체크) ──────────────────
+        // 서버가 내린 GaugeLit 결론이 시각 상태까지 손실 없이 도달해야 렌더러가 그릴 수 있다.
+
+        // 15) Appeared의 GaugeLit이 시각 상태로 그대로 넘어간다.
+        [Test]
+        public void Appeared_CarriesGaugeLitIntoVisualState()
+        {
+            var registry = new PulseVisualRegistry();
+
+            registry.Apply(new PulseDelivery(ListenerId, 7, PulseDeliveryKind.Appeared,
+                Perceived(22f, 2.5f, ringVisible: false), gaugeLit: true), now: 0f);
+
+            Assert.IsTrue(registry.TryGet(7, out PulseVisualState state));
+            Assert.IsTrue(state.GaugeLit);
+        }
+
+        // 16) 게이지는 차폐 여부와 무관하다 — 월드 링이 함께 보여도 술래는 게이지를 받는다.
+        [Test]
+        public void Appeared_WorldRingPulse_CanAlsoLightGauge()
+        {
+            var registry = new PulseVisualRegistry();
+
+            registry.Apply(new PulseDelivery(ListenerId, 8, PulseDeliveryKind.Appeared,
+                Perceived(9f, 1.2f, ringVisible: true), gaugeLit: true), now: 0f);
+
+            Assert.IsTrue(registry.TryGet(8, out PulseVisualState state));
+            Assert.AreEqual(PulseVisualKind.WorldRing, state.Kind);
+            Assert.IsTrue(state.GaugeLit, "§3.4 게이지는 벽 0개(월드 링) 상황에서도 뜬다.");
+        }
+
+        // 17) Updated가 게이지 상태를 갱신하되 StartTime(페이드 기준)은 보존한다.
+        [Test]
+        public void Updated_RefreshesGaugeLitButKeepsStartTime()
+        {
+            var registry = new PulseVisualRegistry();
+
+            registry.Apply(new PulseDelivery(ListenerId, 9, PulseDeliveryKind.Appeared,
+                Perceived(22f, 2.5f, ringVisible: false), gaugeLit: true), now: 1f);
+
+            registry.Apply(new PulseDelivery(ListenerId, 9, PulseDeliveryKind.Updated,
+                Perceived(11f, 2.5f, ringVisible: false), gaugeLit: true), now: 1.25f);
+
+            Assert.IsTrue(registry.TryGet(9, out PulseVisualState state));
+            Assert.IsTrue(state.GaugeLit);
+            Assert.AreEqual(1f, state.StartTime, 0.0001f, "갱신이 페이드 타이머를 되감으면 안 된다.");
+        }
     }
 }

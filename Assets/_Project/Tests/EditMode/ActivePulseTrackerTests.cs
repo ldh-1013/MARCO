@@ -229,5 +229,91 @@ namespace Marco.Core.Tests
             var pulseIds = deliveries.Select(d => d.PulseId).ToList();
             CollectionAssert.AreEquivalent(new[] { idA, idB }, pulseIds);
         }
+
+        // ── §3.4 방향 게이지 배선 (스프린트 26 더블체크 — 규칙만 있고 소비자가 없던 문제) ──
+        //
+        // DirectionGaugeRules는 26c에서 만들어졌지만 어떤 프로덕션 코드도 호출하지 않아
+        // 술래 화면에 게이지가 실제로 뜨지 않았다. 아래 테스트는 트래커가 판정 결과를
+        // delivery에 실어 보낸다는 것을 고정한다 — 다시 끊기면 여기가 빨간불이 된다.
+
+        // 13) 술래는 고함에 대해 게이지를 받는다(§3.4 "술래 전용 정보 우위").
+        [Test]
+        public void Gauge_SeekerHearingShout_IsLit()
+        {
+            var tracker = new ActivePulseTracker();
+            var probe = new MutableProbe();
+            tracker.AddPulse(MakeShout());
+
+            var deliveries = tracker.Tick(0f, new[] { Seeker(new Vector3(10, 0, 0)) }, probe);
+
+            Assert.AreEqual(1, deliveries.Count);
+            Assert.IsTrue(deliveries[0].GaugeLit, "§3.4 게이지가 delivery에 실리지 않으면 화면에 뜰 수 없다.");
+        }
+
+        // 14) 러너는 같은 고함에도 게이지를 받지 않는다(술래 전용).
+        [Test]
+        public void Gauge_RunnerHearingShout_IsNotLit()
+        {
+            var tracker = new ActivePulseTracker();
+            var probe = new MutableProbe();
+            tracker.AddPulse(MakeShout());
+
+            var deliveries = tracker.Tick(0f, new[] { Runner(new Vector3(10, 0, 0)) }, probe);
+
+            Assert.AreEqual(1, deliveries.Count);
+            Assert.IsFalse(deliveries[0].GaugeLit, "게이지가 러너에게도 뜨면 §3.4 정보 우위가 무너진다.");
+        }
+
+        // 15) 발소리·밸브·속삭임은 술래에게도 게이지를 트리거하지 않는다(§3.4 제외 목록).
+        [TestCase(SoundType.Walk, 2f, 0.4f)]
+        [TestCase(SoundType.Sprint, 6f, 0.8f)]
+        [TestCase(SoundType.Valve, 12f, 3f)]
+        [TestCase(SoundType.Whisper, 4f, 0.6f)]
+        public void Gauge_ExcludedTypes_AreNotLitEvenForSeeker(SoundType type, float radius, float duration)
+        {
+            var tracker = new ActivePulseTracker();
+            var probe = new MutableProbe();
+            tracker.AddPulse(new SoundPulse(SourceId, Vector3.zero, radius, duration, type, 0f));
+
+            var deliveries = tracker.Tick(0f, new[] { Seeker(new Vector3(1, 0, 0)) }, probe);
+
+            Assert.AreEqual(1, deliveries.Count);
+            Assert.IsFalse(deliveries[0].GaugeLit, $"{type}은 §3.4 게이지 트리거 대상이 아니다.");
+        }
+
+        // 16) 소실 통지에는 게이지가 실리지 않는다(그릴 대상 자체가 사라진 신호).
+        [Test]
+        public void Gauge_DisappearedDelivery_IsNotLit()
+        {
+            var tracker = new ActivePulseTracker();
+            var probe = new MutableProbe();
+            tracker.AddPulse(MakeShout());
+            var listeners = new[] { Seeker(new Vector3(10, 0, 0)) };
+
+            tracker.Tick(0f, listeners, probe);
+
+            // 차폐가 생겨 조기 소실.
+            probe.Result = new OcclusionResult(true, 0);
+            var deliveries = tracker.Tick(ActivePulseTracker.ReevaluationInterval, listeners, probe);
+
+            Assert.AreEqual(1, deliveries.Count);
+            Assert.AreEqual(PulseDeliveryKind.Disappeared, deliveries[0].Kind);
+            Assert.IsFalse(deliveries[0].GaugeLit);
+        }
+
+        // 17) GAP-4 결정("§5.6을 통과한 펄스만 트리거") — 판정에서 탈락하면 게이지도 없다.
+        //     §3.4 사거리(33m)가 물리 반경(22m)보다 넓다는 이유로 탈락한 파문에까지
+        //     게이지가 뜨면, 차폐를 뚫고 위치가 새어나간다.
+        [Test]
+        public void Gauge_PulseRejectedByOcclusion_IsNotDeliveredAtAll()
+        {
+            var tracker = new ActivePulseTracker();
+            var probe = new MutableProbe { Result = new OcclusionResult(true, 0) };
+            tracker.AddPulse(MakeShout());
+
+            var deliveries = tracker.Tick(0f, new[] { Seeker(new Vector3(10, 0, 0)) }, probe);
+
+            Assert.AreEqual(0, deliveries.Count, "§5.6 탈락 파문은 게이지 경로로도 새어나가면 안 된다.");
+        }
     }
 }

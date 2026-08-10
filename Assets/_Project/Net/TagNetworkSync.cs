@@ -64,12 +64,17 @@ namespace Marco.Net
 
         public Vector3 WorldPosition => transform.position;
 
+        /// <summary>
+        /// 술래 신원(<paramref name="seekerId"/>·<paramref name="seekerRole"/>)은 **전송하지 않는다** —
+        /// 서버가 RPC 호출자에서 직접 읽는다(아래 <see cref="ServerRequestTag"/>). 인자는
+        /// <see cref="ITagTarget"/> 계약을 로컬 대역(<c>TaggableRunner</c>)과 공유하기 위해 남아 있다.
+        /// </summary>
         public void RequestTag(ulong seekerId, RoleType seekerRole)
         {
             if (!NetworkActive)
                 return;
 
-            ServerRequestTag(seekerId, seekerRole);
+            ServerRequestTag();
         }
 
         // ── 서버: 재검증 ──────────────────────────────────────────────────
@@ -77,10 +82,15 @@ namespace Marco.Net
         /// <summary>
         /// 대상은 특정 플레이어가 소유하지 않는 관점에서 호출되므로 소유권 검사를 끈다
         /// (술래가 대상 오브젝트의 RPC를 부른다). <paramref name="caller"/>는 FishNet이 주입하는
-        /// 술래의 커넥션 — 그 FirstObject에서 술래 위치를 얻어 거리를 서버가 재검증한다.
+        /// 술래의 커넥션 — 그 FirstObject에서 **위치와 역할을 모두** 서버가 읽는다.
+        ///
+        /// <b>페이로드가 비어 있다(GAP-18 해소)</b>. 이전에는 술래가 자기 역할을 주장했고 서버가
+        /// 그 값을 <see cref="ServerTagDriver.Validate"/>에 그대로 넘겨, 러너가 <c>seekerRole=Seeker</c>를
+        /// 보내면 §3.1("술래만 태그 가능")을 우회할 수 있었다. GAP-18이 이월 사유로 적었던
+        /// "`RoleAssigned` 네트워크화"는 스프린트 13에서 완료됐으므로 이제 서버가 실제 역할을 읽는다.
         /// </summary>
         [ServerRpc(RequireOwnership = false)]
-        private void ServerRequestTag(ulong seekerId, RoleType seekerRole, NetworkConnection caller = null)
+        private void ServerRequestTag(NetworkConnection caller = null)
         {
             // 스프린트 18: 태그는 라운드 중에만 성립한다(로비·카운트다운·결과 화면 차단).
             // 부결 후 로비에서 직전 라운드의 술래 역할이 잠시 남아 있어도 여기서 걸린다.
@@ -93,20 +103,21 @@ namespace Marco.Net
             if (_tagged.Value)
                 return; // 이미 태그됨 — 재확정 불필요.
 
-            // 술래의 서버 측 위치. 술래 플레이어 오브젝트를 못 찾으면 거리 검증 불가라 거부.
-            if (caller == null || caller.FirstObject == null)
+            // 술래의 서버 측 신원(역할·ID). 플레이어 오브젝트를 못 찾으면 검증 불가라 거부.
+            if (!RoleNetworkSync.TryGetCallerIdentity(caller, out RoleType seekerRole, out ulong seekerId))
             {
-                Debug.LogWarning($"[TagNet:Server] targetId={PlayerId} 태그 거부 — 술래 오브젝트를 찾을 수 없음");
+                Debug.LogWarning($"[TagNet:Server] targetId={PlayerId} 태그 거부 — 술래 오브젝트/역할을 찾을 수 없음");
                 return;
             }
 
+            // 위치도 같은 출처에서 읽는다(§5.3 거리 재검증 — 스프린트 11부터 이미 서버 권위).
             Vector3 seekerPosition = caller.FirstObject.transform.position;
             RoleType targetRole = Role;
 
             if (!ServerTagDriver.Validate(seekerRole, targetRole, _tagged.Value, seekerPosition, transform.position))
             {
                 Debug.Log($"[TagNet:Server] targetId={PlayerId} 태그 거부 — 서버 재검증 실패 " +
-                          $"(seekerRole={seekerRole}, targetRole={targetRole}, 거리검증 포함 §5.3)");
+                          $"(seekerRole={seekerRole} ← 서버 측 실제 역할, targetRole={targetRole}, 거리검증 포함 §5.3)");
                 return;
             }
 

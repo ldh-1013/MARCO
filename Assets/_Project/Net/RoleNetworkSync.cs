@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using FishNet.Connection;
 using FishNet.Object;
 using FishNet.Object.Synchronizing;
 using Marco.Core.Net;
@@ -84,6 +85,42 @@ namespace Marco.Net
                 // ITagTarget이 없는 구성에서는 현재 역할로 대신 판단한다(방어용 폴백).
                 return CurrentRole == RoleType.Echo;
             }
+        }
+
+        // ── 서버: RPC 호출자 신원 조회 ────────────────────────────────────
+
+        /// <summary>
+        /// ServerRpc 호출자의 **서버 측 실제 신원**(역할·플레이어 ID)을 얻는다.
+        /// 클라이언트가 주장한 값을 쓰지 않기 위한 **단일 진입점**이다.
+        ///
+        /// <b>왜 필요한가</b>: 밸브·태그·탈출 RPC는 오랫동안 클라이언트가 보낸 <see cref="RoleType"/>을
+        /// 그대로 판정에 썼다. 그래서 메아리가 <c>role=Runner</c>를 주장해 밸브를 돌리거나(GAP-5 우회),
+        /// 러너가 <c>seekerRole=Seeker</c>로 태그하거나(§3.1 우회), 술래가 탈출로 라운드를 끝낼 수
+        /// 있었다(GAP-11 우회). 악의가 없어도 클라이언트의 로컬 역할이 잠깐 어긋나면 같은 결과가 난다.
+        ///
+        /// <b>신원의 출처</b>: 위치를 <c>caller.FirstObject</c>에서, 발생원 ID를 <c>caller.ClientId</c>에서
+        /// 얻는 <see cref="PulseNetworkSync"/>의 패턴(GAP-24)을 역할까지 확장한 것이다.
+        ///
+        /// <b>태그 아웃 우선</b>: <see cref="IsTaggedOut"/>이면 역할 SyncVar와 무관하게 Echo로 본다 —
+        /// 태그 확정과 역할 반영 사이의 프레임에서도 메아리가 물리 상호작용을 하지 못하게 한다.
+        /// </summary>
+        /// <returns>호출자의 플레이어 오브젝트나 역할 컴포넌트를 찾지 못하면 false(호출자는 요청을 거부해야 한다).</returns>
+        internal static bool TryGetCallerIdentity(NetworkConnection caller, out RoleType role, out ulong playerId)
+        {
+            role = RoleType.Runner;
+            playerId = 0UL;
+
+            // 연결이 끊겼거나 아직 플레이어가 스폰되지 않았으면 신원을 확정할 수 없다.
+            if (caller == null || caller.FirstObject == null)
+                return false;
+
+            RoleNetworkSync sync = caller.FirstObject.GetComponent<RoleNetworkSync>();
+            if (sync == null)
+                return false;
+
+            role = sync.IsTaggedOut ? RoleType.Echo : sync.CurrentRole;
+            playerId = (ulong)caller.ClientId;
+            return true;
         }
 
         // ── 서버: 배정 ────────────────────────────────────────────────────

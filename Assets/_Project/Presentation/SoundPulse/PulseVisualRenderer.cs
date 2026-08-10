@@ -43,10 +43,18 @@ namespace Marco.Presentation.Sound
         [Tooltip("스트레스 상황(동시 30개)에서 첫 프레임에 GameObject를 한꺼번에 만들지 않도록 미리 확보한다.")]
         [SerializeField, Range(0, 64)] private int _prewarmRingCount = 32;
 
-        [Header("방향 인디케이터 (§3.4)")]
+        [Header("방향 힌트 (§5.4 — 차폐 시 방위만)")]
         [SerializeField] private Camera _viewCamera;
         [SerializeField] private bool _showDirectionIndicators = true;
         [SerializeField, Range(0.5f, 1f)] private float _indicatorScreenExtent = 0.82f;
+
+        [Header("방향 게이지 (§3.4 — 술래 전용)")]
+        [Tooltip("§3.4 대화·고함에 대한 술래 전용 정보 우위. 서버가 역할·등급·사거리를 판정해 " +
+                 "GaugeLit로 보내므로, 여기서는 표시만 켜고 끈다.")]
+        [SerializeField] private bool _showDirectionGauge = true;
+
+        [Tooltip("게이지는 §5.4 방향 힌트보다 화면 안쪽에 그려 두 표시가 겹치지 않게 한다.")]
+        [SerializeField, Range(0.3f, 1f)] private float _gaugeScreenExtent = 0.62f;
 
         private readonly PulseVisualRegistry _registry = new PulseVisualRegistry();
         private readonly Dictionary<int, LineRenderer> _activeRings = new Dictionary<int, LineRenderer>();
@@ -55,6 +63,7 @@ namespace Marco.Presentation.Sound
         // 매 프레임 재사용하는 버퍼들 — 힙 할당을 프레임 루프에서 완전히 없애기 위함.
         private readonly List<PulseVisualState> _visualBuffer = new List<PulseVisualState>();
         private readonly List<PulseVisualState> _directionScratch = new List<PulseVisualState>();
+        private readonly List<PulseVisualState> _gaugeScratch = new List<PulseVisualState>();
 
         private Material _ringMaterial;
         private GUIStyle _indicatorStyle;
@@ -65,6 +74,7 @@ namespace Marco.Presentation.Sound
         // OnGUI는 프레임마다 여러 번(Layout·Repaint·입력 이벤트) 호출되므로,
         // 프레임당 한 번만 계산하면 되는 값은 Tick에서 미리 구해 둔다.
         private Color _frameColor = Color.white;
+        private Color _frameGaugeColor = Color.white;
         private float _frameCameraYaw;
 
         public PulseVisualRegistry Registry => _registry;
@@ -147,6 +157,7 @@ namespace Marco.Presentation.Sound
 
             // 프레임당 1회만 계산해 OnGUI가 매 이벤트마다 다시 구하지 않게 한다.
             _frameColor = ResolvePulseColor();
+            _frameGaugeColor = ResolveGaugeColor();
             if (_viewCamera != null)
                 _frameCameraYaw = _viewCamera.transform.eulerAngles.y;
 
@@ -157,10 +168,16 @@ namespace Marco.Presentation.Sound
         private void UpdateRings(float now)
         {
             _directionScratch.Clear();
+            _gaugeScratch.Clear();
 
             for (int i = 0; i < _visualBuffer.Count; i++)
             {
                 PulseVisualState state = _visualBuffer[i];
+
+                // §3.4 게이지는 차폐 여부와 무관하게 뜬다 — 월드 링이 함께 보이는 상황
+                // (벽 0개)에서도 술래는 게이지를 받는다. 그래서 Kind 분기 밖에서 모은다.
+                if (state.GaugeLit)
+                    _gaugeScratch.Add(state);
 
                 if (state.Kind == PulseVisualKind.DirectionOnly)
                     _directionScratch.Add(state); // OnGUI가 쓸 목록을 여기서 미리 확정
@@ -219,6 +236,18 @@ namespace Marco.Presentation.Sound
             // 현재 발생원은 로컬 플레이어(러너)뿐이다. 발생원 역할에 따라 술래 색을
             // 쓰는 분기는 역할이 네트워크로 전달되는 시점에 배선한다(§16.2).
             return _palette.GetRunner(_colorblindMode);
+        }
+
+        /// <summary>
+        /// §3.4 게이지 색. 술래에게만 보이는 표시이므로 §16.2 술래 색을 써서 §5.4 방향
+        /// 힌트(러너 색)와 한눈에 구별되게 한다 — 색맹 모드도 팔레트가 함께 처리한다.
+        /// </summary>
+        private Color ResolveGaugeColor()
+        {
+            if (_palette == null)
+                return Color.white;
+
+            return _palette.GetSeeker(_colorblindMode);
         }
 
         private LineRenderer RentRing()
@@ -289,7 +318,9 @@ namespace Marco.Presentation.Sound
             if (Event.current.type != EventType.Repaint)
                 return;
 
-            if (!_showDirectionIndicators || _directionScratch.Count == 0)
+            bool drawHints = _showDirectionIndicators && _directionScratch.Count > 0;
+            bool drawGauge = _showDirectionGauge && _gaugeScratch.Count > 0;
+            if (!drawHints && !drawGauge)
                 return;
 
             // 목록은 Tick에서 이미 확정됐다 — 여기서 레지스트리를 다시 순회하지 않는다.
@@ -300,16 +331,36 @@ namespace Marco.Presentation.Sound
                 fontStyle = FontStyle.Bold
             };
 
-            float centerX = Screen.width * 0.5f;
-            float centerY = Screen.height * 0.5f;
-            float radiusX = centerX * _indicatorScreenExtent;
-            float radiusY = centerY * _indicatorScreenExtent;
             float now = Time.time;
             Color previous = GUI.color;
 
-            for (int i = 0; i < _directionScratch.Count; i++)
+            if (drawHints)
+                DrawOctantMarkers(_directionScratch, _frameColor, _indicatorScreenExtent, IndicatorGlyph, now);
+
+            // §3.4 게이지는 §5.4 힌트 위에 그린다 — 같은 파문이 둘 다 해당될 때
+            // 술래 전용 정보가 가려지지 않게 하기 위함이다.
+            if (drawGauge)
+                DrawOctantMarkers(_gaugeScratch, _frameGaugeColor, _gaugeScreenExtent, GaugeGlyph, now);
+
+            GUI.color = previous;
+        }
+
+        /// <summary>
+        /// 8방위 마커 한 벌을 화면 가장자리 원주에 그린다(§5.4 힌트·§3.4 게이지 공용).
+        /// 표시 지속시간은 두 경우 모두 <c>perceivedDuration</c>과 같다 — §3.4가 명시한 규칙이고,
+        /// <see cref="PulseVisualState.Progress01"/>이 그 값으로 페이드를 계산한다.
+        /// </summary>
+        private void DrawOctantMarkers(List<PulseVisualState> states, Color baseColor, float screenExtent,
+            string glyph, float now)
+        {
+            float centerX = Screen.width * 0.5f;
+            float centerY = Screen.height * 0.5f;
+            float radiusX = centerX * screenExtent;
+            float radiusY = centerY * screenExtent;
+
+            for (int i = 0; i < states.Count; i++)
             {
-                PulseVisualState state = _directionScratch[i];
+                PulseVisualState state = states[i];
 
                 // DirectionOctant는 월드 기준(N=+z, 시계방향). 화면 인디케이터는 카메라
                 // 정면이 위쪽이어야 하므로 카메라 yaw를 빼서 상대 각도로 바꾼다.
@@ -319,16 +370,17 @@ namespace Marco.Presentation.Sound
                 float x = centerX + Mathf.Sin(relative) * radiusX;
                 float y = centerY - Mathf.Cos(relative) * radiusY;
 
-                Color color = _frameColor;
+                Color color = baseColor;
                 color.a = 1f - state.Progress01(now);
                 GUI.color = color;
-                GUI.Label(new Rect(x - 24f, y - 18f, 48f, 36f), IndicatorGlyph, _indicatorStyle);
+                GUI.Label(new Rect(x - 24f, y - 18f, 48f, 36f), glyph, _indicatorStyle);
             }
-
-            GUI.color = previous;
         }
 
         /// <summary>매 프레임 문자열을 새로 만들지 않도록 상수로 고정.</summary>
         private const string IndicatorGlyph = "◆";
+
+        /// <summary>§3.4 게이지 마커. §5.4 힌트(◆)와 모양으로도 구별된다(GAP-53 "최소 표시").</summary>
+        private const string GaugeGlyph = "▲";
     }
 }

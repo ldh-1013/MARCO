@@ -166,8 +166,94 @@ namespace Marco.Core.Tests
         {
             // GAP-22 재배정 안정성: 인원이 늘어도 순서 0번은 계속 술래다
             // (OwnerId 오름차순이라 새 접속자는 항상 뒤쪽 인덱스).
+            //
+            // **주의**: 이 성질은 seekerOrderIndex가 0으로 고정된 경우에만 성립한다.
+            // §2.3 로테이션(스프린트 21)이 들어온 뒤로는 순번이 라운드마다 달라지므로,
+            // "재배정해도 술래 불변"은 아래 RotatedSeeker_* 테스트가 규정하는 방식
+            // (순번을 라운드 시작에 **고정**)으로만 보장된다.
             for (int count = RoleAssigner.MinimumPlayers; count <= RoleAssigner.MaximumPlayers; count++)
                 Assert.AreEqual(RoleType.Seeker, RoleAssigner.RoleForOrder(0, count));
+        }
+
+        // ── 로테이션 + 재배정 조합 (2/3 Net 검증 C항목) ─────────────────────
+        //
+        // 이 조합이 검증 공백이었다. 위 테스트는 2-인자 오버로드(= seekerOrderIndex 0 고정)만
+        // 보고 있어, 스프린트 21의 로테이션이 들어오며 깨진 불변식을 잡지 못했다.
+
+        [TestCase(5, 3, 4)] // 5라운드: 3인 → 5%3=2번, 4인 합류 시 5%4=1번으로 **바뀐다**
+        [TestCase(3, 2, 3)] // 3라운드: 2인 → 3%2=1번, 3인 합류 시 3%3=0번으로 **바뀐다**
+        public void SeekerOrderIndex_ChangesWhenPlayerCountChanges_HenceMustBeFrozen(
+            int roundNumber, int beforeCount, int afterCount)
+        {
+            int before = SeekerRotation.SeekerOrderIndex(roundNumber, beforeCount);
+            int after = SeekerRotation.SeekerOrderIndex(roundNumber, afterCount);
+
+            Assert.AreNotEqual(before, after,
+                "순번이 인원수에 의존한다는 사실 자체를 고정한다 — 그래서 RoundNetworkSync가 " +
+                "라운드 시작 시점 값을 _fixedSeekerOrder에 얼려 두고 재계산하지 않는다.");
+        }
+
+        [Test]
+        public void RotatedSeeker_StaysSameWhenOrderIndexIsFrozen()
+        {
+            // 라운드 시작에 확정한 순번을 그대로 쓰면, 인원이 늘어도 같은 사람이 술래로 남는다.
+            const int roundNumber = 5;
+            const int beforeCount = 3;
+            const int afterCount = 4;
+
+            int frozen = SeekerRotation.SeekerOrderIndex(roundNumber, beforeCount); // = 2
+
+            for (int i = 0; i < beforeCount; i++)
+            {
+                RoleType before = RoleAssigner.RoleForOrder(i, beforeCount, frozen);
+                RoleType after = RoleAssigner.RoleForOrder(i, afterCount, frozen);
+
+                Assert.AreEqual(before, after,
+                    $"정렬 {i}번의 역할이 합류 전후로 달라지면 안 된다(고정 순번 {frozen}).");
+            }
+        }
+
+        [Test]
+        public void RotatedSeeker_FrozenOrder_StillYieldsExactlyOneSeeker_AfterJoin()
+        {
+            // 합류 후에도 술래가 정확히 1명이어야 한다 — 0명(증상 2)이 되면 라운드가 성립하지 않는다.
+            for (int roundNumber = 0; roundNumber < 12; roundNumber++)
+            {
+                for (int beforeCount = RoleAssigner.MinimumPlayers; beforeCount < RoleAssigner.MaximumPlayers; beforeCount++)
+                {
+                    int frozen = SeekerRotation.SeekerOrderIndex(roundNumber, beforeCount);
+                    int afterCount = beforeCount + 1;
+
+                    int seekers = 0;
+                    for (int i = 0; i < afterCount; i++)
+                    {
+                        if (RoleAssigner.RoleForOrder(i, afterCount, frozen) == RoleType.Seeker)
+                            seekers++;
+                    }
+
+                    Assert.AreEqual(1, seekers,
+                        $"라운드 {roundNumber}, {beforeCount}→{afterCount}인 합류 후 술래 수가 1이 아니다.");
+                }
+            }
+        }
+
+        [Test]
+        public void RotatedSeeker_LateJoinerIsAlwaysRunner()
+        {
+            // 신규 접속자는 정렬 뒤쪽(OwnerId가 더 큼)에 붙으므로, 라운드 시작에 고정된 순번이
+            // 그를 가리키는 일이 없다 — RoundNetworkSync가 러너로만 채우는 것과 일치한다.
+            for (int roundNumber = 0; roundNumber < 12; roundNumber++)
+            {
+                for (int beforeCount = RoleAssigner.MinimumPlayers; beforeCount < RoleAssigner.MaximumPlayers; beforeCount++)
+                {
+                    int frozen = SeekerRotation.SeekerOrderIndex(roundNumber, beforeCount);
+                    int joinerIndex = beforeCount; // 0-기반이라 새 인원의 인덱스 = 기존 인원 수
+
+                    Assert.AreEqual(RoleType.Runner,
+                        RoleAssigner.RoleForOrder(joinerIndex, beforeCount + 1, frozen),
+                        $"라운드 {roundNumber}, {beforeCount}인에 합류한 사람이 술래가 됐다(고정 순번 {frozen}).");
+                }
+            }
         }
     }
 }

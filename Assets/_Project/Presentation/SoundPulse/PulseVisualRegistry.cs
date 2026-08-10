@@ -51,7 +51,7 @@ namespace Marco.Presentation.Sound
                         return;
                     // 재등장(차폐가 걷힌 경우)도 여기로 온다. 원래 발생 시각을 알 수 없으므로
                     // 타이머를 새로 시작한다 — 드문 케이스이고 시각 표현상만의 오차다.
-                    var added = PulseVisualState.FromPerceived(delivery.PulseId, delivery.Perceived.Value, now);
+                    var added = PulseVisualState.FromPerceived(delivery.PulseId, delivery.Perceived.Value, now, delivery.GaugeLit);
                     _visuals[delivery.PulseId] = added;
                     VisualAdded?.Invoke(added);
                     break;
@@ -61,7 +61,7 @@ namespace Marco.Presentation.Sound
                         return;
                     if (!_visuals.TryGetValue(delivery.PulseId, out PulseVisualState existing))
                         return;
-                    PulseVisualState updated = existing.WithPerceived(delivery.Perceived.Value);
+                    PulseVisualState updated = existing.WithPerceived(delivery.Perceived.Value, delivery.GaugeLit);
                     _visuals[delivery.PulseId] = updated;
                     VisualUpdated?.Invoke(updated);
                     break;

@@ -45,6 +45,11 @@ namespace Marco.Presentation.Voice
         private VoiceGrade _lastGrade = VoiceGrade.Silence;
         private float _sinceLevelLog;
 
+        // 게이트·캘리브레이션에 넘길 **실제 경과 시간**. 오디오 프레임(20ms)이 아직 안 쌓인
+        // 프레임에서는 아래 Update가 일찍 빠져나가므로, 그 프레임의 deltaTime을 여기 모아 두지
+        // 않으면 §5.2-5/7의 60ms·0.15초가 프레임레이트에 따라 늘어난다(60fps 2배·144fps 3배).
+        private float _sinceGateTick;
+
         // 발화 파문 송신(스프린트 26b). 발소리와 **같은 브릿지**를 쓴다 — 별도 음성 채널을
         // 만들지 않는다(§5.1 표가 발소리·밸브·음성을 하나의 SoundType 체계로 다룬다).
         private Marco.Core.Net.IPulseNetworkBridge _bridge;
@@ -92,9 +97,17 @@ namespace Marco.Presentation.Voice
             if (!_capture.IsCapturing)
                 return;
 
+            // 아래에서 프레임을 못 읽고 빠져나가더라도 시간은 흘렀다 — 먼저 누적한다.
+            _sinceGateTick += Time.deltaTime;
+
             // 프레임이 아직 안 쌓였으면 직전 등급을 유지한다(20ms마다 한 번 갱신된다).
             if (!_capture.TryReadFrame(out float[] samples, out int count))
                 return;
+
+            // 직전 처리 이후 실제로 흐른 시간. §5.2-5/7과 §5.1 지속시간은 전부 **벽시계 기준**
+            // 규정이라, 렌더 프레임 시간(Time.deltaTime)이 아니라 이 값을 넘겨야 한다.
+            float elapsed = _sinceGateTick;
+            _sinceGateTick = 0f;
 
             GameSettings settings = SettingsStore.Current;
 
@@ -114,16 +127,16 @@ namespace Marco.Presentation.Voice
             VoiceGrade grade = VoiceClassifier.ClassifySamples(samples, totalGain, out float dbfs, count);
             SetGrade(grade, dbfs);
 
-            if (TickCalibration(dbfs, settings))
+            if (TickCalibration(dbfs, settings, elapsed))
                 return; // 측정 중에는 파문을 내보내지 않는다.
 
             // §5.2-5 연속성 + §5.2-7 디바운스 + 발신 주기(GAP-52).
-            if (_gate.Tick(grade, Time.deltaTime, DurationOf(grade)))
+            if (_gate.Tick(grade, elapsed, DurationOf(grade)))
                 TryEmitPulse(_gate.AcceptedGrade);
 
             if (_logLevels)
             {
-                _sinceLevelLog += Time.deltaTime;
+                _sinceLevelLog += elapsed;
                 if (_sinceLevelLog >= _levelLogInterval)
                 {
                     _sinceLevelLog = 0f;
@@ -161,13 +174,16 @@ namespace Marco.Presentation.Voice
         /// <summary>
         /// §5.2-3 측정 중이면 진행하고, 끝나면 오프셋을 설정에 저장한다.
         /// 측정 중에는 true를 돌려줘 발화가 파문으로 나가지 않게 한다.
+        ///
+        /// <paramref name="elapsed"/>는 직전 처리 이후 실제로 흐른 시간이다 — §5.2-3의
+        /// "3초 프롬프트"도 벽시계 기준이라 렌더 프레임 시간을 넘기면 안 된다.
         /// </summary>
-        private bool TickCalibration(float dbfs, GameSettings settings)
+        private bool TickCalibration(float dbfs, GameSettings settings, float elapsed)
         {
             if (!_calibration.IsMeasuring)
                 return false;
 
-            if (_calibration.Tick(dbfs, Time.deltaTime))
+            if (_calibration.Tick(dbfs, elapsed))
                 return true;
 
             float offset = _calibration.ResolveOffsetDb();

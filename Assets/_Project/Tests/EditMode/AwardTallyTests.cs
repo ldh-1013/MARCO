@@ -100,6 +100,47 @@ namespace Marco.Tests.EditMode
                 "비명도 파문이므로 무성 조건을 깬다.");
         }
 
+        // ── 메아리 제외 (GAP-56, 스프린트 27 선행 재검증) ──────────────────
+        //
+        // §8은 역할을 명시하지 않지만, 메아리는 §3.2상 발소리를 내지 않아 "파문 0회"를
+        // **구조적으로** 충족하고 이동속도까지 가장 빠르다(8.0m/s). 태그 아웃 이후의 이동을
+        // 세면 먼저 죽은 사람이 "무성 **생존**상"을 가져간다. 그래서 집계 측
+        // (RoundNetworkSync.AccumulateDistances)이 메아리 구간을 넣지 않기로 했다.
+        //
+        // 아래 두 테스트는 그 계약을 **기대 결과로** 고정한다 — 집계 측이 다시 메아리
+        // 거리를 흘려보내면 어떤 값이 나오는지까지 함께 박아 둔다.
+
+        [Test]
+        public void SilentSurvivor_EchoDistanceExcluded_GoesToActualSurvivor()
+        {
+            var tally = new AwardTally();
+
+            // 1번: 초반에 태그당한 메아리. 태그 전까지 걸은 12m만 들어오고,
+            // 그 구간에서 발소리를 냈으므로 파문도 함께 기록된다.
+            tally.AddDistance(1, 12f);
+            tally.RecordPulse(1, SoundType.Walk);
+
+            // 2번: 끝까지 살아남아 잠수(§4.2 — 파문 없음)로만 이동한 러너.
+            tally.AddDistance(2, 30f);
+
+            Assert.AreEqual(2, tally.Evaluate().SilentSurvivor,
+                "메아리 구간이 빠지면 실제 생존자가 수상해야 한다.");
+        }
+
+        [Test]
+        public void SilentSurvivor_IfEchoDistanceLeaksIn_EchoWinsWrongly()
+        {
+            // 회귀 감시용 반례: 집계 측이 메아리 이동을 그대로 넣으면 이렇게 된다.
+            // 태그당한 뒤 8.0m/s로 날아다니며 파문 없이 거리만 쌓기 때문이다.
+            var tally = new AwardTally();
+
+            tally.AddDistance(1, 400f); // 메아리가 라운드 내내 비행한 거리(파문 0회)
+            tally.AddDistance(2, 30f);  // 실제 생존자
+
+            Assert.AreEqual(1, tally.Evaluate().SilentSurvivor,
+                "이 결과가 나오면 AccumulateDistances의 IsTaggedOut 제외가 빠진 것이다(GAP-56).");
+        }
+
         // ── 최고의 거짓말상 (§8 "메아리 노크 성공 유인 횟수") ──────────────
 
         [Test]

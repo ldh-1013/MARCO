@@ -36,8 +36,14 @@ namespace Marco.Presentation.Sound
         public readonly float Duration;
         public readonly float StartTime;
 
+        /// <summary>
+        /// §3.4 술래 전용 방향 게이지를 밝히는 파문인가. 서버가 역할·등급·사거리를 이미
+        /// 판정해 보낸 값이라(<see cref="PulseDelivery.GaugeLit"/>) 여기서 다시 따지지 않는다.
+        /// </summary>
+        public readonly bool GaugeLit;
+
         public PulseVisualState(int pulseId, PulseVisualKind kind, Vector3 sourcePos,
-            DirectionOctant direction, float radius, float duration, float startTime)
+            DirectionOctant direction, float radius, float duration, float startTime, bool gaugeLit = false)
         {
             PulseId = pulseId;
             Kind = kind;
@@ -46,6 +52,7 @@ namespace Marco.Presentation.Sound
             Radius = radius;
             Duration = duration;
             StartTime = startTime;
+            GaugeLit = gaugeLit;
         }
 
         /// <summary>0(발생) → 1(만료). 링 확장·페이드아웃의 기준값.</summary>
@@ -59,7 +66,7 @@ namespace Marco.Presentation.Sound
         public bool IsExpired(float now) => now - StartTime >= Duration;
 
         /// <summary>StartTime을 보존한 채 판정 결과만 갈아끼운다(Updated 처리용).</summary>
-        public PulseVisualState WithPerceived(in PerceivedPulse perceived)
+        public PulseVisualState WithPerceived(in PerceivedPulse perceived, bool gaugeLit)
         {
             return new PulseVisualState(
                 PulseId,
@@ -68,10 +75,11 @@ namespace Marco.Presentation.Sound
                 perceived.Direction,
                 perceived.PerceivedRadius,
                 perceived.PerceivedDuration,
-                StartTime);
+                StartTime,
+                gaugeLit);
         }
 
-        public static PulseVisualState FromPerceived(int pulseId, in PerceivedPulse perceived, float now)
+        public static PulseVisualState FromPerceived(int pulseId, in PerceivedPulse perceived, float now, bool gaugeLit = false)
         {
             return new PulseVisualState(
                 pulseId,
@@ -80,7 +88,8 @@ namespace Marco.Presentation.Sound
                 perceived.Direction,
                 perceived.PerceivedRadius,
                 perceived.PerceivedDuration,
-                now);
+                now,
+                gaugeLit);
         }
     }
 }

@@ -330,15 +330,17 @@ namespace Marco.Net
                               $"판정 인지반경={p.PerceivedRadius:0.00}m → 전송 반경={p.PerceivedRadius:0.00}m (동일 변수), " +
                               $"지속={p.PerceivedDuration:0.00}s, 좌표공개={hasSourcePos}, 방위={p.Direction}");
 
+                // §3.4 게이지 판정도 **서버 결론**을 그대로 보낸다 — 술래 전용 정보라
+                // 클라이언트가 자기 역할을 보고 스스로 켜게 두면 안 된다(GAP-4).
                 TargetPulseDelivery(target, delivery.PulseId, (byte)delivery.Kind,
                     p.PerceivedRadius, p.PerceivedDuration, hasSourcePos, sourcePos,
-                    (byte)p.Direction, p.WorldSpaceRingVisible);
+                    (byte)p.Direction, p.WorldSpaceRingVisible, delivery.GaugeLit);
             }
             else
             {
                 // Disappeared: 인지값이 없다(§5.6 소실). 좌표·반경은 보낼 것이 없다.
                 TargetPulseDelivery(target, delivery.PulseId, (byte)delivery.Kind,
-                    0f, 0f, false, Vector3.zero, 0, false);
+                    0f, 0f, false, Vector3.zero, 0, false, false);
             }
 
             if (_logServerDeliveries)
@@ -367,7 +369,7 @@ namespace Marco.Net
         [TargetRpc]
         private void TargetPulseDelivery(NetworkConnection conn, int pulseId, byte kind,
             float perceivedRadius, float perceivedDuration, bool hasSourcePos, Vector3 sourcePos,
-            byte direction, bool worldSpaceRingVisible)
+            byte direction, bool worldSpaceRingVisible, bool gaugeLit)
         {
             _clientReceivedCount++;
 
@@ -400,7 +402,7 @@ namespace Marco.Net
                     worldSpaceRingVisible);
 
             // ListenerId는 수신 측에서 의미가 없다(자기 자신) — 렌더러는 PulseId로만 관리한다.
-            var delivery = new PulseDelivery(0UL, pulseId, deliveryKind, perceived);
+            var delivery = new PulseDelivery(0UL, pulseId, deliveryKind, perceived, gaugeLit);
             sink.Apply(delivery, Time.time);
         }
     }
