@@ -40,6 +40,9 @@ namespace Marco.Presentation.UI
         [SerializeField] private Key _joinKey = Key.J;
         [SerializeField] private Key _readyKey = Key.R;
 
+        [Tooltip("접속 대기 중 빠져나오는 키(§12.2 재시도). 접속에 실패해도 화면이 멈추지 않도록 하는 유일한 출구다.")]
+        [SerializeField] private Key _cancelKey = Key.Escape;
+
         [Header("표시")]
         [SerializeField, Range(12, 48)] private int _bodyFontSize = 24;
         [SerializeField, Range(24, 96)] private int _countdownFontSize = 72;
@@ -183,8 +186,11 @@ namespace Marco.Presentation.UI
 
             if (!networkReady)
             {
+                // 접속이 성립하지 않으면 여기서 계속 머문다 — 취소로 빠져나갈 수 있어야 한다.
+                // (타임아웃은 두지 않는다: 적정 대기 시간이 회선·환경마다 달라 값을 만들 수 없다 — GAP-57)
                 SetVisible(true);
                 ShowConnecting();
+                HandleCancelInput(connection);
                 return;
             }
 
@@ -261,10 +267,31 @@ namespace Marco.Presentation.UI
             _titleText.color = NeutralColor();
             _roomCodeText.text = "접속 중…";
             _roomCodeText.color = NeutralColor();
-            _hintText.text = string.Empty;
+            _hintText.text = $"{_cancelKey} — 취소하고 돌아가기";
+            _hintText.color = RunnerColor();
             _readyCountText.text = string.Empty;
             _countdownText.text = string.Empty;
             ClearPlayerRows();
+        }
+
+        /// <summary>
+        /// 접속 대기 중 취소 입력을 받는다(§12.2 재시도 경로).
+        ///
+        /// 이 경로가 없으면 호스트가 없는 주소로 참가를 시도한 순간 화면이 "접속 중…"에
+        /// 영구히 머문다 — 접속 입력을 받는 분기는 <c>HasStarted == false</c>일 때만 도는데,
+        /// 그 플래그는 실패해도 되돌아오지 않았기 때문이다(<c>ConnectionService</c>에서 함께 해소).
+        /// </summary>
+        private void HandleCancelInput(IConnectionService connection)
+        {
+            if (connection == null)
+                return;
+
+            Keyboard keyboard = Keyboard.current;
+            if (keyboard == null)
+                return;
+
+            if (keyboard[_cancelKey].wasPressedThisFrame)
+                connection.Cancel();
         }
 
         // ── 로비 (§12.3) ─────────────────────────────────────────────────

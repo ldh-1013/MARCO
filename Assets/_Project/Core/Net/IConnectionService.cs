@@ -21,6 +21,15 @@ namespace Marco.Core.Net
         /// <summary>클라이언트로 참가(§12.2 "코드 입장" — MVP는 주소 직결, GAP-28).</summary>
         void StartClient(string address);
 
+        /// <summary>
+        /// 진행 중인 접속을 중단하고 <see cref="HasStarted"/>를 되돌린다(§12.2 재시도 경로).
+        ///
+        /// 접속이 성립하지 않은 채 대기하고 있을 때 사용자가 빠져나올 유일한 수단이다 —
+        /// 이것이 없으면 주소를 한 번만 틀려도 "접속 중…"에서 벗어나지 못한다.
+        /// 이미 접속돼 플레이 중일 때 호출하면 접속 종료로 동작한다.
+        /// </summary>
+        void Cancel();
+
         /// <summary>참가 기본 주소(방코드 대용 표시에도 쓴다 — GAP-28).</summary>
         string DefaultAddress { get; }
     }

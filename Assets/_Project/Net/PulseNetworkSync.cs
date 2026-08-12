@@ -52,7 +52,8 @@ namespace Marco.Net
                  "청취자 수·누계 카운터를 요약한다. 어느 단계에서 끊기는지 짚는 용도.")]
         [SerializeField] private bool _logDiagnostics = true;
 
-        private ServerPulseDriver _driver; // 서버에서만 생성된다.
+        private ServerPulseDriver _driver;      // 서버에서만 생성된다.
+        private ServerKnockDriver _knockDriver; // §3.2 메아리 노크(스프린트 27). 서버 전용.
 
         // 청취자 스냅샷 재사용 버퍼(매 프레임 할당 방지 — T8 성능 조사의 무할당 원칙).
         private readonly List<ListenerSnapshot> _listeners = new List<ListenerSnapshot>();
@@ -80,13 +81,58 @@ namespace Marco.Net
             ServerSubmitPulse(type);
         }
 
+        public void SubmitKnock(Vector3 point)
+        {
+            if (!NetworkActive)
+                return;
+
+            ServerSubmitKnock(point);
+        }
+
         // ── 서버: 수집 ────────────────────────────────────────────────────
 
         public override void OnStartServer()
         {
             base.OnStartServer();
             _driver = new ServerPulseDriver();
+            _knockDriver = new ServerKnockDriver();
             Debug.Log("[PulseNet:Server] 서버 권위 파문 판정 시작 — 청취자별 개별 전송(§14.3)");
+        }
+
+        /// <summary>
+        /// §3.2 노크 요청(§14.3 `EchoKnock`). 씬 오브젝트라 소유권 검사를 끄고, **역할·플레이어 ID는
+        /// 호출자에서 서버가 읽는다**(2/3 B항목의 <see cref="RoleNetworkSync.TryGetCallerIdentity"/>).
+        ///
+        /// <b>지점만 클라이언트가 정한다</b> — §3.2가 "사거리 제한 없음(맵 내 임의 지점 지정)"으로
+        /// 규정한 유일한 소리라, 위치를 서버가 유도할 방법이 없다. 대신 메아리 전용 제약과
+        /// 쿨다운 30초·1.5초 지연은 <see cref="ServerKnockDriver"/>가 서버에서 강제한다.
+        /// </summary>
+        [ServerRpc(RequireOwnership = false)]
+        private void ServerSubmitKnock(Vector3 point, NetworkConnection caller = null)
+        {
+            if (_knockDriver == null)
+                return;
+
+            // 스프린트 18의 페이즈 게이트와 같은 규칙 — 노크는 라운드 중에만 성립한다.
+            if (RoundNetworkSync.ServerPhase != Core.GameFlow.GameFlowState.InGame)
+                return;
+
+            if (!RoleNetworkSync.TryGetCallerIdentity(caller, out RoleType role, out ulong playerId))
+            {
+                Debug.LogWarning("[KnockNet:Server] 노크 폐기 — 호출자의 플레이어 오브젝트/역할을 찾을 수 없습니다.");
+                return;
+            }
+
+            KnockRequestResult result = _knockDriver.TryRequest(playerId, role, point, Time.time);
+            if (result != KnockRequestResult.Accepted)
+            {
+                Debug.Log($"[KnockNet:Server] 노크 거부 — playerId={playerId} 사유={result} " +
+                          $"(§3.2 메아리 전용·쿨다운 {KnockConfig.CooldownSeconds:0}초)");
+                return;
+            }
+
+            Debug.Log($"[KnockNet:Server] 노크 접수 — playerId={playerId} 지점={point.ToString("0.0")}, " +
+                      $"{KnockConfig.ActivationDelaySeconds:0.#}초 뒤 발생(§3.2)");
         }
 
         /// <summary>
@@ -259,6 +305,10 @@ namespace Marco.Net
                           $"누계: 수신 RPC={_serverRpcCount} / 개별 전송={_serverSentCount}");
             }
 
+            // §3.2 노크: 지연이 끝난 것을 파문화하고, 술래 위치로 §8 유인을 판정한다.
+            // 청취자 스냅샷을 이미 만들어 둔 이 자리가 술래 위치를 얻기 가장 싼 지점이다.
+            TickKnocks();
+
             if (probe == null)
                 return; // 차폐 판정기가 없으면 판정하지 않는다(좌표를 흘리지 않기 위함).
 
@@ -268,6 +318,69 @@ namespace Marco.Net
             List<PulseDelivery> deliveries = _driver.Tick(Time.time, _listeners, probe);
             for (int i = 0; i < deliveries.Count; i++)
                 SendDelivery(deliveries[i]);
+        }
+
+        /// <summary>
+        /// §3.2 노크의 서버 측 진행(스프린트 27). 서버 전용, 매 프레임.
+        ///
+        /// ① 1.5초 지연이 끝난 노크를 <b>기존 파문 경로에 그대로 태운다</b> —
+        /// <see cref="ServerPulseDriver.AddPulse"/>가 §5.1 표에서 반경·지속을 재계산하고,
+        /// 이후 차폐·청취자별 전달·시각화는 발소리·음성과 **완전히 같은 코드**를 탄다.
+        /// ② 술래 위치로 §8 "노크 성공 유인"을 판정해 어워드에 넘긴다.
+        /// </summary>
+        private void TickKnocks()
+        {
+            if (_knockDriver == null)
+                return;
+
+            float now = Time.time;
+
+            List<KnockActivation> activations = _knockDriver.Tick(now);
+            for (int i = 0; i < activations.Count; i++)
+            {
+                KnockActivation knock = activations[i];
+
+                // 발생원 ID는 노크를 지정한 메아리다 — 그래야 GAP-1(본인 제외)이
+                // "자기 노크는 자기에게 안 보인다"로 자연스럽게 성립한다.
+                int pulseId = _driver.AddPulse(knock.PlayerId, SoundType.Knock, knock.Point, now);
+                if (pulseId < 0)
+                    continue;
+
+                // 서버가 실제로 등록한 파문만 §8에 센다(발소리·음성과 같은 규칙).
+                RoundNetworkSync.ServerRecordPulse((int)knock.PlayerId, SoundType.Knock);
+
+                Debug.Log($"[KnockNet:Server] 노크 발생 — pulse={pulseId} playerId={knock.PlayerId} " +
+                          $"지점={knock.Point.ToString("0.0")} 반경={KnockConfig.RadiusMeters:0.#}m (§3.2)");
+            }
+
+            // 유인 판정에는 술래 위치가 필요하다. MVP는 술래 1인(§6.2)이라 첫 술래만 본다.
+            if (!TryGetSeekerPosition(out Vector3 seekerPosition))
+                return;
+
+            List<ulong> lures = _knockDriver.ResolveLures(seekerPosition, now);
+            for (int i = 0; i < lures.Count; i++)
+            {
+                RoundNetworkSync.ServerRecordKnockLure((int)lures[i]);
+                Debug.Log($"[KnockNet:Server] ★ 유인 성공 — playerId={lures[i]}의 노크 지점으로 술래가 진입했다 " +
+                          $"(§8 최고의 거짓말상 +1, GAP-59 기준: 발생 시 {ServerKnockDriver.LureRadiusMeters:0.#}m 밖 → " +
+                          $"{ServerKnockDriver.LureWindowSeconds:0}초 내 진입)");
+            }
+        }
+
+        /// <summary>이미 만들어 둔 청취자 스냅샷에서 술래 위치를 찾는다(§6.2 MVP는 술래 1인).</summary>
+        private bool TryGetSeekerPosition(out Vector3 position)
+        {
+            for (int i = 0; i < _listeners.Count; i++)
+            {
+                if (_listeners[i].Role != RoleType.Seeker)
+                    continue;
+
+                position = _listeners[i].Position;
+                return true;
+            }
+
+            position = default;
+            return false;
         }
 
         /// <summary>

@@ -130,6 +130,7 @@ namespace Marco.EditorTools
             EnsureComponent<FallRecoveryDriver>(flowGo); // 스프린트 20: 맵 밖 낙하 복구
             EnsureComponent<SettingsScreen>(flowGo);    // 스프린트 23: §12.6 설정 화면
             EnsureComponent<Voice.LocalVoicePipeline>(flowGo); // 스프린트 26a: §5.2 음성 1단계
+            EnsureComponent<Marco.Presentation.Echo.EchoKnockController>(flowGo); // 스프린트 27: §3.2 메아리 노크
 
             // 로비에서 pawn이 무한 낙하하지 않도록 임시 바닥(맵 로드 전 대기용).
             EnsureLobbyFloor(lobby);
@@ -389,6 +390,7 @@ namespace Marco.EditorTools
                 EnsureComponent<FallRecoveryDriver>(flowGo);
                 EnsureComponent<SettingsScreen>(flowGo);
                 EnsureComponent<Voice.LocalVoicePipeline>(flowGo);
+                EnsureComponent<Marco.Presentation.Echo.EchoKnockController>(flowGo);
 
                 EditorSceneManager.MarkSceneDirty(lobbyScene);
             }

@@ -645,6 +645,21 @@ namespace Marco.Net
         }
 
         /// <summary>
+        /// §8 "메아리 노크 성공 유인 횟수"를 1회 기록한다(스프린트 27). <c>PulseNetworkSync</c>가
+        /// <c>ServerKnockDriver</c>의 판정을 받아 호출한다 — 서버가 술래 위치로 확인한 사실만 센다.
+        ///
+        /// 이 호출이 생기면서 **최고의 거짓말상이 처음으로 수상자를 낼 수 있게 됐다**(GAP-37 잔여분).
+        /// </summary>
+        internal static void ServerRecordKnockLure(int playerId)
+        {
+            RoundNetworkSync instance = ServerInstance;
+            if (instance == null)
+                return;
+
+            instance._awards.RecordKnockLure(playerId);
+        }
+
+        /// <summary>
         /// 라운드 중 플레이어 이동 거리를 누적한다(§8 "이동거리 대비 파문 발생 0회"의 이동거리).
         /// 서버가 자기 쪽 위치 변화를 재므로 클라이언트가 값을 부풀릴 수 없다.
         /// </summary>

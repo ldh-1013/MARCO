@@ -32,6 +32,17 @@ namespace Marco.Core.Net
         /// 위치·반경·지속·발생원은 서버가 결정하므로 여기서는 종류만 넘긴다.
         /// </summary>
         void SubmitPulse(SoundType type);
+
+        /// <summary>
+        /// §3.2 메아리 노크를 요청한다(§14.3 `EchoKnock`, Client → Server → All).
+        ///
+        /// **이 인터페이스에서 위치를 받는 유일한 메서드다.** §3.2가 노크를 "사거리 제한 없음
+        /// (맵 내 임의 지점 지정)"으로 규정해, 발생원이 플레이어가 아니라 클라이언트가 고른
+        /// 지점이기 때문이다. 그래도 **역할(메아리 전용)·쿨다운 30초·1.5초 지연은 서버가
+        /// 강제**하므로, 클라이언트가 정할 수 있는 것은 "어디"뿐이다.
+        /// </summary>
+        /// <param name="point">소음을 낼 월드 좌표(§3.2 미니맵에서 지정한 지점).</param>
+        void SubmitKnock(Vector3 point);
     }
 
     /// <summary>

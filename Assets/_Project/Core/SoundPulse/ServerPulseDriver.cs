@@ -77,6 +77,18 @@ namespace Marco.Core.Sound
                     duration = Voice.VoiceConfig.ShoutDurationSeconds; // §5.1 2.5s
                     return true;
 
+                // §3.2 메아리 노크(스프린트 27). "대화 등급과 동일 취급"이라 반경·지속이 같지만
+                // **종류는 Knock으로 남긴다** — §3.4가 게이지 트리거에서 노크를 명시적으로
+                // 제외하므로, Talk로 뭉개면 메아리가 술래에게 방향 게이지를 띄우게 된다.
+                //
+                // 발생 위치만은 클라이언트가 지정한다(§3.2 "사거리 제한 없음, 맵 내 임의 지점") —
+                // 다른 소리와 달리 발생원이 플레이어가 아니기 때문이다. 역할·쿨다운·지연은
+                // ServerKnockDriver가 서버에서 강제한다.
+                case SoundType.Knock:
+                    radius = KnockConfig.RadiusMeters;      // §3.2/§5.1 9m
+                    duration = KnockConfig.DurationSeconds; // §3.2/§5.1 1.2s
+                    return true;
+
                 default:
                     radius = 0f;
                     duration = 0f;

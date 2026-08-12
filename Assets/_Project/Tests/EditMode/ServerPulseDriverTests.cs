@@ -80,20 +80,36 @@ namespace Marco.Core.Tests
             Assert.AreEqual(Valve.DefaultRotationSeconds, d);
         }
 
-        [TestCase(SoundType.Knock)]
-        public void TryGetPulseSpec_UnsupportedTypes_AreRejected(SoundType type)
+        [Test]
+        public void TryGetPulseSpec_Knock_MatchesDesignDocTable()
         {
-            // 노크는 메아리 능력(§3.2)이 미구현이라 아직 대상이 아니다.
-            // (음성 3등급은 스프린트 26b에서 §5.2 파이프라인이 들어오며 지원 대상이 됐다.)
-            Assert.IsFalse(ServerPulseDriver.TryGetPulseSpec(type, out _, out _));
+            // §3.2 "발생 소음: '대화' 등급과 동일 취급 (반경 9m, 지속 1.2초)" + §5.1 노크 행.
+            // 스프린트 27에서 메아리 능력이 들어오며 거부 목록에서 빠졌다.
+            Assert.IsTrue(ServerPulseDriver.TryGetPulseSpec(SoundType.Knock, out float r, out float d));
+            Assert.AreEqual(9f, r);
+            Assert.AreEqual(1.2f, d);
         }
 
         [Test]
-        public void AddPulse_UnsupportedType_ReturnsNegativeAndAddsNothing()
+        public void TryGetPulseSpec_Knock_MatchesTalkRadiusButKeepsOwnType()
+        {
+            // §3.2가 "대화와 동일 취급"이라 수치는 같아야 하고, §3.4가 노크를 게이지 트리거에서
+            // 제외하므로 **종류는 달라야 한다** — Talk로 뭉개면 메아리가 술래 게이지를 띄운다.
+            ServerPulseDriver.TryGetPulseSpec(SoundType.Knock, out float knockR, out float knockD);
+            ServerPulseDriver.TryGetPulseSpec(SoundType.Talk, out float talkR, out float talkD);
+
+            Assert.AreEqual(talkR, knockR);
+            Assert.AreEqual(talkD, knockD);
+            Assert.IsFalse(DirectionGaugeRules.TriggersGauge(SoundType.Knock));
+            Assert.IsTrue(DirectionGaugeRules.TriggersGauge(SoundType.Talk));
+        }
+
+        [Test]
+        public void AddPulse_Knock_IsTracked()
         {
             var d = new ServerPulseDriver();
-            Assert.AreEqual(-1, d.AddPulse(SourceId, SoundType.Knock, Vector3.zero, 0f));
-            Assert.AreEqual(0, d.ActivePulseCount);
+            Assert.GreaterOrEqual(d.AddPulse(SourceId, SoundType.Knock, Vector3.zero, 0f), 0);
+            Assert.AreEqual(1, d.ActivePulseCount);
         }
 
         // ── §5.2 음성 3등급 (스프린트 26b) ────────────────────────────────

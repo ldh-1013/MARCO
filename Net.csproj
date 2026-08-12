@@ -72,7 +72,6 @@
     <Compile Include="Assets\_Project\Net\ValveNetworkSync.cs" />
     <Compile Include="Assets\_Project\Net\Transports\FishyFacepunch\Core\BidirectionalDictionary.cs" />
     <Compile Include="Assets\_Project\Net\Transports\FishyFacepunch\Core\FishySocketManager.cs" />
-    <Compile Include="Assets\_Project\Net\NetworkBridge.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Assets\_Project\Net\Net.asmdef" />

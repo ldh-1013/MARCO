@@ -556,6 +556,20 @@ namespace Marco.EditorTools
                 {
                     report.AppendLine("  ✔ 음성 파이프라인(스프린트 26a): LocalVoicePipeline 부착됨(§5.2 1단계)");
                 }
+
+                // 스프린트 27: §3.2 메아리 노크. 없으면 Tab 미니맵이 뜨지 않아 노크 자체가 불가능하고,
+                // 최고의 거짓말상(§8)도 영영 수상자가 나오지 않는다.
+                if (flow.GetComponent<Marco.Presentation.Echo.EchoKnockController>() == null)
+                {
+                    lobbyOk = false;
+                    report.AppendLine("  ✖ 메아리 노크(스프린트 27): SceneFlow에 EchoKnockController가 없습니다 — " +
+                                      "**Tab 미니맵이 열리지 않아 노크를 지정할 수 없고, 최고의 거짓말상(§8)이 수상자를 내지 못합니다.** " +
+                                      "→ Tools/MARCO/Scene Flow — 5. 로비 배선 정리 실행 후 **Lobby 씬 저장(Ctrl+S)**");
+                }
+                else
+                {
+                    report.AppendLine("  ✔ 메아리 노크(스프린트 27): EchoKnockController 부착됨(§3.2 · §4.3 Tab)");
+                }
             }
 
             return !hudBannerOn && lobbyOk;
