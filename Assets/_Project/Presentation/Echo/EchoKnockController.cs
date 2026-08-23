@@ -51,7 +51,6 @@ namespace Marco.Presentation.Echo
 
         private Camera _minimapCamera;
         private IPulseNetworkBridge _bridge;
-        private FirstPersonController _player;
 
         private bool _minimapOpen;
         private float _clientCooldownUntil; // 표시·트래픽 절약용 사전 필터(진실은 서버).
@@ -61,11 +60,6 @@ namespace Marco.Presentation.Echo
 
         /// <summary>표시용 남은 쿨다운(초). 서버 판정과 어긋날 수 있는 근사값이다.</summary>
         public float CooldownRemaining => Mathf.Max(0f, _clientCooldownUntil - Time.time);
-
-        private void Awake()
-        {
-            LocalPlayerRegistry.WhenReady(player => _player = player);
-        }
 
         private void OnDisable()
         {
@@ -95,13 +89,25 @@ namespace Marco.Presentation.Echo
             HandleDesignationClick();
         }
 
-        /// <summary>로컬 플레이어가 살아 있고 메아리인가(§3.2 노크는 메아리 전용).</summary>
+        /// <summary>
+        /// 로컬 플레이어가 살아 있고 메아리인가(§3.2 노크는 메아리 전용).
+        ///
+        /// <b>레지스트리를 매 프레임 다시 읽는다(캐시 금지).</b> 모든 pawn은 <c>OnEnable</c> 시점에
+        /// <c>IsLocallyControlled</c> 기본값이 true라 **원격 pawn도 자기를 등록**하고, 순수
+        /// 클라이언트에서는 원격 pawn이 먼저 도착하는 일이 흔하다. 그 시점에 한 번만 바인딩하면
+        /// (<c>WhenReady</c>는 1회성이다) 소유권이 확정돼 <c>Unregister</c> 복구가 일어나도
+        /// **이 컴포넌트만 원격 pawn을 계속 물고 있어** Tab이 조용히 아무 일도 하지 않는다.
+        /// <c>InGameHud</c>·<c>FallRecoveryDriver</c>·<c>PawnPhaseTeleporter</c>·<c>SettingsStore</c>가
+        /// 전부 매 프레임 <see cref="LocalPlayerRegistry.Current"/>를 읽는 것과 같은 이유다(GAP-61).
+        ///
+        /// 소유권 판별 자체는 새로 만들지 않는다 — <c>PlayerOwnershipGate</c>(Net)가
+        /// <c>IsOwner</c>를 <see cref="Marco.Core.Net.ILocalControlGate"/>로 밀어 넣은 결과인
+        /// <c>IsLocallyControlled</c>를 그대로 쓴다.
+        /// </summary>
         private bool IsLocalEcho()
         {
-            if (_player == null)
-                _player = LocalPlayerRegistry.Current;
-
-            return _player != null && _player.IsLocallyControlled && _player.Role == RoleType.Echo;
+            FirstPersonController player = LocalPlayerRegistry.Current;
+            return player != null && player.IsLocallyControlled && player.Role == RoleType.Echo;
         }
 
         /// <summary>
@@ -119,8 +125,15 @@ namespace Marco.Presentation.Echo
                 return;
             }
 
-            if (!TryResolveWorldPoint(mouse.position.ReadValue(), out Vector3 point))
+            Vector2 screenPosition = mouse.position.ReadValue();
+            if (!TryResolveWorldPoint(screenPosition, out Vector3 point))
+            {
+                // 이 경로는 조용히 실패하면 "클릭이 안 먹는다"로만 보인다 — 원인을 남긴다.
+                Debug.LogWarning($"[Knock] 지점을 계산하지 못했다 — 화면좌표={screenPosition}, " +
+                                 $"미니맵 카메라={(_minimapCamera != null ? "있음" : "없음")}. " +
+                                 "카메라가 지면 평면을 향하고 있는지 확인할 것.");
                 return;
+            }
 
             if (!TryGetBridge(out IPulseNetworkBridge bridge))
             {
@@ -191,8 +204,29 @@ namespace Marco.Presentation.Echo
             if (_minimapCamera != null)
                 _minimapCamera.enabled = open;
 
-            if (open)
-                Debug.Log($"[Knock] 미니맵 열림(§4.3 {_minimapKey}) — 좌클릭으로 노크 지점을 지정한다.");
+            // §4.3 좌클릭으로 지점을 찍으려면 커서가 풀려 있어야 한다. 1인칭에서는 커서가
+            // 화면 중앙에 잠긴 채 숨겨져 있고, 그 상태에서는 Input System의 마우스 위치가
+            // 물리 마우스를 따라가지 않아 **어디를 눌러도 같은 좌표**가 읽힌다.
+            ApplyCursorRelease(open);
+
+            Debug.Log(open
+                ? $"[Knock] 미니맵 열림(§4.3 {_minimapKey}) — 커서 해제됨. 좌클릭으로 노크 지점을 지정한다."
+                : $"[Knock] 미니맵 닫힘 — 1인칭 커서 잠금으로 복원한다(§4.1).");
+        }
+
+        /// <summary>
+        /// 커서 잠금 해제/복원을 <b>플레이어에게 요청</b>한다. 커서 정책은
+        /// <see cref="FirstPersonController"/>가 단독 소유하므로 여기서 <c>Cursor</c>를 직접
+        /// 만지지 않는다 — 그래야 "여는 쪽과 닫는 쪽이 서로 다른 상태를 쓰는" 어긋남이 없다.
+        ///
+        /// 플레이어는 <b>호출 시점에 다시 조회한다</b>(캐시 금지 — GAP-61). 열 때와 닫을 때
+        /// 사이에 pawn이 바뀌어도 각각 그 시점의 로컬 pawn에 적용된다.
+        /// </summary>
+        private void ApplyCursorRelease(bool released)
+        {
+            FirstPersonController player = LocalPlayerRegistry.Current;
+            if (player != null)
+                player.SetCursorReleased(released);
         }
 
         private void EnsureCamera()

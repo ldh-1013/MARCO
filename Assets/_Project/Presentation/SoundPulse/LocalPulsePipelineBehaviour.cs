@@ -105,6 +105,17 @@ namespace Marco.Presentation.Sound
             PulseNetworkRegistry.UnregisterProbe(_probe);
         }
 
+        /// <summary>
+        /// 발소리 이벤트 구독 대상을 <paramref name="player"/>로 맞춘다.
+        ///
+        /// <b>대상이 바뀔 때만 구독을 갈아탄다</b> — 같은 pawn이면 즉시 반환하므로 매 프레임
+        /// 호출해도 구독/해제가 반복되지 않는다. <see cref="Update"/>가 매 프레임
+        /// <c>LocalPlayerRegistry.Current</c>로 이 메서드를 부르는 이유는 GAP-61이다:
+        /// 모든 pawn이 <c>IsLocallyControlled</c> 기본값 true로 자기를 등록하므로 순수
+        /// 클라이언트에서는 **원격 pawn이 먼저 도착해** 여기 물릴 수 있는데, 원격 pawn은
+        /// <c>Update</c>가 조기 반환해 <c>FootstepPulseEmitted</c>를 영영 내지 않는다
+        /// (= 내 발소리가 파문이 되지 않는다). 1회성 바인딩이면 그 상태가 고착된다.
+        /// </summary>
         private void BindPlayer(FirstPersonController player)
         {
             if (_player == player)
@@ -114,6 +125,10 @@ namespace Marco.Presentation.Sound
                 _player.FootstepPulseEmitted -= OnFootstepPulse;
 
             _player = player;
+
+            if (_player == null)
+                return; // 로컬 pawn이 사라진 구간(디스폰·씬 전환) — 다음 프레임에 다시 잡는다.
+
             _player.FootstepPulseEmitted += OnFootstepPulse;
 
             // 발생원 ID를 실제 플레이어 신원으로 맞춘다(로컬이면 폴백 1, 네트워크면 OwnerId).
@@ -140,6 +155,10 @@ namespace Marco.Presentation.Sound
         private void Update()
         {
             float now = Time.time;
+
+            // GAP-61: 로컬 pawn이 바뀌었으면 구독을 갈아탄다(같으면 즉시 반환 — 무비용).
+            // 캐시된 참조를 그대로 믿으면 원격 pawn에 물린 채 고착된다.
+            BindPlayer(LocalPlayerRegistry.Current);
 
             LogPathDiagnostics(now);
 

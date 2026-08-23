@@ -42,10 +42,20 @@ namespace Marco.Presentation.Objectives
             // 비어 있으면 런타임에 찾고(아래 EnsureCoordinator), 못 찾아도 비활성화하지 않는다 —
             // 로드 순서에 따라 잠시 뒤에 나타날 수 있기 때문이다.
             EnsureCoordinator();
-
-            // 플레이어는 네트워크로 스폰될 수 있어 이 시점에 없을 수 있다.
-            LocalPlayerRegistry.WhenReady(player => _player = player);
         }
+
+        /// <summary>
+        /// 지금 판정 기준이 될 로컬 플레이어. **매 프레임 다시 조회한다(캐시 금지 — GAP-61).**
+        ///
+        /// 모든 pawn은 <c>IsLocallyControlled</c> 기본값이 true라 자기를 등록하므로, 순수
+        /// 클라이언트에서는 **원격 pawn이 먼저 도착해** 레지스트리를 잠시 차지할 수 있다.
+        /// 1회성 <c>WhenReady</c>로 그 순간을 잡아 캐시해 두면 소유권 확정 후 복구가 일어나도
+        /// 이 컴포넌트만 원격 pawn을 물고 있게 되고, <see cref="FirstPersonController.IsLocallyControlled"/>가
+        /// 영영 false라 **탈출이 성립하지 않는다**(§6.3 RunnersWin 경로가 통째로 막힌다).
+        ///
+        /// 인스펙터 참조는 네트워크 없이 씬에 플레이어를 직접 놓고 돌리는 구성의 폴백으로만 쓴다.
+        /// </summary>
+        private FirstPersonController ResolvePlayer() => LocalPlayerRegistry.Current ?? _player;
 
         /// <summary>
         /// 라운드 지휘부를 확보한다(씬 간 지연 바인딩). 이미 있으면 즉시 반환.
@@ -91,7 +101,8 @@ namespace Marco.Presentation.Objectives
         private void Update()
         {
             // 로컬 플레이어가 아직 스폰되지 않았으면 판정할 대상이 없다.
-            if (_player == null)
+            FirstPersonController player = ResolvePlayer();
+            if (player == null)
                 return;
 
             // 시스템 씬이 아직 준비되지 않았을 수 있다(맵이 먼저 로드된 경우).
@@ -99,20 +110,20 @@ namespace Marco.Presentation.Objectives
                 return;
 
             // 스프린트 12: 원격 프록시가 내 입력 없이 탈출 요청을 보내지 않도록 소유권 가드
-            // (밸브 스프린트 10·태그 스프린트 11과 같은 원칙). _player는 로컬 플레이어지만 방어적으로 확인한다.
-            if (!_player.IsLocallyControlled)
+            // (밸브 스프린트 10·태그 스프린트 11과 같은 원칙).
+            if (!player.IsLocallyControlled)
                 return;
 
-            bool inside = Vector3.Distance(_player.transform.position, transform.position) <= _escapeRadius;
+            bool inside = Vector3.Distance(player.transform.position, transform.position) <= _escapeRadius;
 
             // 범위에 "들어온 순간"에만 시도한다 — 서 있는 동안 매 프레임 시도하지 않도록.
             if (inside && !_wasInside)
-                TryEscape();
+                TryEscape(player);
 
             _wasInside = inside;
         }
 
-        private void TryEscape()
+        private void TryEscape(FirstPersonController player)
         {
             // 게이트 개방 전엔 요청 자체를 보내지 않는다(클라 사전 필터로 RPC 낭비 방지).
             // 서버는 이와 무관하게 다시 재검증한다(§5.3) — 안전성은 서버가 보장한다.
@@ -128,7 +139,7 @@ namespace Marco.Presentation.Objectives
 
             // 네트워크면 서버에 요청만 보내고(서버가 재검증·확정·전파), 로컬이면 즉시 집계한다.
             // 어느 경로인지는 RoundCoordinator가 라우팅한다(§15.2 경계 유지).
-            _roundCoordinator.RequestEscape(_player.PlayerId, _player.Role);
+            _roundCoordinator.RequestEscape(player.PlayerId, player.Role);
         }
     }
 }

@@ -711,3 +711,439 @@ Phase 2에서 만든 골격이 Phase 3의 실제 패턴에 흡수된 것이며, 
 
 **코드 완료** — 실기 검증(§29) 대기. §8 어워드 3종이 **전부 데이터 소스를 갖게 됐다**
 (최다 비명상 = 26b 음성, 무성 생존상 = 스프린트 22 + GAP-56, 최고의 거짓말상 = 이번 스프린트).
+
+---
+
+## 스프린트 27 후속 — 실기 버그: 메아리 로컬 입력이 순수 클라이언트에서 죽어 있었다 (GAP-61)
+
+> 첫 실기(§29, 에디터 호스트 + exe 2대, 술래1·러너2)에서 발견.
+> 증상: exe 클라이언트에서 태그당한 본인 화면의 **HUD 역할 표시는 "메아리"로 정확히 바뀌는데
+> Tab 미니맵이 에러 없이 아무 반응도 하지 않았다.** 에디터(호스트)에서는 정상이었다.
+
+### 1. 원인 — 서버/호스트 체크가 아니라 **1회성 플레이어 바인딩**이었다
+
+보고된 가설(`IsServer`/`IsHost` 오용)은 **아니었다.** Presentation 계층 전체에
+`IsServer`·`IsHost`·`IsClientInitialized`·`base.Owner`가 **한 건도 없다**(전수 검색 확인).
+소유권 판별은 전부 `PlayerOwnershipGate`(Net) → `ILocalControlGate`(Core) → `IsLocallyControlled`를
+쓰고 있었고, 이번에 문제가 된 컴포넌트도 그 값을 읽고 있었다.
+
+실제 원인은 **어느 pawn을 읽느냐**였다.
+
+```
+EchoKnockController.cs:67   LocalPlayerRegistry.WhenReady(player => _player = player);  // 1회성
+EchoKnockController.cs:102  if (_player == null) _player = LocalPlayerRegistry.Current; // null일 때만 재조회
+```
+
+`LocalPlayerRegistry.WhenReady`는 **1회성**이다(`_pending` 호출 후 즉시 비운다). 그리고
+`FirstPersonController.IsLocallyControlled`의 **기본값이 true**라(L124), 모든 pawn이 `OnEnable`에서
+자기를 등록한다 — 이 함정은 `LocalPlayerRegistry.Register`/`Unregister`의 주석에 이미 실기 근거와
+함께 기록돼 있었다.
+
+| | 첫 등록자 | `_pending` 콜백이 받는 pawn | 결과 |
+|---|---|---|---|
+| **에디터(호스트)** | 자기 pawn(서버가 자기 커넥션 것을 먼저 스폰) | **로컬** | 정상 동작 |
+| **exe(순수 클라이언트)** | 스폰 배치로 먼저 도착한 **원격** pawn(호스트 것 등) | **원격** | `IsLocallyControlled == false` → Tab 무반응 |
+
+소유권이 확정되면 `PlayerOwnershipGate`가 원격 pawn에 `SetLocalControl(false)`를 밀고,
+`Unregister`의 복구 로직이 `Current`를 진짜 로컬 pawn으로 되돌린다. **그런데 이 컴포넌트만
+`_player`에 원격 pawn을 캐시해 둔 채였고, L102는 `null`일 때만 재조회하므로 영영 고쳐지지 않았다.**
+
+**HUD가 멀쩡했던 이유가 결정적 증거다** — `InGameHud.UpdateRole`(L373)은 매 프레임
+`LocalPlayerRegistry.Current`를 다시 읽는다. 같은 `FirstPersonController.Role` 값을 보면서도
+한쪽만 맞았던 것은 **읽는 대상이 달랐기 때문**이지 역할 동기화 문제가 아니었다.
+
+### 2. 수정 — 기존 경로로 통일(새 게이팅 없음)
+
+`EchoKnockController`에서 **1회성 캐시를 걷어내고 매 프레임 레지스트리를 다시 읽게** 했다.
+`InGameHud`·`FallRecoveryDriver`·`PawnPhaseTeleporter`·`SettingsStore`가 이미 쓰는 방식이며,
+소유권 판별은 그대로 `PlayerOwnershipGate` → `ILocalControlGate` → `IsLocallyControlled`다.
+
+```diff
+- private FirstPersonController _player;
+- private void Awake() { LocalPlayerRegistry.WhenReady(player => _player = player); }
+-
+- private bool IsLocalEcho()
+- {
+-     if (_player == null) _player = LocalPlayerRegistry.Current;
+-     return _player != null && _player.IsLocallyControlled && _player.Role == RoleType.Echo;
+- }
++ private bool IsLocalEcho()
++ {
++     FirstPersonController player = LocalPlayerRegistry.Current;
++     return player != null && player.IsLocallyControlled && player.Role == RoleType.Echo;
++ }
+```
+
+**새 인터페이스·새 판별 방식을 만들지 않았고, 계층 경계 변화도 없다** — 참조는 전부
+Presentation 내부(`LocalPlayerRegistry`·`FirstPersonController`)이고, Net→Core→Presentation
+방향(`PlayerOwnershipGate`가 `ILocalControlGate`에 밀어 넣는 기존 흐름)은 그대로다.
+
+### 3. ⚠ 유령 카메라는 버그가 아니라 **미구현**이다
+
+§3.2는 메아리를 *"자유 비행형 유령 카메라, 충돌 없음(벽 통과), 이동속도 8.0 m/s"*로 규정하는데,
+**그 전환을 수행하는 코드가 저장소에 존재하지 않는다.** `RoleType.Echo`를 참조하는 Presentation
+코드는 4곳뿐이고(노크 컨트롤러·로컬 대역·HUD 문자열·HUD 색), 카메라 교체나 `CharacterController`
+비활성화는 어디에도 없다.
+
+이동 특성도 마찬가지다 — `FirstPersonController.ApplyRole`(L76)은 `_role` 필드만 바꾸고
+`_simulator`를 다시 만들지 않는다(`_simulator`는 `Awake`에서 초기 역할로 1회 생성, L188).
+그래서 태그 후에도 **8.0m/s 비행 속도와 "메아리는 발소리 없음"이 적용되지 않는다.**
+이 사실은 `ApplyRole`의 주석에 *"이동 시뮬레이터는 Awake에서 초기 역할로 만들어지며, 역할 배율의
+런타임 재적용은 이번 스코프가 아니다"*로 **이미 기록돼 있던 알려진 이월**이다.
+
+따라서 **"에디터(호스트)에서는 카메라 전환이 정상 동작했다"는 관측에 대응하는 코드가 없다.**
+호스트/클라이언트 차이가 실재한 것은 Tab 미니맵 쪽이며, 카메라는 양쪽 모두 1인칭 그대로여야 한다.
+실기 재검증 때 이 부분을 다시 확인해 주기를 요청한다(§29-0).
+
+### 4. 동일 패턴 전수 검색 — **3곳 더 있다(이번 스코프 밖, 미수정)**
+
+`WhenReady` 1회성 바인딩을 캐시하는 곳:
+
+| 위치 | 캐시 대상 | 원격 pawn에 물렸을 때의 증상 |
+|---|---|---|
+| `EscapePointTrigger.cs:47` | `_player` | `IsLocallyControlled == false` → **순수 클라이언트에서 탈출이 영영 안 된다** |
+| `LocalPulsePipelineBehaviour.cs:99` | `_player`(+`FootstepPulseEmitted` 구독) | 원격 pawn은 `Update`가 조기 반환해 이벤트를 내지 않는다 → **내 발소리가 파문이 되지 않는다** |
+| `PulseVisualRenderer.cs:101` | `_viewCamera` | 방위 인디케이터가 남의 카메라 yaw 기준으로 회전 → **방향 표시가 어긋난다** |
+
+셋 다 같은 뿌리이고 `EscapePointTrigger`는 심각도가 높다. 지시대로 **이번에는 고치지 않고 GAP-61에
+함께 기록**한다. 3/3 Presentation 재검증에서 *"`WhenReady`가 1회성이라 잘못 바인딩되면 영구적"*으로
+⚠ 기록해 둔 항목이 실기에서 실제 증상으로 확인된 것이다.
+
+### 5. 검증
+
+- **522케이스 전수 통과, 회귀 0.** 전 어셈블리 오류 0 / Marco 코드 진단 0.
+- **이 버그는 EditMode로 잡을 수 없다.** 원인이 ① `MonoBehaviour` 수명주기(`OnEnable` 등록 순서),
+  ② FishNet 스폰 배치 도착 순서, ③ `static` 레지스트리의 프레임 간 상태 — 셋의 조합이라
+  `NetworkConnection`과 실제 스폰이 없으면 재현되지 않는다. **호스트/클라이언트 분리 실행이
+  있어야만 드러나는 종류**이며, 그래서 코드 완료·522 통과 상태에서도 첫 실기까지 살아남았다.
+  회귀 방지는 실기 절차(§29-0)로 대신한다.
+
+### GAP 기록
+
+| # | 내용 | 처리 |
+|---|---|---|
+| **61** | `LocalPlayerRegistry.WhenReady`가 1회성이라, 모든 pawn이 기본값 `IsLocallyControlled=true`로 자기를 등록하는 구조와 맞물려 **순수 클라이언트에서 원격 pawn에 영구 바인딩**될 수 있다 | `EchoKnockController`는 매 프레임 `Current` 재조회로 수정. 같은 패턴 3곳(`EscapePointTrigger`·`LocalPulsePipelineBehaviour`·`PulseVisualRenderer`)은 기록만 하고 이월 |
+
+### 상태
+
+**노크 로컬 입력 수정 완료** — 실기 재검증 대기. §3.2 유령 카메라·8.0m/s는 **미구현 이월**로
+남아 있으며, 이번 수정 범위가 아니다.
+
+---
+
+## 스프린트 27 후속 2 — 실기 버그: 노크 지정 모드에서 클릭이 안 먹힘 (GAP-62)
+
+> 증상(에디터 호스트): Tab으로 탑다운 뷰 전환은 정상인데, **좌클릭을 해도 지점이 지정되지 않고
+> 1.5초 뒤 파문이 발생하지 않는다.** 미니맵 자체(고정 탑다운, `orthographicSize = 20`)는 설계대로다.
+
+### 1. 원인 — 커서 해제 코드가 **아예 없었다**
+
+`EchoKnockController`에 `Cursor` 참조가 **한 건도 없다**(전수 검색). 즉 Tab으로 지정 모드에
+들어가도 커서는 §4.1 1인칭 상태 그대로 **잠기고 숨겨진 채**였다.
+
+커서 정책은 `FirstPersonController`가 소유하며, 로컬 조종 중에는 항상 잠근다:
+
+```
+FirstPersonController.cs:176  ApplyCursorLock(IsLocallyControlled);
+FirstPersonController.cs:181  Cursor.lockState = locked ? CursorLockMode.Locked : CursorLockMode.None;
+FirstPersonController.cs:182  Cursor.visible = !locked;
+```
+
+이 상태에서 클릭 좌표를 읽는 쪽은:
+
+```
+EchoKnockController.cs  mouse.position.ReadValue() → TryResolveWorldPoint → ScreenPointToRay
+```
+
+**`CursorLockMode.Locked`에서는 Input System의 마우스 위치가 물리 마우스를 따라가지 않는다.**
+값이 잠긴 지점에 고정되므로 **화면 어디를 눌러도 같은 좌표**가 나온다. 사용자는 커서가 보이지도
+않으니 어디를 찍는지 알 수도 없다. 이것이 확정된 결함이다.
+
+**"아무 반응이 없다"로 보인 이유가 하나 더 있다** — 노크 발생원은 지정한 메아리 본인이라,
+`SoundPulseResolver`의 GAP-1(발생원 제외)에 걸려 **자기 노크 파문은 자기 화면에 뜨지 않는다**.
+즉 고정 좌표로라도 노크가 나갔다면 화면상으로는 실패와 구별되지 않는다. 코드만으로는 둘 중
+어느 쪽이었는지 단정할 수 없어, `TryResolveWorldPoint` 실패 경로(유일하게 로그가 없던 조용한
+반환)에 경고를 추가해 다음 실기에서 구분되게 했다.
+
+### 2. 수정 — 커서 정책 소유자에 해제 경로를 만들고 양방향으로 호출
+
+`Cursor`를 노크 쪽에서 직접 만지지 않았다. 두 곳이 각자 커서를 건드리면 "여는 쪽과 닫는 쪽이
+다른 상태를 쓰는" 어긋남이 그대로 생기기 때문이다.
+
+**`FirstPersonController`**(커서 정책 단독 소유자):
+
+```diff
++ private bool _cursorReleased;
++
++ public void SetCursorReleased(bool released)
++ {
++     if (_cursorReleased == released) return;
++     _cursorReleased = released;
++     ApplyLocalControlState();   // 기존 규칙(IsLocallyControlled)과 함께 재계산
++ }
+
+- ApplyCursorLock(IsLocallyControlled);
++ ApplyCursorLock(IsLocallyControlled && !_cursorReleased);
+
+  private void ApplyLook()
+  {
++     // 잠금이 풀려도 delta는 계속 들어온다 — 막지 않으면 모드를 닫았을 때 시점이 돌아가 있다.
++     if (_cursorReleased) return;
+```
+
+**`EchoKnockController`**(요청만):
+
+```diff
+  private void SetMinimap(bool open)
+  {
+      ...
++     ApplyCursorRelease(open);          // 열면 해제, 닫으면 복원
++     Debug.Log(open ? "커서 해제됨…" : "1인칭 커서 잠금으로 복원한다(§4.1)");
+  }
++
++ private void ApplyCursorRelease(bool released)
++ {
++     FirstPersonController player = LocalPlayerRegistry.Current;   // 캐시 금지(GAP-61)
++     if (player != null) player.SetCursorReleased(released);
++ }
+```
+
+**복원 경로 3개가 전부 `SetMinimap(false)` 하나로 모인다**(양방향 확인):
+
+| 경로 | 위치 |
+|---|---|
+| Tab 토글로 닫기 | `Update` L84 |
+| 역할이 메아리가 아니게 됨 | `Update` L75 |
+| 컴포넌트 비활성화 | `OnDisable` L66 |
+
+`SetMinimap`은 `_minimapOpen == open`이면 조기 반환해 멱등이다.
+
+**시점 회전 억제를 함께 넣은 이유**: 커서만 풀면 미니맵 위에서 마우스를 움직이는 동안 1인칭
+시점이 같이 돌아가, Tab으로 닫았을 때 엉뚱한 방향을 보고 있게 된다. "원래 상태로 정확히 복원"에
+시점도 포함된다고 봤다.
+
+**계층 경계 변화 없음** — 두 파일 모두 Presentation이고, Core/Net 참조가 늘지 않았다.
+미니맵(고정 탑다운·`orthographicSize`)은 손대지 않았다.
+
+### 3. 검증
+
+- **522케이스 전수 통과, 회귀 0.** 전 어셈블리 오류 0 / Marco 코드 진단 0.
+- **이 버그는 EditMode로 잡을 수 없다.** `Cursor.lockState`는 Unity 플레이어 루프의 전역 상태이고,
+  잠금 상태에 따른 `Mouse.current.position` 동작은 **실제 입력 디바이스와 창(focus)이 있어야**
+  재현된다. `Camera.ScreenPointToRay`도 렌더링 컨텍스트가 필요하다. 셋 다 EditMode 러너에
+  존재하지 않아, 이 계층은 실기 절차(§29-0)로만 검증된다.
+
+### GAP 기록
+
+| # | 내용 | 처리 |
+|---|---|---|
+| **62** | 마우스를 **포인터로 쓰는 모드**가 §4.1 1인칭 커서 잠금과 충돌한다 — 기획서에 모드 전환 시 커서 정책이 없다. 노크는 이 프로젝트 최초의 마우스 기반 UI다 | `FirstPersonController.SetCursorReleased`(커서 정책 단독 소유)를 신설해 요청/복원을 대칭으로 처리. 해제 중에는 시점 회전도 멈춘다. 이후 마우스 UI(§12.6 설정 화면 등)도 같은 경로를 쓴다 |
+
+### 상태
+
+**노크 클릭 처리 수정 완료** — 실기 재검증 대기(§29-0). GAP-61(원격 pawn 바인딩) 수정과
+함께 확인한다.
+
+---
+
+## 스프린트 27 후속 3 — GAP-61 잔여 3곳 + §3.2 유령 카메라 구현
+
+### 1부 — GAP-61 잔여 3곳 (기존 조사와 원인 일치)
+
+세 곳 모두 `WhenReady` 1회성 바인딩을 캐시하는 같은 뿌리였고, 조사 결과가 기존 특정과 일치했다.
+
+| 파일 | 캐시 | 수정 |
+|---|---|---|
+| `EscapePointTrigger.cs` | `_player` | `ResolvePlayer()` 신설 — 매 프레임 `Current` 조회, 인스펙터 참조는 **비네트워크 폴백**으로만 |
+| `LocalPulsePipelineBehaviour.cs` | `_player` + **이벤트 구독** | `Update`가 매 프레임 `BindPlayer(Current)` 호출 |
+| `PulseVisualRenderer.cs` | `_viewCamera` | `RefreshViewCamera()` 신설 — `Tick`에서 매 프레임 갱신 |
+
+**이벤트 구독은 단순 재조회로 끝나지 않아 별도로 다뤘다.** 다행히 기존 `BindPlayer`가 이미
+"같은 pawn이면 즉시 반환 / 다르면 이전 구독 해제 후 재구독"으로 정확히 짜여 있었다 —
+**문제는 로직이 아니라 호출 횟수(1회)뿐**이었다. 그래서 `Update`에서 매 프레임 부르되
+`if (_player == player) return;` 가드가 변경 시에만 구독을 갈아타게 했다(매 프레임 구독/해제
+반복 없음). `player == null` 방어도 추가했다 — 디스폰 구간에 NRE가 나던 자리다.
+
+`PulseVisualRenderer`는 **인스펙터로 카메라를 직접 지정한 구성을 존중**해야 해서
+`_viewCameraOverridden` 플래그를 뒀다(Awake 시점에 이미 값이 있으면 레지스트리로 덮지 않는다).
+
+셋 다 Presentation 내부 수정이며 Core/Net 참조가 늘지 않았다.
+
+### 2부 — §3.2 유령 카메라
+
+#### 이동 방식 선택: **Core 순수 규칙 + Presentation이 Transform 직접 이동**
+
+```
+- 이동: 자유 비행형 유령 카메라, 충돌 없음(벽 통과), 이동속도 8.0 m/s
+```
+
+| 결정 | 이유 |
+|---|---|
+| 방향·속도 계산을 **Core 신규 `GhostFlight`**(순수)에 | 기존 분담(“Core가 속도·발소리를 정하고 Presentation이 적용”)을 그대로 따른다. 순수라 EditMode로 전수 검증된다 |
+| **`CharacterController`를 끈다**(`enabled = false`) | `Move()`는 컴포넌트가 켜져 있는 한 캡슐 충돌을 한다(`detectCollisions`는 *남이 나를* 밀 때만 관여). §3.2 "벽 통과"는 컨트롤러를 끄고 `Transform`을 직접 움직이는 방법으로만 성립한다 |
+| `LocomotionSimulator`는 **계속 돌린다** | 상태 전이와 §5.1 "메아리는 발소리 없음" 판정이 거기 있다. 비행 분기는 그 뒤에 적용된다 |
+| 3축 방향은 **카메라 기준** | §3.2 "자유 비행형 유령 **카메라**" — 바라보는 쪽으로 난다 |
+
+**알려진 이월 해소**: `ApplyRole`이 `_role`만 바꾸고 `_simulator`를 재생성하지 않던 문제를
+고쳤다 — 이제 역할이 바뀌면 시뮬레이터를 새로 만들고 비행 상태도 함께 반영한다. 이게 없으면
+태그 후에도 8.0m/s와 발소리 억제가 적용되지 않았다.
+
+**중력 누적 제거**: 비행 진입 시 `_verticalVelocity = 0`. 남겨 두면 지상 복귀 첫 프레임에
+바닥을 뚫는다(`FallRecoveryDriver`가 겪은 것과 같은 함정).
+
+#### 발소리 억제
+
+**Core가 이미 하고 있었다** — `LocomotionSimulator`의 `if (_role != RoleType.Echo)`가
+메아리일 때 펄스를 만들지 않는다. 지금까지 적용되지 않았던 이유는 시뮬레이터가 재생성되지
+않아서였고, 위 수정으로 실제로 동작한다. 비행 분기는 `tick.Pulse`를 아예 소비하지 않는다.
+
+**GAP-61 2번과 맞물리는 지점을 확인했다**: 발소리 파문이 실제로 끊기려면 ①메아리 시뮬레이터가
+펄스를 안 내고(2부) ②`LocalPulsePipelineBehaviour`가 **내 pawn**을 구독하고 있어야 한다(1부).
+둘 중 하나만 고치면 "발소리가 안 난다"의 원인을 구분할 수 없다.
+
+#### 조사 결과 — 메아리 캐릭터의 시각적 가시성 (변경하지 않음)
+
+**결론: 메아리도 다른 플레이어에게 캡슐 몸체가 그대로 보인다.**
+
+- `Player.prefab`에 `Body` 자식이 있고 **MeshFilter + MeshRenderer**를 갖는다(스프린트 9 후속에서 추가한 캡슐, `GrayboxWall` 머티리얼)
+- **역할이나 태그 상태로 렌더러를 끄는 코드가 저장소에 없다**(전수 검색)
+- §16.1은 *"완전한 흑 배경 위에 발광 라인과 파문만으로 그리는 모노크롬"*이라 **스타일**을 규정할 뿐, 플레이어 모델이 없다고는 하지 않는다. §3.2도 "유령 카메라"는 **이동 방식**을 말하고 렌더링 규정이 아니다
+
+즉 기획서에 명시가 없고 코드는 "보인다" 쪽이다. **이번 스코프에서 바꾸지 않았고 GAP-63으로 기록**한다 —
+술래가 메아리를 보고 러너로 착각하거나 반대로 메아리 위치로 러너를 추정할 수 있어, 밸런스 판단이 필요하다.
+
+#### 네트워크 동기화 — **기존 경로 그대로, 새 오브젝트 없음**
+
+`Player.prefab`에 이미 **FishNet `NetworkTransform`**이 있다(스프린트 8). 유령 이동도 결국
+`transform.position`을 바꾸는 것이라 **그대로 동기화된다**. 새 `NetworkBehaviour`도 새 `SyncVar`도
+필요하지 않았다 — §15.1 씬 분리 이후 겪은 `SceneCondition` 류 문제를 새로 만들지 않는다.
+
+> 다만 `CharacterController`를 끄는 것은 **소유자 로컬에서만** 일어난다(`ApplyRole`은 각 피어에서
+> 불리지만 원격 pawn은 `Update`가 조기 반환해 이동하지 않는다). 원격 피어에서도 컨트롤러가 꺼지지만
+> 위치는 `NetworkTransform`이 덮으므로 표시에 영향이 없다.
+
+### 3부 — 검증
+
+- 신규 **14케이스**(`GhostFlightTests`): 역할 게이트(러너·술래 false / 메아리 true) · §3.2 8.0m/s가
+  `LocomotionConfig.EchoSpeed`와 같은 상수인지 · 전진 최대속도 · **3축 대각에서도 8.0 초과 금지** ·
+  무입력 0 · 상승/하강 · **카메라를 내려다보면 실제로 하강하는지**(자유 비행의 핵심) ·
+  비정규화 축 입력에도 속도 정확 · **메아리는 120틱 내내 발소리 0** · 러너 대조군은 발소리 발생 ·
+  메아리 지상 속도도 8.0 · 노크가 §3.4 게이지를 트리거하지 않는지(회귀 감시).
+- 총계 522 → **536 전수 통과**. 전 어셈블리 오류 0 / Marco 코드 진단 0.
+
+**EditMode로 검증 불가능한 부분과 이유**:
+
+| 항목 | 이유 |
+|---|---|
+| GAP-61 3곳 수정 전체 | `MonoBehaviour` 수명주기 + FishNet 스폰 도착 순서 + `static` 레지스트리의 프레임 간 상태 조합. `NetworkConnection`과 실제 스폰이 없으면 재현 불가 |
+| `CharacterController.enabled = false`의 벽 통과 | Unity 물리 엔진과 실제 콜라이더가 필요 |
+| `NetworkTransform` 동기화 | 실제 접속 2개 이상 필요 |
+| 카메라 기준 이동의 체감 | 렌더링 컨텍스트 필요 |
+
+순수 규칙(속도·방향·발소리 억제)은 전부 EditMode로 덮었고, 나머지는 §29 통합 절차로 검증한다.
+
+### GAP 기록
+
+| # | 내용 | 처리 |
+|---|---|---|
+| **61** (완료) | `WhenReady` 1회성 바인딩으로 원격 pawn 영구 캐싱 | **잔여 3곳 전부 수정 완료** — `EscapePointTrigger`·`LocalPulsePipelineBehaviour`·`PulseVisualRenderer`. 매 프레임 재조회(이벤트는 변경 감지 후 재구독) |
+| **63** | §3.2·§16.1 어디에도 **메아리 캐릭터의 렌더링 여부**가 없다 | 현재는 캡슐 몸체가 그대로 보인다(코드 확인). 이번엔 바꾸지 않고 기록만 — 밸런스 판단 필요 |
+| **64** | §4.3 표에 **메아리 비행의 상승·하강 키가 없다** | 임시로 `Space`(상승)·`Left Ctrl`(하강). Left Ctrl은 §4.3상 잠수 키지만 메아리는 잠수 불가라 충돌하지 않는다. §4.3 키 리바인딩(스프린트 28)에서 확정 |
+
+### 상태
+
+**코드 완료** — §29 통합 실기 재검증 대기. 이로써 스프린트 27 관련 실기 결함 3건(GAP-61·62)과
+§3.2 미구현 이월이 전부 해소됐다.
+
+---
+
+## 스프린트 27 후속 4 — GAP-63 해소: 메아리를 생존자에게 숨김
+
+### 결정 근거
+
+메아리는 §1상 "유령 상태로 노크 능력을 통해 계속 참여"하는 **활성 역할**이고, §3.2 노크의
+의의는 **은밀한 유인**이다. 생존자에게 메아리 몸체가 보이면 술래가 노크 발신자를 눈으로 찾아버려
+그 설계가 무너진다 — §3.2가 명시한 *"도망자를 도와 술래를 유인하거나 … 정보를 흘릴 수도 있음"*이
+성립하려면 발신자가 보이지 않아야 한다.
+
+### 1. 구현 방식 — 매 프레임 변경 감지
+
+| 계층 | 산출물 |
+|---|---|
+| Core (신규) | `Role/EchoVisibility.cs` — `ShouldRender(viewerRole, targetRole, isSelf)` 순수 판정 |
+| Presentation | `FirstPersonController.RefreshEchoVisibility()` — 판정 결과를 몸체 렌더러에 반영 |
+
+**갱신 트리거는 매 프레임 두 값 비교**다. 이벤트 하나에 걸지 않은 이유는 **역할이 양쪽에서
+독립적으로 바뀌기 때문**이다:
+
+- ① 대상이 태그당해 메아리가 되는 순간 → 생존자 화면에서 사라져야 한다
+- ② **뷰어 자신**이 나중에 태그당해 메아리가 되는 순간 → 그전까지 안 보이던 **기존 메아리들이
+  그때부터 보여야 한다**
+
+한쪽 이벤트만 구독하면 다른 쪽 전이를 놓친다. 그래서 `(viewer.Role, _role, isSelf)`를 매 프레임
+다시 읽어 판정하고, **결과가 바뀔 때만** `Renderer.enabled`에 대입한다(같은 값 반복 대입은
+렌더러를 불필요하게 더티 처리한다).
+
+**GAP-61 교훈 적용**: 뷰어(`LocalPlayerRegistry.Current`)를 **필드에 굳히지 않는다** — 소유권
+확정으로 바뀔 수 있고, 1회성으로 캐시하면 원격 pawn을 기준으로 판정하게 된다. 반면
+`_bodyRenderers`는 **자기 오브젝트의 컴포넌트**라 `Awake`에서 1회 수집해도 안전하다(GAP-61이
+금지한 것은 *다른 pawn* 참조를 굳히는 것이다).
+
+**호출 위치가 중요하다**: `Update`의 **소유권 조기 반환보다 앞**에 뒀다. "내가 저 pawn을 그려야
+하는가"는 소유권과 무관한 판정이고, 숨겨야 할 대상은 **원격 pawn**이기 때문이다.
+
+**뷰어가 아직 없으면(`Current == null`) 아무것도 하지 않는다** — 기본값으로 추측해 깜빡이게
+만들지 않고 다음 프레임에 다시 본다.
+
+### 2. 메아리 상호 가시성 — 요구사항의 가정을 그대로 적용
+
+**기획서에 명시가 없다.** §3.2는 *"메아리끼리는 별도 사망자 채널로 자유 대화"*라고만 하고
+서로 보이는지는 규정하지 않는다. 지시대로 **메아리끼리는 보이도록** 구현했고, 구현 중 다르게
+판단할 수밖에 없던 부분은 **없었다** — 규칙이 단순해 그대로 들어갔다.
+
+부수적으로 **메아리는 생존자를 계속 볼 수 있게** 뒀다. §3.2 노크 지점 선택이 "누가 어디 있는지"를
+전제로 하므로 이쪽은 가정이 아니라 기능적 필요다.
+
+### 3. 자기 자신 렌더링 확인 결과
+
+**원래도 사실상 보이지 않는 구조였고, 이번 변경으로 달라지지 않았다.**
+
+프리팹 실측:
+
+| 요소 | 값 |
+|---|---|
+| `Body` 캡슐 | local y = 0.9, scale (0.7, **0.9**, 0.7) → 높이 1.8m, **y 0 ~ 1.8 범위** |
+| `PlayerCamera` | local y = **1.62** → **캡슐 내부** |
+
+카메라가 캡슐 안에 있고 기본 백페이스 컬링이 걸리므로 자기 캡슐은 화면에 나오지 않는다.
+**코드로 끈 적은 없었다**(스프린트 9의 "자기 시점 컬링은 범위 밖" 기록 그대로).
+
+이번 규칙은 `isSelf`를 **최우선 단락**으로 두어 자기 pawn을 절대 건드리지 않는다. 규칙 구조상
+자기 자신이 숨겨질 경로가 없지만(뷰어 역할 == 대상 역할이므로), 그림자·3인칭 전환 같은 후속
+작업이 꼬이지 않도록 명시적으로 막았다.
+
+### 4. 네트워크 동기화 — 불필요 (요구사항 6 충족)
+
+**순수 로컬 판정이다.** "내가 저 pawn을 그려야 하는가"는 각 피어가 자기 화면에 대해 독립적으로
+결정하고, 입력이 되는 역할은 이미 `RoleNetworkSync`/`TagNetworkSync`가 전 피어에 전파하고 있다.
+새 `NetworkBehaviour`도 새 `SyncVar`도 만들지 않았다. Core/Net/Presentation 경계 변화 없음.
+
+### 5. 검증
+
+- 신규 **14케이스**(`EchoVisibilityTests`): 생존자 2종이 메아리를 못 보는지 · 생존자 4조합은
+  서로 보이는지 · 메아리끼리 보이는지(가정) · 메아리가 생존자를 보는지 · **자기 자신 3역할 모두
+  항상 렌더**되는지 · 뷰어가 잘못 전달돼도 자기면 안 숨기는지 · **전이 시나리오 2종**(뷰어가
+  메아리가 되면 기존 메아리가 드러남 / 대상이 메아리가 되면 생존자 시야에서 사라짐).
+- 총계 536 → **550 전수 통과**. 전 어셈블리 오류 0 / Marco 코드 진단 0.
+- **EditMode로 검증 불가능한 부분**: 실제 `Renderer.enabled` 반영과 역할 전환 **시점**의 갱신은
+  `MonoBehaviour` 수명주기와 렌더링 컨텍스트가 필요하다. 순수 판정만 덮었고 나머지는 §29 실기다.
+
+### GAP 기록
+
+| # | 내용 | 처리 |
+|---|---|---|
+| **63** | §3.2·§16.1에 메아리 캐릭터의 렌더링 여부가 없다 | ✅ **해소** — 생존자 시점에서 메아리 몸체를 숨긴다. **메아리 상호 가시성은 명시가 없어 "보인다"로 가정**하고 구현했다(기록 유지) |
+
+### 상태
+
+**코드 완료** — §29 통합 실기 재검증 대기.

@@ -39,6 +39,10 @@ namespace Marco.Presentation.Player
         [Header("역할 (역할 배정 시스템 배선 전 로컬 테스트용)")]
         [SerializeField] private RoleType _role = RoleType.Runner;
 
+        [Header("§3.2 메아리 비행 (상승·하강 키는 §4.3 표에 없다 — GAP-64)")]
+        [SerializeField] private Key _ghostAscendKey = Key.Space;
+        [SerializeField] private Key _ghostDescendKey = Key.LeftCtrl;
+
         [Header("카메라")]
         [SerializeField] private Transform _cameraTransform;
         [SerializeField] private float _mouseSensitivity = 0.12f;
@@ -73,7 +77,82 @@ namespace Marco.Presentation.Player
         /// 이번 스코프가 아니다(태그된 메아리의 이동 특성 변경은 후속 과제) — 여기서는
         /// 태그 상태·밸브 역할 게이팅에 쓰이는 <see cref="Role"/> 값만 갱신한다.
         /// </summary>
-        public void ApplyRole(RoleType role) => _role = role;
+        public void ApplyRole(RoleType role)
+        {
+            if (_role == role)
+                return;
+
+            _role = role;
+
+            // 시뮬레이터를 새 역할로 다시 만든다(스프린트 27 후속 — 기존 이월 해소).
+            // 이게 없으면 태그로 메아리가 돼도 §3.2 8.0m/s와 "메아리는 발소리 없음"이
+            // 적용되지 않는다(시뮬레이터가 Awake 시점의 역할을 그대로 들고 있기 때문).
+            _simulator = new LocomotionSimulator(_role);
+
+            // §3.2 "충돌 없음(벽 통과)" — 비행 전환 시 컨트롤러를 놓고, 되돌아오면 다시 잡는다.
+            ApplyGhostFlightState();
+        }
+
+        /// <summary>
+        /// §3.2 유령 이동 상태를 <see cref="_characterController"/>에 반영한다.
+        ///
+        /// <b>왜 컨트롤러를 끄는가</b>: <c>CharacterController.Move</c>는 컴포넌트가 켜져 있는 한
+        /// 캡슐 충돌을 수행한다(<c>detectCollisions</c>는 *남이 나를* 밀 때만 관여한다).
+        /// §3.2가 요구하는 "벽 통과"는 컨트롤러를 비활성화하고 <c>Transform</c>을 직접
+        /// 움직이는 방법으로만 성립한다. 되돌아올 때 다시 켜므로 지상 이동은 그대로다.
+        ///
+        /// 누적 낙하 속도도 함께 지운다 — 비행 중에는 중력을 적용하지 않으므로, 남겨 두면
+        /// 지상 복귀 첫 프레임에 바닥을 뚫는다(<c>FallRecoveryDriver</c>가 겪은 것과 같은 함정).
+        /// </summary>
+        /// <summary>
+        /// §3.2 메아리 은닉(GAP-63)을 이 pawn의 몸체 렌더러에 반영한다. **매 프레임 호출된다.**
+        ///
+        /// <b>두 역할이 모두 실시간으로 바뀐다</b>: 대상(이 pawn)이 태그당해 메아리가 되는 순간,
+        /// 그리고 <b>뷰어 자신</b>이 나중에 태그당해 메아리가 되는 순간(그 전까지 안 보이던 다른
+        /// 메아리들이 그때부터 보여야 한다). 그래서 어느 한쪽 이벤트에 걸지 않고 두 값을 매 프레임
+        /// 다시 읽어 비교한다.
+        ///
+        /// <b>뷰어를 캐시하지 않는다(GAP-61)</b> — <c>LocalPlayerRegistry.Current</c>는 소유권이
+        /// 확정되며 바뀔 수 있고, 1회성으로 굳히면 원격 pawn을 기준으로 판정하게 된다.
+        ///
+        /// 실제 <c>Renderer.enabled</c> 대입은 **값이 바뀔 때만** 한다 — 매 프레임 같은 값을 쓰면
+        /// 렌더러가 불필요하게 더티 처리된다.
+        /// </summary>
+        private void RefreshEchoVisibility()
+        {
+            if (_bodyRenderers == null || _bodyRenderers.Length == 0)
+                return;
+
+            FirstPersonController viewer = LocalPlayerRegistry.Current;
+            if (viewer == null)
+                return; // 아직 로컬 pawn이 없다 — 다음 프레임에 다시 본다(상태를 흔들지 않는다).
+
+            bool shouldRender = EchoVisibility.ShouldRender(viewer.Role, _role, ReferenceEquals(viewer, this));
+            if (shouldRender == _bodyVisible)
+                return;
+
+            _bodyVisible = shouldRender;
+            for (int i = 0; i < _bodyRenderers.Length; i++)
+            {
+                if (_bodyRenderers[i] != null)
+                    _bodyRenderers[i].enabled = shouldRender;
+            }
+
+            Debug.Log($"[EchoVis] '{name}' 몸체 {(shouldRender ? "표시" : "숨김")} — " +
+                      $"뷰어={viewer.Role}, 대상={_role} (§3.2 메아리 은닉, GAP-63)");
+        }
+
+        private void ApplyGhostFlightState()
+        {
+            if (_characterController == null)
+                return;
+
+            bool flying = GhostFlight.IsFlying(_role);
+            _characterController.enabled = !flying;
+
+            if (flying)
+                _verticalVelocity = 0f;
+        }
 
         /// <summary>
         /// 이 플레이어가 발생시키는 이벤트의 발생원 ID(§5.5/§6.1/§3.1).
@@ -122,6 +201,18 @@ namespace Marco.Presentation.Player
         /// 로컬 스모크 리그가 그대로 동작한다.
         /// </summary>
         public bool IsLocallyControlled { get; private set; } = true;
+
+        /// <summary>
+        /// 마우스를 포인터로 쓰는 모드가 커서 잠금을 잠시 풀어 둔 상태인가
+        /// (<see cref="SetCursorReleased"/>). 잠금 계산과 시점 회전 억제에 함께 쓰인다.
+        /// </summary>
+        private bool _cursorReleased;
+
+        /// <summary>몸체 렌더러(§3.2 메아리 은닉 대상). 자기 오브젝트 컴포넌트라 Awake에서 1회 수집한다.</summary>
+        private Renderer[] _bodyRenderers;
+
+        /// <summary>현재 몸체를 그리고 있는가. 값이 바뀔 때만 렌더러를 건드리기 위한 변경 감지용.</summary>
+        private bool _bodyVisible = true;
 
         /// <summary>
         /// Net 레이어(소유권 게이트)가 호출한다. false면 입력·카메라·커서 잠금을 모두
@@ -173,7 +264,7 @@ namespace Marco.Presentation.Player
                     listener.enabled = IsLocallyControlled;
             }
 
-            ApplyCursorLock(IsLocallyControlled);
+            ApplyCursorLock(IsLocallyControlled && !_cursorReleased);
         }
 
         private static void ApplyCursorLock(bool locked)
@@ -182,10 +273,35 @@ namespace Marco.Presentation.Player
             Cursor.visible = !locked;
         }
 
+        /// <summary>
+        /// 마우스를 **포인터로 쓰는 모드**(§3.2 노크 지점 지정 등)가 커서를 잠시 풀어 달라고 요청한다.
+        /// 해제 중에는 시점 회전도 멈춘다 — 안 그러면 화면 밖에서 마우스를 움직이는 동안
+        /// 1인칭 시점이 같이 돌아가, 모드를 닫았을 때 엉뚱한 방향을 보고 있게 된다.
+        ///
+        /// <b>커서 정책은 이 클래스가 단독으로 소유한다.</b> 호출자가 <see cref="Cursor"/>를 직접
+        /// 만지면 "연 쪽과 닫는 쪽이 서로 다른 상태를 쓰는" 어긋남이 생기므로, 요청만 받고
+        /// 실제 적용은 <see cref="ApplyLocalControlState"/>의 기존 규칙
+        /// (<see cref="IsLocallyControlled"/>)과 함께 여기서 계산한다.
+        ///
+        /// <paramref name="released"/>를 false로 되돌리면 §4.1 1인칭 잠금으로 정확히 복원된다.
+        /// </summary>
+        public void SetCursorReleased(bool released)
+        {
+            if (_cursorReleased == released)
+                return;
+
+            _cursorReleased = released;
+            ApplyLocalControlState();
+        }
+
         private void Awake()
         {
             _characterController = GetComponent<CharacterController>();
             _simulator = new LocomotionSimulator(_role);
+
+            // 몸체 렌더러(스프린트 9 `Body` 캡슐). 자기 오브젝트의 컴포넌트라 캐시해도 안전하다 —
+            // GAP-61이 금지한 것은 **다른 pawn(LocalPlayerRegistry.Current)** 참조를 굳히는 것이다.
+            _bodyRenderers = GetComponentsInChildren<Renderer>(includeInactive: true);
 
             if (_cameraTransform == null && Camera.main != null)
                 _cameraTransform = Camera.main.transform;
@@ -207,6 +323,10 @@ namespace Marco.Presentation.Player
 
         private void Update()
         {
+            // §3.2 메아리 은닉(GAP-63)은 **소유권과 무관하다** — "내가 저 pawn을 그려야 하는가"의
+            // 문제라 원격 pawn에서도 판정해야 한다. 그래서 아래 소유권 조기 반환보다 앞에 둔다.
+            RefreshEchoVisibility();
+
             // 원격 캐릭터는 입력을 일절 받지 않는다 — 위치·회전은 네트워크 동기화가
             // 전담하므로, 여기서 CharacterController를 건드리면 서로 싸운다.
             if (!IsLocallyControlled)
@@ -224,6 +344,12 @@ namespace Marco.Presentation.Player
 
         private void ApplyLook()
         {
+            // 커서를 포인터로 쓰는 동안에는 시점을 돌리지 않는다(§3.2 노크 지정 등) —
+            // 잠금이 풀린 상태에서도 delta는 계속 들어오므로, 막지 않으면 모드를 닫았을 때
+            // 시점이 엉뚱한 방향으로 돌아가 있다.
+            if (_cursorReleased)
+                return;
+
             Mouse mouse = Mouse.current;
             if (mouse == null || _cameraTransform == null)
                 return;
@@ -258,6 +384,14 @@ namespace Marco.Presentation.Player
 
             LocomotionTick tick = _simulator.Tick(input, Time.deltaTime);
 
+            // §3.2 메아리: 자유 비행(충돌 없음·중력 없음). 시뮬레이터는 그대로 돌려 둔다 —
+            // 상태 전이와 "메아리는 발소리 없음"(§5.1) 판정이 거기 있기 때문이다.
+            if (GhostFlight.IsFlying(_role))
+            {
+                ApplyGhostMovement(moveAxis, keyboard);
+                return; // 비행 중에는 발소리가 나올 수 없다(tick.Pulse는 항상 null이다).
+            }
+
             // 수평 속도는 시뮬레이터 결과를 월드 방향으로 변환, 중력은 컨트롤러가 관리
             Vector3 worldVelocity = transform.TransformDirection(tick.LocalVelocity);
 
@@ -273,6 +407,31 @@ namespace Marco.Presentation.Player
                 FootstepPulse pulse = tick.Pulse.Value;
                 FootstepPulseEmitted?.Invoke(pulse.Type, pulse.Radius, pulse.Duration, transform.position);
             }
+        }
+
+        /// <summary>
+        /// §3.2 "자유 비행형 유령 카메라, 충돌 없음(벽 통과), 이동속도 8.0 m/s".
+        ///
+        /// 방향 계산은 Core <see cref="GhostFlight"/>(순수)가 하고, 여기서는 카메라 축을 넘겨주고
+        /// <c>Transform</c>을 직접 움직이기만 한다 — <see cref="_characterController"/>는
+        /// <see cref="ApplyGhostFlightState"/>가 이미 꺼 뒀으므로 벽을 통과한다.
+        ///
+        /// 상승·하강 키는 §4.3 표에 없어 임시로 Space/Left Ctrl을 쓴다(GAP-64).
+        /// Left Ctrl은 §4.3상 잠수 키지만 메아리는 잠수할 수 없어 충돌하지 않는다.
+        /// </summary>
+        private void ApplyGhostMovement(Vector2 moveAxis, Keyboard keyboard)
+        {
+            float verticalAxis = 0f;
+            if (keyboard[_ghostAscendKey].isPressed) verticalAxis += 1f;
+            if (keyboard[_ghostDescendKey].isPressed) verticalAxis -= 1f;
+
+            Transform view = _cameraTransform != null ? _cameraTransform : transform;
+
+            Vector3 velocity = GhostFlight.Velocity(moveAxis, verticalAxis, view.forward, view.right);
+            if (velocity == Vector3.zero)
+                return;
+
+            transform.position += velocity * Time.deltaTime;
         }
     }
 }

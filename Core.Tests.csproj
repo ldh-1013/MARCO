@@ -62,6 +62,7 @@
     <Compile Include="Assets\_Project\Tests\EditMode\SpawnRingTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\ServerPulseDriverTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\GameSettingsTests.cs" />
+    <Compile Include="Assets\_Project\Tests\EditMode\EchoVisibilityTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\ServerRoundDriverTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\ActivePulseTrackerTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\VoiceClassifierTests.cs" />
@@ -83,6 +84,7 @@
     <Compile Include="Assets\_Project\Tests\EditMode\FallRecoveryTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\TaggingTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\LocalPulsePipelineTests.cs" />
+    <Compile Include="Assets\_Project\Tests\EditMode\GhostFlightTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\LocalControlGateTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\ServerTagDriverTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\LocalPulsePipelineExpiryTests.cs" />

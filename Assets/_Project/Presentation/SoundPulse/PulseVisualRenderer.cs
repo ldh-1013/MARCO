@@ -68,6 +68,9 @@ namespace Marco.Presentation.Sound
         private Material _ringMaterial;
         private GUIStyle _indicatorStyle;
 
+        /// <summary>인스펙터에서 카메라를 직접 지정했는가(그러면 레지스트리로 덮어쓰지 않는다).</summary>
+        private bool _viewCameraOverridden;
+
         // 진단: 첫 시각 오브젝트 생성 시 1회만 표현·색상을 로그한다(스프린트 14 실기 디버그).
         private bool _logFirstVisual = true;
 
@@ -94,17 +97,10 @@ namespace Marco.Presentation.Sound
         private void Awake()
         {
             // 카메라는 네트워크 스폰 플레이어의 자식일 수 있어 이 시점에 없을 수 있다.
-            // 로컬 플레이어가 준비되면 그쪽 카메라를 잡는다(이미 있으면 즉시).
+            // 실제 확보는 Tick의 RefreshViewCamera가 매 프레임 담당한다(GAP-61).
+            _viewCameraOverridden = _viewCamera != null;
             if (_viewCamera == null)
-            {
                 _viewCamera = Camera.main;
-                Marco.Presentation.Player.LocalPlayerRegistry.WhenReady(player =>
-                {
-                    Camera playerCamera = player.GetComponentInChildren<Camera>(includeInactive: true);
-                    if (playerCamera != null)
-                        _viewCamera = playerCamera;
-                });
-            }
 
             _ringMaterial = _ringMaterialOverride != null ? _ringMaterialOverride : CreateDefaultRingMaterial();
 
@@ -158,11 +154,37 @@ namespace Marco.Presentation.Sound
             // 프레임당 1회만 계산해 OnGUI가 매 이벤트마다 다시 구하지 않게 한다.
             _frameColor = ResolvePulseColor();
             _frameGaugeColor = ResolveGaugeColor();
+
+            RefreshViewCamera();
             if (_viewCamera != null)
                 _frameCameraYaw = _viewCamera.transform.eulerAngles.y;
 
             _registry.CopyTo(_visualBuffer);
             UpdateRings(now);
+        }
+
+        /// <summary>
+        /// 방위 인디케이터 기준 카메라를 **로컬 pawn의 것으로 유지**한다(매 프레임, GAP-61).
+        ///
+        /// 8방위 표시는 카메라 yaw를 빼서 상대 각도를 만들므로, 남의 카메라를 잡고 있으면
+        /// **방향이 통째로 어긋난다**. 예전에는 1회성 <c>WhenReady</c>로 잡아, 순수 클라이언트에서
+        /// 원격 pawn이 먼저 등록되면 그 카메라에 고착됐다.
+        ///
+        /// 인스펙터로 카메라를 직접 지정한 구성은 존중한다 — 그때는 레지스트리를 보지 않는다.
+        /// </summary>
+        private void RefreshViewCamera()
+        {
+            if (_viewCameraOverridden)
+                return;
+
+            Marco.Presentation.Player.FirstPersonController player =
+                Marco.Presentation.Player.LocalPlayerRegistry.Current;
+            if (player == null)
+                return;
+
+            Camera playerCamera = player.GetComponentInChildren<Camera>(includeInactive: true);
+            if (playerCamera != null && !ReferenceEquals(playerCamera, _viewCamera))
+                _viewCamera = playerCamera;
         }
 
         private void UpdateRings(float now)
