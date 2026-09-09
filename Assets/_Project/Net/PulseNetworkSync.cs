@@ -3,6 +3,7 @@ using System.Text;
 using FishNet.Connection;
 using FishNet.Object;
 using Marco.Core.Net;
+using Marco.Core.Breath;
 using Marco.Core.Role;
 using Marco.Core.Sound;
 using UnityEngine;
@@ -53,7 +54,45 @@ namespace Marco.Net
         [SerializeField] private bool _logDiagnostics = true;
 
         private ServerPulseDriver _driver;      // 서버에서만 생성된다.
+
+        /// <summary>
+        /// §8.3 감시 종료 조건 "술래가 도망자를 태그"를 서버에서 관측하기 위한 구독.
+        /// <c>TagTargetRegistry.TargetTagged</c>는 서버가 태그를 확정할 때 발화한다.
+        /// </summary>
+        private bool _subscribedToTags;
         private ServerKnockDriver _knockDriver; // §3.2 메아리 노크(스프린트 27). 서버 전용.
+        private ServerShoutDriver _shoutDriver; // §3.5 술래 외침(5단계). 서버 전용.
+
+        /// <summary>
+        /// §5.9-1 플레이어별 숨 게이지. **게이지는 하나뿐**이라는 규칙을 서버가 소유한다 —
+        /// 잠수 소모도 비명 억제 비용도 여기서 빠진다. 클라이언트 표시는 파생값이다.
+        /// </summary>
+        private readonly Dictionary<ulong, BreathGauge> _breath = new Dictionary<ulong, BreathGauge>();
+
+        /// <summary>
+        /// §3.5 "선딜레이 중 이동하면 취소"를 판정하기 위한 직전 프레임 위치(서버 관측값).
+        /// 선딜레이 중인 술래에 대해서만 채워진다.
+        /// </summary>
+        private readonly Dictionary<ulong, Vector3> _shoutAnchor = new Dictionary<ulong, Vector3>();
+
+        /// <summary>
+        /// §3.5 선딜레이 취소 판정의 이동 허용치(m). NetworkTransform의 미세 떨림으로
+        /// 외침이 취소되면 능력 자체를 쓸 수 없게 되므로 완전 0으로 두지 않는다.
+        /// </summary>
+        private const float ShoutMoveToleranceMeters = 0.15f;
+
+        private readonly List<ShoutTarget> _shoutTargets = new List<ShoutTarget>();
+        private readonly List<ulong> _movedSeekers = new List<ulong>();
+
+        /// <summary>
+        /// 노크 상태를 라운드 경계에서 비우기 위해 직전 틱의 페이즈를 기억한다(서버 전용).
+        ///
+        /// §3.2의 "라운드당 5회"는 라운드 경계에서만 회복되므로 <see cref="ServerKnockDriver.Reset"/>을
+        /// 부를 지점이 반드시 필요하다. <c>RoundNetworkSync</c>에서 이쪽을 호출하게 만들지 않고
+        /// **여기서 페이즈 전이를 관측**하는 쪽을 골랐다 — 이 컴포넌트는 이미 매 틱
+        /// <c>RoundNetworkSync.ServerPhase</c>를 읽고 있어(노크 페이즈 게이트) 새 결합이 생기지 않는다.
+        /// </summary>
+        private Core.GameFlow.GameFlowState _lastKnockPhase = Core.GameFlow.GameFlowState.Boot;
 
         // 청취자 스냅샷 재사용 버퍼(매 프레임 할당 방지 — T8 성능 조사의 무할당 원칙).
         private readonly List<ListenerSnapshot> _listeners = new List<ListenerSnapshot>();
@@ -81,12 +120,28 @@ namespace Marco.Net
             ServerSubmitPulse(type);
         }
 
-        public void SubmitKnock(Vector3 point)
+        public void SubmitKnock()
         {
             if (!NetworkActive)
                 return;
 
-            ServerSubmitKnock(point);
+            ServerSubmitKnock();
+        }
+
+        public void SubmitShout()
+        {
+            if (!NetworkActive)
+                return;
+
+            ServerSubmitShout();
+        }
+
+        public void SubmitHoldBreath()
+        {
+            if (!NetworkActive)
+                return;
+
+            ServerSubmitHoldBreath();
         }
 
         // ── 서버: 수집 ────────────────────────────────────────────────────
@@ -94,21 +149,32 @@ namespace Marco.Net
         public override void OnStartServer()
         {
             base.OnStartServer();
+
+            if (!_subscribedToTags)
+            {
+                Core.Net.TagTargetRegistry.TargetTagged += OnServerTargetTagged;
+                _subscribedToTags = true;
+            }
+
             _driver = new ServerPulseDriver();
             _knockDriver = new ServerKnockDriver();
+            _shoutDriver = new ServerShoutDriver();
+            _breath.Clear();
+            _shoutAnchor.Clear();
             Debug.Log("[PulseNet:Server] 서버 권위 파문 판정 시작 — 청취자별 개별 전송(§14.3)");
         }
 
         /// <summary>
-        /// §3.2 노크 요청(§14.3 `EchoKnock`). 씬 오브젝트라 소유권 검사를 끄고, **역할·플레이어 ID는
-        /// 호출자에서 서버가 읽는다**(2/3 B항목의 <see cref="RoleNetworkSync.TryGetCallerIdentity"/>).
+        /// §3.2 노크 요청(§14.3 `EchoKnock`). 씬 오브젝트라 소유권 검사를 끄고, **역할·플레이어 ID·
+        /// 위치를 전부 호출자에서 서버가 읽는다**(<see cref="RoleNetworkSync.TryGetCallerIdentity"/>
+        /// + <c>caller.FirstObject</c>, GAP-24).
         ///
-        /// <b>지점만 클라이언트가 정한다</b> — §3.2가 "사거리 제한 없음(맵 내 임의 지점 지정)"으로
-        /// 규정한 유일한 소리라, 위치를 서버가 유도할 방법이 없다. 대신 메아리 전용 제약과
-        /// 쿨다운 30초·1.5초 지연은 <see cref="ServerKnockDriver"/>가 서버에서 강제한다.
+        /// <b>페이로드가 비어 있다</b>(기획서 갱신). §3.2의 발생 위치가 "메아리의 현재 위치"가 되면서
+        /// 노크만 예외적으로 지점을 받던 이유가 사라졌고, 이제 <see cref="ServerSubmitPulse"/>와
+        /// 완전히 같은 규칙이다 — 클라이언트가 정할 수 있는 것은 "지금 쓴다"뿐이다.
         /// </summary>
         [ServerRpc(RequireOwnership = false)]
-        private void ServerSubmitKnock(Vector3 point, NetworkConnection caller = null)
+        private void ServerSubmitKnock(NetworkConnection caller = null)
         {
             if (_knockDriver == null)
                 return;
@@ -123,16 +189,73 @@ namespace Marco.Net
                 return;
             }
 
-            KnockRequestResult result = _knockDriver.TryRequest(playerId, role, point, Time.time);
+            // TryGetCallerIdentity가 caller·FirstObject를 이미 검증했다(§3.2 발생 위치의 근거).
+            Vector3 echoPosition = caller.FirstObject.transform.position;
+
+            KnockRequestResult result = _knockDriver.TryRequest(playerId, role, echoPosition, Time.time);
             if (result != KnockRequestResult.Accepted)
             {
                 Debug.Log($"[KnockNet:Server] 노크 거부 — playerId={playerId} 사유={result} " +
-                          $"(§3.2 메아리 전용·쿨다운 {KnockConfig.CooldownSeconds:0}초)");
+                          $"(§3.2 메아리 전용·라운드 {KnockConfig.MaxUsesPerRound}회·" +
+                          $"전환 후 {KnockConfig.EchoLockoutSeconds:0}초 잠금·쿨다운 {KnockConfig.CooldownSeconds:0}초)");
                 return;
             }
 
-            Debug.Log($"[KnockNet:Server] 노크 접수 — playerId={playerId} 지점={point.ToString("0.0")}, " +
-                      $"{KnockConfig.ActivationDelaySeconds:0.#}초 뒤 발생(§3.2)");
+            Debug.Log($"[KnockNet:Server] 노크 접수 — playerId={playerId} 지점={echoPosition.ToString("0.0")}(메아리 현재 위치), " +
+                      $"{KnockConfig.ActivationDelaySeconds:0.#}초 뒤 발생. " +
+                      $"남은 횟수={_knockDriver.UsesRemaining(playerId)}/{KnockConfig.MaxUsesPerRound} (§3.2)");
+        }
+
+        /// <summary>
+        /// §3.5 외침 요청. 씬 오브젝트라 소유권 검사를 끄고, **역할·플레이어 ID·위치를 전부
+        /// 호출자에서 서버가 읽는다**(GAP-24). 페이로드가 비어 있다 — 클라이언트가 정할 수 있는
+        /// 것은 "지금 쓴다"뿐이다.
+        /// </summary>
+        [ServerRpc(RequireOwnership = false)]
+        private void ServerSubmitShout(NetworkConnection caller = null)
+        {
+            if (_shoutDriver == null)
+                return;
+
+            if (RoundNetworkSync.ServerPhase != Core.GameFlow.GameFlowState.InGame)
+                return;
+
+            if (!RoleNetworkSync.TryGetCallerIdentity(caller, out RoleType role, out ulong playerId))
+            {
+                Debug.LogWarning("[ShoutNet:Server] 외침 폐기 — 호출자의 플레이어 오브젝트/역할을 찾을 수 없습니다.");
+                return;
+            }
+
+            Vector3 origin = caller.FirstObject.transform.position;
+            ShoutRequestResult result = _shoutDriver.TryRequest(playerId, role, origin, Time.time);
+            if (result != ShoutRequestResult.Accepted)
+            {
+                Debug.Log($"[ShoutNet:Server] 외침 거부 — playerId={playerId} 사유={result} " +
+                          $"(§3.5 술래 전용·쿨다운 {SeekerShoutConfig.CooldownSeconds:0}초)");
+                return;
+            }
+
+            // §3.5 "선딜레이 중 이동하면 취소" 판정의 기준점.
+            _shoutAnchor[playerId] = origin;
+
+            Debug.Log($"[ShoutNet:Server] 외침 접수 — playerId={playerId}, " +
+                      $"{SeekerShoutConfig.WindupSeconds:0.#}초 정지 선딜레이 시작(§3.5). 이동하면 취소된다.");
+        }
+
+        /// <summary>
+        /// §3.5 "숨 참기(선딜레이 1초 안에 입력)". 의사표시만 기록하며 **게이지는 여기서 깎지 않는다** —
+        /// 실제 -3은 외침이 발동해 공포 반경 안에 있다고 판정될 때 일어난다.
+        /// </summary>
+        [ServerRpc(RequireOwnership = false)]
+        private void ServerSubmitHoldBreath(NetworkConnection caller = null)
+        {
+            if (_shoutDriver == null)
+                return;
+
+            if (!RoleNetworkSync.TryGetCallerIdentity(caller, out RoleType _, out ulong playerId))
+                return;
+
+            _shoutDriver.NotifySuppressAttempt(playerId, Time.time);
         }
 
         /// <summary>
@@ -187,21 +310,30 @@ namespace Marco.Net
             ulong sourceId = (ulong)caller.ClientId;
             Vector3 serverPosition = caller.FirstObject.transform.position;
 
-            int pulseId = _driver.AddPulse(sourceId, type, serverPosition, Time.time);
+            // §5.9 재질 배율(4단계). **서버가 서버 측 위치에서 바닥을 조회한다** — 클라이언트가
+            // "나는 카펫 위다"라고 주장할 수 없다(GAP-24와 같은 원칙). 발소리가 아닌 종류는
+            // 항상 기본값이 나오므로 여기서 분기하지 않는다.
+            FootstepMaterial material = PulseNetworkRegistry.SampleMaterial(type, serverPosition);
+
+            int pulseId = _driver.AddPulse(sourceId, type, serverPosition, Time.time, material);
             if (pulseId < 0)
             {
-                // §5.1 표에 없는 종류 — 서버가 파문을 만들지 않는다.
+                // §5.1 표에 없는 종류이거나, §5.9 물(수면 아래)이라 파문이 발생하지 않는다.
                 if (_logDiagnostics)
-                    Debug.LogWarning($"[PulseNet:Server] 파문 거부 — type={type}는 §5.1 표에 없는 종류(GAP-24).");
+                    Debug.LogWarning($"[PulseNet:Server] 파문 거부 — type={type} 재질={material} " +
+                                     "(§5.1 표에 없는 종류이거나 §5.9 '물 = 파문 발생 안 함').");
                 return;
             }
 
-            // §8 어워드 집계(스프린트 22): 서버가 실제로 등록한 파문만 센다 —
-            // 클라이언트 보고를 그대로 믿지 않는다(최다 비명상·무성 생존상의 입력).
-            RoundNetworkSync.ServerRecordPulse(caller.ClientId, type);
+            // §8 어워드 집계: 서버가 실제로 등록한 파문만 센다 — 클라이언트 보고를 믿지 않는다.
+            // §8.2가 "발생 반경은 **재질 배율 적용 후**의 값"이라고 못박았으므로,
+            // AddPulse가 쓴 것과 **같은 계산**(TryGetAppliedSpec)의 결과를 넘긴다.
+            ServerPulseDriver.TryGetAppliedSpec(type, material, out float appliedRadius, out float appliedDuration);
+            RoundNetworkSync.ServerRecordPulse(caller.ClientId, type, appliedRadius, appliedDuration);
 
             if (_logServerDeliveries)
-                Debug.Log($"[PulseNet:Server] 파문 등록 pulse={pulseId} type={type} sourceId={sourceId} (서버 위치 기준)");
+                Debug.Log($"[PulseNet:Server] 파문 등록 pulse={pulseId} type={type} sourceId={sourceId} " +
+                          $"재질={material}(×{FootstepMaterialRules.RadiusMultiplier(material):0.##}) (서버 위치 기준)");
 
             LogJudgmentDiagnostics(type, sourceId, serverPosition);
         }
@@ -305,9 +437,15 @@ namespace Marco.Net
                           $"누계: 수신 RPC={_serverRpcCount} / 개별 전송={_serverSentCount}");
             }
 
+            // §5.9-1 숨 게이지: 소모·회복은 서버가 소유한다(§3.5 억제 비용이 여기서 빠진다).
+            TickBreath(Time.deltaTime);
+
             // §3.2 노크: 지연이 끝난 것을 파문화하고, 술래 위치로 §8 유인을 판정한다.
             // 청취자 스냅샷을 이미 만들어 둔 이 자리가 술래 위치를 얻기 가장 싼 지점이다.
             TickKnocks();
+
+            // §3.5 외침: 선딜레이 취소 판정 → 발동 → 공포 반경 판정 → 비명 파문.
+            TickShouts();
 
             if (probe == null)
                 return; // 차폐 판정기가 없으면 판정하지 않는다(좌표를 흘리지 않기 위함).
@@ -335,6 +473,30 @@ namespace Marco.Net
 
             float now = Time.time;
 
+            // 라운드 시작 전이(→ InGame)에서 노크 상태를 전부 비운다 — §3.2 "라운드당 정확히
+            // 5회(재충전 없음)"는 **라운드 경계에서만** 회복되고, 전환 후 20초 잠금도 새 라운드에서
+            // 다시 세야 한다. 이 전이를 놓치면 5회 카운터가 세션 내내 누적돼 2라운드부터 노크가
+            // 아예 불가능해진다.
+            Core.GameFlow.GameFlowState phase = RoundNetworkSync.ServerPhase;
+            if (phase != _lastKnockPhase)
+            {
+                if (phase == Core.GameFlow.GameFlowState.InGame)
+                {
+                    _knockDriver.Reset();
+                    _shoutDriver?.Reset();      // §3.5 쿨다운·선딜레이도 라운드 경계에서 비운다.
+                    _shoutAnchor.Clear();
+                    foreach (BreathGauge gauge in _breath.Values)
+                        gauge.Reset();          // §5.9-1 새 라운드는 만충으로 시작한다.
+                    Debug.Log($"[KnockNet:Server] 라운드 시작 — 노크 상태 초기화(§3.2 라운드당 {KnockConfig.MaxUsesPerRound}회 재충전).");
+                }
+
+                _lastKnockPhase = phase;
+            }
+
+            // §3.2 "메아리 전환 후 20초간 사용 불가"의 기준점. 태그 직후부터 세야 하므로
+            // 요청을 기다리지 않고 매 틱 관측한다(ObserveEcho는 최초 1회만 기록한다).
+            ObserveEchoes(now);
+
             List<KnockActivation> activations = _knockDriver.Tick(now);
             for (int i = 0; i < activations.Count; i++)
             {
@@ -347,7 +509,9 @@ namespace Marco.Net
                     continue;
 
                 // 서버가 실제로 등록한 파문만 §8에 센다(발소리·음성과 같은 규칙).
-                RoundNetworkSync.ServerRecordPulse((int)knock.PlayerId, SoundType.Knock);
+                // 노크는 재질 배율 대상이 아니라 §5.1 표 값이 그대로 들어간다.
+                RoundNetworkSync.ServerRecordPulse((int)knock.PlayerId, SoundType.Knock,
+                    KnockConfig.RadiusMeters, KnockConfig.DurationSeconds);
 
                 Debug.Log($"[KnockNet:Server] 노크 발생 — pulse={pulseId} playerId={knock.PlayerId} " +
                           $"지점={knock.Point.ToString("0.0")} 반경={KnockConfig.RadiusMeters:0.#}m (§3.2)");
@@ -364,6 +528,212 @@ namespace Marco.Net
                 Debug.Log($"[KnockNet:Server] ★ 유인 성공 — playerId={lures[i]}의 노크 지점으로 술래가 진입했다 " +
                           $"(§8 최고의 거짓말상 +1, GAP-59 기준: 발생 시 {ServerKnockDriver.LureRadiusMeters:0.#}m 밖 → " +
                           $"{ServerKnockDriver.LureWindowSeconds:0}초 내 진입)");
+            }
+        }
+
+        /// <summary>
+        /// 현재 메아리인 플레이어 전원을 <see cref="ServerKnockDriver.ObserveEcho"/>에 알린다.
+        ///
+        /// 청취자 스냅샷의 <c>Role</c>이 아니라 <see cref="RoleNetworkSync.EffectiveRole"/>을 쓴다 —
+        /// 태그 아웃 직후에는 역할 SyncVar가 아직 Runner일 수 있고, 잠금은 **태그당한 순간**부터
+        /// 세야 하기 때문이다(<c>TryGetCallerIdentity</c>가 쓰는 판정과 같은 기준).
+        /// </summary>
+        private void ObserveEchoes(float now)
+        {
+            List<RoleNetworkSync> players = RoleNetworkSync.Spawned;
+            for (int i = 0; i < players.Count; i++)
+            {
+                RoleNetworkSync p = players[i];
+                if (p == null || p.OrderKey < 0)
+                    continue;
+
+                if (p.EffectiveRole == RoleType.Echo)
+                    _knockDriver.ObserveEcho((ulong)p.OrderKey, now);
+            }
+        }
+
+        /// <summary>
+        /// §8.3 감시 종료 조건 "**술래가 도망자를 태그**" — 그 순간 활성 유인 감시를 전부 버린다.
+        /// 태그 직후의 이동을 유인으로 세면 "잡고 나서 우연히 노크 지점을 지났다"가 거짓말상이 된다.
+        /// </summary>
+        private void OnServerTargetTagged(Core.Net.ITagTarget target)
+        {
+            _knockDriver?.NotifySeekerTagged();
+        }
+
+        /// <summary>
+        /// §5.9-1 이 플레이어의 숨 상태.
+        ///
+        /// **현재는 항상 <see cref="BreathZone.OutOfWater"/>다** — 물 볼륨(수면 존) 감지가 아직
+        /// 없어서 서버가 잠수/수면을 관측할 방법이 없기 때문이다. <c>FirstPersonController</c>도
+        /// 같은 이유로 <c>isOnWaterSurface: false</c>를 하드코딩하고 있다(§5.9 후속 태스크).
+        /// 물 볼륨이 들어오면 <b>이 메서드 한 곳만</b> 고치면 된다 —
+        /// 규칙 자체는 <see cref="BreathConfig.ZoneOf"/>가 이미 전부 들고 있다.
+        /// </summary>
+        private static BreathZone ZoneOf(RoleNetworkSync player)
+        {
+            return BreathZone.OutOfWater;
+        }
+
+        /// <summary>이 플레이어의 숨 게이지(없으면 만충으로 새로 만든다). 서버 전용.</summary>
+        private BreathGauge BreathOf(ulong playerId)
+        {
+            if (!_breath.TryGetValue(playerId, out BreathGauge gauge))
+            {
+                gauge = new BreathGauge();
+                _breath[playerId] = gauge;
+            }
+
+            return gauge;
+        }
+
+        /// <summary>
+        /// §5.9-1 숨 게이지를 전원에 대해 진전시킨다. 서버 전용, 매 프레임.
+        ///
+        /// 질식(게이지 0)이 발생하면 §5.9-1대로 **고함급(22m) 파문 1회**를 강제 발생시킨다.
+        /// 강제 부상과 이동속도 -20%는 게이지 자신이 들고 있고(<c>CanSubmerge</c>·<c>SpeedMultiplier</c>),
+        /// 이동 시뮬레이터가 그것을 읽는다.
+        /// </summary>
+        private void TickBreath(float deltaSeconds)
+        {
+            List<RoleNetworkSync> players = RoleNetworkSync.Spawned;
+            for (int i = 0; i < players.Count; i++)
+            {
+                RoleNetworkSync p = players[i];
+                if (p == null || p.OrderKey < 0)
+                    continue;
+
+                ulong id = (ulong)p.OrderKey;
+                BreathTick tick = BreathOf(id).Tick(ZoneOf(p), deltaSeconds);
+                if (!tick.Choked)
+                    continue;
+
+                // §5.9-1 "고함급(발생 반경 22m) 파문 1회 강제 발생"(기침·헐떡임 연출).
+                _driver.AddPulse(id, SoundType.Shout, p.transform.position, Time.time);
+                RoundNetworkSync.ServerRecordPulse((int)id, SoundType.Shout,
+                    Core.Voice.VoiceConfig.ShoutRadiusMeters, Core.Voice.VoiceConfig.ShoutDurationSeconds);
+                Debug.Log($"[Breath:Server] 질식 — playerId={id} 강제 부상 + 이동속도 " +
+                          $"{(1f - BreathConfig.ChokeSpeedMultiplier) * 100f:0}% 감소 " +
+                          $"{BreathConfig.ChokePenaltySeconds:0}초 + 고함급 파문(§5.9-1)");
+            }
+        }
+
+        /// <summary>
+        /// §3.5 외침의 서버 측 진행(5단계). 서버 전용, 매 프레임.
+        ///
+        /// ① 선딜레이 중 이동했으면 취소한다(**쿨다운 소모 없음**).
+        /// ② 선딜레이가 끝난 외침을 발동시켜 <b>A — 고함 등급 파문(22m)</b>을 등록한다.
+        /// ③ <b>B — 공포 반경(22m, 차폐 미적용)</b>을 판정해, 억제하지 못한 러너마다
+        ///    <b>비명 파문(9m/1.0초)</b>을 등록한다.
+        ///
+        /// A·B·C 세 22m를 섞지 않는다는 §3.5 규칙이 여기서 코드로 드러난다 —
+        /// ②는 파문 경로(차폐 있음), ③은 능력 판정(차폐 없음), C는 §5.7 역할 배율의 결과다.
+        /// </summary>
+        private void TickShouts()
+        {
+            if (_shoutDriver == null)
+                return;
+
+            float now = Time.time;
+
+            CancelMovedShouts();
+
+            List<ShoutActivation> activations = _shoutDriver.Tick(now);
+            if (activations.Count == 0)
+                return;
+
+            // Tick의 반환은 내부 재사용 버퍼다 — ResolveFear를 부르기 전에 복사해 둔다.
+            var fired = new List<ShoutActivation>(activations);
+
+            for (int i = 0; i < fired.Count; i++)
+            {
+                ShoutActivation shout = fired[i];
+                _shoutAnchor.Remove(shout.SeekerId);
+
+                // ① A — 외침 자체의 소리(고함 등급 22m). 차폐가 적용되는 일반 파문이다.
+                _driver.AddPulse(shout.SeekerId, SoundType.Shout, shout.Origin, now);
+
+                // §8.2 소음량에는 들어간다(밸브만 제외 대상이다). §8.1 최다 비명상에는
+                // 영향이 없다 — 그쪽은 Scream만 세고 Shout는 일절 반영하지 않는다.
+                RoundNetworkSync.ServerRecordPulse((int)shout.SeekerId, SoundType.Shout,
+                    SeekerShoutConfig.ShoutPulseRadiusMeters, SeekerShoutConfig.ShoutPulseDurationSeconds);
+
+                // ② B — 공포 반경. 차폐를 보지 않는 순수 직선거리 판정이다.
+                BuildShoutTargets();
+                List<ScreamReaction> reactions = _shoutDriver.ResolveFear(shout.Origin, _shoutTargets, now);
+
+                int screamed = 0;
+                for (int r = 0; r < reactions.Count; r++)
+                {
+                    ScreamReaction reaction = reactions[r];
+                    if (!reaction.EmitsScream)
+                        continue;
+
+                    // ③ 비명 파문(9m/1.0초). 발생원은 **비명을 지른 러너**라
+                    // GAP-1(본인 제외)이 "자기 비명은 자기 화면에 안 뜬다"로 성립한다.
+                    _driver.AddPulse(reaction.PlayerId, SoundType.Scream, reaction.Position, now);
+                    screamed++;
+
+                    // §8.1 최다 비명상(6단계에서 개통). **청취 여부와 무관하게** 이벤트가
+                    // 발생했으므로 센다 — 술래가 10.8m 밖이라 못 들었어도 집계 대상이다.
+                    // 억제에 성공한 러너는 여기 도달하지 않으므로 자동으로 빠진다.
+                    RoundNetworkSync.ServerRecordPulse((int)reaction.PlayerId, SoundType.Scream,
+                        ScreamConfig.RadiusMeters, ScreamConfig.DurationSeconds);
+                }
+
+                Debug.Log($"[ShoutNet:Server] 외침 발동 — seeker={shout.SeekerId} " +
+                          $"지점={shout.Origin.ToString("0.0")} | 공포 반경 {SeekerShoutConfig.FearRadiusMeters:0}m 안 " +
+                          $"{reactions.Count}명 중 비명 {screamed}명 (§3.5). 쿨다운 {SeekerShoutConfig.CooldownSeconds:0}초 시작");
+            }
+        }
+
+        /// <summary>§3.5 "선딜레이 중 이동하면 취소, 쿨다운 소모 없음".</summary>
+        private void CancelMovedShouts()
+        {
+            if (_shoutAnchor.Count == 0)
+                return;
+
+            _movedSeekers.Clear();
+
+            List<RoleNetworkSync> players = RoleNetworkSync.Spawned;
+            for (int i = 0; i < players.Count; i++)
+            {
+                RoleNetworkSync p = players[i];
+                if (p == null || p.OrderKey < 0)
+                    continue;
+
+                ulong id = (ulong)p.OrderKey;
+                if (!_shoutAnchor.TryGetValue(id, out Vector3 anchor))
+                    continue;
+
+                if (Vector3.Distance(anchor, p.transform.position) > ShoutMoveToleranceMeters)
+                    _movedSeekers.Add(id);
+            }
+
+            for (int i = 0; i < _movedSeekers.Count; i++)
+            {
+                ulong id = _movedSeekers[i];
+                _shoutAnchor.Remove(id);
+
+                if (_shoutDriver.CancelOnMove(id))
+                    Debug.Log($"[ShoutNet:Server] 외침 취소 — playerId={id}가 선딜레이 중 이동했다(§3.5, 쿨다운 소모 없음).");
+            }
+        }
+
+        /// <summary>§3.5 공포 반경 판정에 넘길 대상 목록을 서버 값으로 구성한다.</summary>
+        private void BuildShoutTargets()
+        {
+            _shoutTargets.Clear();
+
+            List<RoleNetworkSync> players = RoleNetworkSync.Spawned;
+            for (int i = 0; i < players.Count; i++)
+            {
+                RoleNetworkSync p = players[i];
+                if (p == null || p.OrderKey < 0)
+                    continue;
+
+                ulong id = (ulong)p.OrderKey;
+                _shoutTargets.Add(new ShoutTarget(id, p.transform.position, p.EffectiveRole, ZoneOf(p), BreathOf(id)));
             }
         }
 

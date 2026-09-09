@@ -67,13 +67,13 @@ namespace Marco.Core.GameFlow
         /// §6.3 판정을 수행하고, 승패가 갈렸으면 결과를 고정한다. 이번에 새로 결정됐을 때만
         /// true — 서버가 전파(SyncVar)와 로깅을 1회만 하도록. 판정식은 Core에 위임한다.
         /// </summary>
-        public bool Evaluate(int valvesOpened, int totalValves, bool allRunnersTagged)
+        public bool Evaluate(int valvesOpened, int totalValves, int taggedRunners)
         {
             if (IsDecided)
                 return false;
 
             RoundResult result = WinConditionEvaluator.Evaluate(
-                valvesOpened, totalValves, EscapedCount, allRunnersTagged, RemainingSeconds);
+                valvesOpened, totalValves, EscapedCount, taggedRunners, RemainingSeconds);
 
             if (result == RoundResult.InProgress)
                 return false;
@@ -83,36 +83,33 @@ namespace Marco.Core.GameFlow
         }
 
         /// <summary>
-        /// §6.3 <c>allRunnersTagged</c> 입력을 태그 대상 집합에서 <b>서버 측으로</b> 계산한다.
+        /// §6.3 <c>taggedRunners</c> 입력을 태그 대상 집합에서 <b>서버 측으로</b> 계산한다.
         ///
-        /// GAP-19 결정: 고정 분모(전체 러너 수)를 쓰지 않고, "태그되지 않은 러너가 하나도
-        /// 남지 않았는가"로 판정한다. 태그된 대상은 §3.1대로 메아리(Echo)가 되어 더는
-        /// Role==Runner가 아니므로, "현재 태그 안 된 러너 == 0 && 태그된 대상 ≥ 1"이면
-        /// 전원 태그다. 이렇게 하면 역할 배정 네트워크화(미구현) 없이도 분모 문제가 사라지고,
-        /// 서버가 <see cref="ITagTarget"/> 집합(<c>TagTargetRegistry</c>)을 그대로 읽어 계산할 수 있다.
-        /// 러너가 애초에 없으면(공허한 참 방지) false다.
+        /// **GAP-19 재검토(3단계)**: 이전에는 <c>AllRunnersTagged</c>(전원 태그) 불리언을
+        /// 돌려줬고, "분모(전체 러너 수)를 어떻게 아는가"가 GAP-19의 본체였다.
+        /// §6.3이 종료 조건을 <b>"태그 2명 도달"</b> 로 확정하면서 그 분모가 아예 필요 없어졌다 —
+        /// 이제 세는 것은 <b>절대 인원</b>이고, 임계값은 <see cref="WinConditionEvaluator.TagWinThreshold"/>다.
+        /// 그래서 GAP-19는 판정 규칙 변경으로 소멸했다.
+        ///
+        /// 태그된 대상은 §3.1대로 메아리(Echo)가 되어 더는 Role==Runner가 아니므로,
+        /// 역할이 아니라 <see cref="ITagTarget.IsTagged"/>만 센다 — 태그 대상은 §3.1상
+        /// 도망자뿐이라 이 집합의 태그 수가 곧 "태그당한 도망자 수"다.
         /// </summary>
-        public static bool AllRunnersTagged(IReadOnlyList<ITagTarget> targets)
+        public static int TaggedCount(IReadOnlyList<ITagTarget> targets)
         {
             if (targets == null)
-                return false;
+                return 0;
 
-            int taggedCount = 0;
-            int untaggedRunners = 0;
+            int tagged = 0;
 
             for (int i = 0; i < targets.Count; i++)
             {
                 ITagTarget t = targets[i];
-                if (t == null)
-                    continue;
-
-                if (t.IsTagged)
-                    taggedCount++; // 태그돼 메아리가 된 대상(= 원래 러너)
-                else if (t.Role == RoleType.Runner)
-                    untaggedRunners++; // 아직 안 태그된 러너
+                if (t != null && t.IsTagged)
+                    tagged++;
             }
 
-            return taggedCount > 0 && untaggedRunners == 0;
+            return tagged;
         }
     }
 }

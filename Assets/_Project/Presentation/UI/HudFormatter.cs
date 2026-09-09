@@ -135,11 +135,11 @@ namespace Marco.Presentation.UI
         ///
         /// **새 상태를 저장하지 않는다** — 판정식이 이미 사유를 결정론적으로 함의하기 때문이다:
         /// <code>
-        /// RunnersWin  → 밸브 전부 + 1인 이상 탈출  (§6.3 첫 분기는 이것뿐)
-        /// SeekerWin   → allRunnersTagged || timeRemaining &lt;= 0
-        ///               남은 시간이 0이면 시간 초과, 0보다 크면 전원 태그
+        /// RunnersWin  → 밸브 전부 + 탈출 2명 이상  (§6.3 첫 분기는 이것뿐)
+        /// SeekerWin   → 태그 2명 도달 || timeRemaining &lt;= 0
+        ///               남은 시간이 0이면 시간 초과, 0보다 크면 태그 2명 도달
         /// </code>
-        /// 남은 시간이 0보다 큰 채로 SeekerWin이 되는 경로는 전원 태그뿐이고, 서버 구동기는
+        /// 남은 시간이 0보다 큰 채로 SeekerWin이 되는 경로는 태그 2명 도달뿐이고, 서버 구동기는
         /// 판정이 확정되면 타이머를 멈추므로(<c>ServerRoundDriver.Tick</c>) 확정 시점의 값이
         /// 그대로 남아 있다 — 그래서 이 유도가 성립한다.
         /// </summary>
@@ -160,11 +160,11 @@ namespace Marco.Presentation.UI
             switch (result)
             {
                 case RoundResult.RunnersWin:
-                    return "밸브를 모두 열고 배수로로 탈출했다";
+                    return $"밸브를 모두 열고 {WinConditionEvaluator.EscapeWinThreshold}명이 배수로로 탈출했다";
                 case RoundResult.SeekerWin:
                     return remainingSeconds <= 0f
                         ? "제한시간이 끝났다"
-                        : "도망자가 전원 붙잡혔다";
+                        : $"도망자 {WinConditionEvaluator.TagWinThreshold}명이 붙잡혔다";
                 default:
                     return string.Empty;
             }

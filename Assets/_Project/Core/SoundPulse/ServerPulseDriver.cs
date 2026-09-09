@@ -77,12 +77,20 @@ namespace Marco.Core.Sound
                     duration = Voice.VoiceConfig.ShoutDurationSeconds; // §5.1 2.5s
                     return true;
 
+                // §5.1 비명(§3.5 술래 외침의 강제 결과). 고함(Shout)과 **다른 종류**다 —
+                // 반경·지속이 다르고(9m/1.0초 vs 22m/2.5초), §8 어워드가 둘을 구분해야 한다.
+                // 술래 청취 반경 10.8m는 새 상수가 아니라 9 × §5.7 역할 배율(1.2)의 결과다.
+                case SoundType.Scream:
+                    radius = ScreamConfig.RadiusMeters;      // §5.1 9m
+                    duration = ScreamConfig.DurationSeconds; // §5.1 1.0초
+                    return true;
+
                 // §3.2 메아리 노크(스프린트 27). "대화 등급과 동일 취급"이라 반경·지속이 같지만
                 // **종류는 Knock으로 남긴다** — §3.4가 게이지 트리거에서 노크를 명시적으로
                 // 제외하므로, Talk로 뭉개면 메아리가 술래에게 방향 게이지를 띄우게 된다.
                 //
-                // 발생 위치만은 클라이언트가 지정한다(§3.2 "사거리 제한 없음, 맵 내 임의 지점") —
-                // 다른 소리와 달리 발생원이 플레이어가 아니기 때문이다. 역할·쿨다운·지연은
+                // 발생 위치도 서버가 정한다(§3.2 갱신 "발생 위치: 메아리의 현재 위치") —
+                // 이제 다른 소리와 완전히 같은 규칙이다. 역할·횟수·잠금·쿨다운·지연은
                 // ServerKnockDriver가 서버에서 강제한다.
                 case SoundType.Knock:
                     radius = KnockConfig.RadiusMeters;      // §3.2/§5.1 9m
@@ -102,12 +110,47 @@ namespace Marco.Core.Sound
         /// <paramref name="serverPosition"/>은 <b>서버가 아는 발생원 위치</b>여야 한다(클라 주장값
         /// 금지 — GAP-24). <paramref name="sourcePlayerId"/>도 서버가 RPC 호출자에서 얻은 값이다.
         /// </summary>
-        public int AddPulse(ulong sourcePlayerId, SoundType type, Vector3 serverPosition, float now)
+        /// <param name="material">
+        /// §5.9 바닥 재질. **서버가 판정한 값**이며 클라이언트가 보내지 않는다.
+        /// 발생 <b>반경</b>에만 곱해지고 발생 간격에는 영향이 없다(§5.1-1) — 간격은 애초에
+        /// 이 클래스가 아니라 <c>LocomotionSimulator</c>의 이동거리 누적이 정한다.
+        /// 물이면 파문 자체를 만들지 않는다(§5.9 "파문 발생 안 함").
+        /// </param>
+        public int AddPulse(ulong sourcePlayerId, SoundType type, Vector3 serverPosition, float now,
+            FootstepMaterial material = FootstepMaterialRules.Default)
         {
-            if (!TryGetPulseSpec(type, out float radius, out float duration))
+            if (!TryGetAppliedSpec(type, material, out float radius, out float duration))
                 return -1;
 
             return _tracker.AddPulse(new SoundPulse(sourcePlayerId, serverPosition, radius, duration, type, now));
+        }
+
+        /// <summary>
+        /// **실제로 등록되는** 반경·지속을 낸다 — §5.1 표 값에 §5.9 재질 배율까지 적용한 결과다.
+        /// 물(§5.9 "파문 발생 안 함")이거나 §5.1 표에 없는 종류면 false.
+        ///
+        /// <see cref="AddPulse"/>가 이 메서드를 쓰고, §8.2 무성 생존상 집계도 이 값을 써야 한다 —
+        /// 기획서가 "발생 반경은 **재질 배율 적용 후**의 값 사용"이라고 못박았기 때문이다.
+        /// 두 곳이 각자 계산하면 재질 효과가 소음량에서 조용히 사라진다.
+        /// </summary>
+        public static bool TryGetAppliedSpec(SoundType type, FootstepMaterial material,
+            out float radius, out float duration)
+        {
+            if (!TryGetPulseSpec(type, out radius, out duration))
+                return false;
+
+            if (!FootstepMaterialRules.AppliesTo(type))
+                return true;
+
+            if (!FootstepMaterialRules.EmitsPulse(material))
+            {
+                radius = 0f;
+                duration = 0f;
+                return false; // §5.9 물(수면 아래) — 발소리 파문이 없다.
+            }
+
+            radius = FootstepMaterialRules.ApplyToRadius(radius, material);
+            return true;
         }
 
         /// <summary>

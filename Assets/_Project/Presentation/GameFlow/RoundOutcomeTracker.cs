@@ -76,30 +76,21 @@ namespace Marco.Presentation.GameFlow
         }
 
         /// <summary>
-        /// §6.3 `allRunnersTagged` 입력.
-        ///
-        /// GAP-13 결정: **문자 그대로 "모든 러너가 태그됨"** 으로 읽는다.
-        /// 탈출한 러너는 태그된 적이 없으므로, 누군가 탈출했다면 이 값은 false다.
-        /// 혼재 상황(일부 탈출 + 일부 태그)이 문제되지 않는 이유 —
-        /// 탈출은 §6.1상 게이트 개방(밸브 전부) 이후에만 가능하고, 그 조건이면
-        /// §6.3의 첫 분기(RunnersWin)가 이미 성립해 라운드가 그 시점에 끝난다.
-        /// </summary>
-        public bool AreAllRunnersTagged(int totalRunners)
-        {
-            return totalRunners > 0 && TaggedCount >= totalRunners;
-        }
-
-        /// <summary>
         /// §6.3 판정을 수행하고, 승패가 갈렸으면 결과를 고정한다.
         /// 이번에 새로 결정됐을 때만 true — 호출자가 종료 처리를 1회만 하도록.
+        ///
+        /// **GAP-13 소멸(3단계)**: 예전에는 <c>AreAllRunnersTagged(int totalRunners)</c>로
+        /// "전원 태그"를 판정했고, 분모(전체 러너 수)를 어디서 얻느냐가 GAP-13/GAP-18이었다.
+        /// §6.3이 종료 조건을 <b>"태그 2명 도달"</b> 로 확정해 분모 자체가 사라졌으므로,
+        /// 이제 <see cref="TaggedCount"/>를 그대로 넘긴다.
         /// </summary>
-        public bool Evaluate(int valvesOpened, int totalValves, bool allRunnersTagged, float timeRemainingSeconds)
+        public bool Evaluate(int valvesOpened, int totalValves, int taggedRunners, float timeRemainingSeconds)
         {
             if (IsDecided)
                 return false;
 
             RoundResult result = WinConditionEvaluator.Evaluate(
-                valvesOpened, totalValves, EscapedCount, allRunnersTagged, timeRemainingSeconds);
+                valvesOpened, totalValves, EscapedCount, taggedRunners, timeRemainingSeconds);
 
             if (result == RoundResult.InProgress)
                 return false;

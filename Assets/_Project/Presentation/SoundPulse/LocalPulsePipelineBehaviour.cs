@@ -50,6 +50,7 @@ namespace Marco.Presentation.Sound
         private Vector3 _listenerAnchor;
         private IPulseNetworkBridge _bridge;
         private PhysicsOcclusionProbe _probe;
+        private PhysicsFootstepMaterialProbe _materialProbe;
 
         /// <summary>
         /// 서버 권위 파문 경로가 활성인가(스프린트 14). true면 로컬에서 §5.6을 판정하지 않고
@@ -94,6 +95,11 @@ namespace Marco.Presentation.Sound
             // 호스트에서는 이 프로브가 서버 판정 경로에 그대로 쓰인다(§15.2 경계 유지).
             PulseNetworkRegistry.RegisterProbe(_probe);
 
+            // §5.9 재질 배율(4단계). 차폐 프로브와 같은 자리에 같은 방식으로 올린다 —
+            // 서버가 발소리 발생 반경을 정할 때 이 구현체로 바닥을 조회한다.
+            _materialProbe = new PhysicsFootstepMaterialProbe();
+            PulseNetworkRegistry.RegisterFootstepMaterialProbe(_materialProbe);
+
             // 플레이어는 네트워크로 스폰될 수 있어 이 시점에 없을 수 있다.
             // 준비되면 알려달라고 등록해 둔다(이미 있으면 즉시 콜백).
             LocalPlayerRegistry.WhenReady(BindPlayer);
@@ -103,6 +109,7 @@ namespace Marco.Presentation.Sound
         {
             LocalPlayerRegistry.StopWaiting(BindPlayer);
             PulseNetworkRegistry.UnregisterProbe(_probe);
+            PulseNetworkRegistry.UnregisterFootstepMaterialProbe(_materialProbe);
         }
 
         /// <summary>
@@ -213,14 +220,21 @@ namespace Marco.Presentation.Sound
         private void OnFootstepPulse(SoundType type, float radius, float duration, Vector3 position)
         {
             // 네트워크면 "소리가 났다"만 알리고(서버가 §5.1 표로 반경·지속을, 서버 측 위치로
-            // 발생 지점을 결정 — GAP-24), 로컬이면 기존 경로로 직접 판정한다.
+            // 발생 지점을, §5.9 재질로 반경 배율을 결정 — GAP-24), 로컬이면 직접 판정한다.
             if (IsNetworkActive)
             {
                 _bridge.SubmitPulse(type);
                 return;
             }
 
-            _pipeline.OnFootstepPulse(type, radius, duration, position, Time.time);
+            // §5.9 재질 배율은 로컬 경로에서도 같은 Core 규칙으로 적용한다 —
+            // 두 경로가 다른 반경을 내면 "호스트에서만 다르게 들린다"가 된다.
+            FootstepMaterial material = PulseNetworkRegistry.SampleMaterial(type, position);
+            if (!FootstepMaterialRules.EmitsPulse(material))
+                return; // §5.9 물(수면 아래) — 파문 발생 안 함
+
+            float materialRadius = FootstepMaterialRules.ApplyToRadius(radius, material);
+            _pipeline.OnFootstepPulse(type, materialRadius, duration, position, Time.time);
         }
 
         /// <summary>

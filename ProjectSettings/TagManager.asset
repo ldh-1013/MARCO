@@ -6,6 +6,13 @@ TagManager:
   tags:
   - Wall
   - HardBlocker
+  - FloorConcrete
+  - FloorWood
+  - FloorMetalGrating
+  - FloorTile
+  - FloorMat
+  - FloorStage
+  - FloorWater
   layers:
   - Default
   - TransparentFX

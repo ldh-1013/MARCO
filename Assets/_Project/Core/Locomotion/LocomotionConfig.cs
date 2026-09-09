@@ -17,8 +17,13 @@ namespace Marco.Core.Locomotion
         /// <summary>§3.1 × §6.2 4인(MVP) 술래 속도: 5.0 × 1.08.</summary>
         public const float SeekerSpeed = 5.4f;
 
-        /// <summary>§3.2 메아리(유령 카메라) 속도.</summary>
-        public const float EchoSpeed = 8.0f;
+        /// <summary>
+        /// §3.2 메아리(유령 카메라) 속도.
+        ///
+        /// **8.0 → 6.0으로 낮췄다(기획서 갱신).** 도망자 질주(7.5)보다 느려야
+        /// 메아리가 러너를 따라다니며 실시간 중계하는 플레이가 성립하지 않는다.
+        /// </summary>
+        public const float EchoSpeed = 6.0f;
 
         /// <summary>§4.2 캐릭터 콜라이더 반경.</summary>
         public const float ColliderRadius = 0.35f;

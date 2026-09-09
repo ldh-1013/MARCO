@@ -81,6 +81,9 @@
     <Compile Include="Assets\_Project\Tests\EditMode\SeekerRotationTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\PulseVisualRegistryTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\LocomotionSimulatorTests.cs" />
+    <Compile Include="Assets\_Project\Tests\EditMode\BreathGaugeTests.cs" />
+    <Compile Include="Assets\_Project\Tests\EditMode\ServerShoutDriverTests.cs" />
+    <Compile Include="Assets\_Project\Tests\EditMode\FootstepMaterialTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\FallRecoveryTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\TaggingTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\LocalPulsePipelineTests.cs" />

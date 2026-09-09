@@ -262,7 +262,7 @@ namespace Marco.Core.Tests
 
             RoundResult result = WinConditionEvaluator.Evaluate(
                 valvesOpened: opened, totalValves: valves.Length,
-                runnersEscaped: 1, allRunnersTagged: false, timeRemainingSeconds: 600f);
+                runnersEscaped: 2, taggedRunners: 0, timeRemainingSeconds: 600f);
 
             Assert.AreEqual(3, opened);
             Assert.AreEqual(RoundResult.RunnersWin, result);

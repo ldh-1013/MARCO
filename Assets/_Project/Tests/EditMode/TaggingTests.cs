@@ -134,75 +134,65 @@ namespace Marco.Core.Tests
         public void TagAfterRoundDecided_IsIgnored()
         {
             var outcome = new RoundOutcomeTracker();
-            outcome.Evaluate(0, 3, false, 0f); // 시간 초과 → SeekerWin
+            outcome.Evaluate(0, 3, 0, 0f); // 시간 초과 → SeekerWin
 
             bool tagged = outcome.TryRegisterTag(RoleType.Seeker, RunnerA, RoleType.Runner);
 
             Assert.IsFalse(tagged);
         }
 
-        // ── §6.3 allRunnersTagged 판정 (GAP-13) ────────────────────────
+        // ── §6.3 태그 2명 종료 조건 (GAP-13 소멸) ──────────────────────
 
-        // 11) 일부만 태그된 상태에서는 전원 태그가 아니다 → 라운드 계속.
+        // 11) 태그 1명에서는 라운드가 끝나지 않는다.
         [Test]
-        public void PartiallyTagged_IsNotAllTagged()
+        public void OneTagged_DoesNotEndRound()
         {
             var outcome = new RoundOutcomeTracker();
             outcome.TryRegisterTag(RoleType.Seeker, RunnerA, RoleType.Runner);
-            outcome.TryRegisterTag(RoleType.Seeker, RunnerB, RoleType.Runner);
 
-            Assert.IsFalse(outcome.AreAllRunnersTagged(totalRunners: 3));
+            Assert.AreEqual(1, outcome.TaggedCount);
 
-            bool decided = outcome.Evaluate(0, 3, outcome.AreAllRunnersTagged(3), 300f);
+            bool decided = outcome.Evaluate(0, 3, outcome.TaggedCount, 300f);
             Assert.IsFalse(decided);
             Assert.AreEqual(RoundResult.InProgress, outcome.Result);
         }
 
-        // 12) **핵심**: 전원 태그 시 시간이 남아 있어도 즉시 술래 승리.
+        // 12) **핵심(B2)**: 태그 2명 도달 시 시간이 남아 있어도, 도망자가 1명 남아 있어도
+        //     즉시 술래 승리로 확정된다(§6.3 "술래는 전부 태그할 필요가 없다").
         [Test]
-        public void AllTagged_DecidesSeekerWinImmediately()
+        public void TwoTagged_DecidesSeekerWinImmediately()
         {
             var outcome = new RoundOutcomeTracker();
             outcome.TryRegisterTag(RoleType.Seeker, RunnerA, RoleType.Runner);
             outcome.TryRegisterTag(RoleType.Seeker, RunnerB, RoleType.Runner);
-            outcome.TryRegisterTag(RoleType.Seeker, RunnerC, RoleType.Runner);
 
-            Assert.IsTrue(outcome.AreAllRunnersTagged(3));
+            Assert.AreEqual(2, outcome.TaggedCount);
 
-            bool decided = outcome.Evaluate(0, 3, outcome.AreAllRunnersTagged(3), timeRemainingSeconds: 500f);
+            bool decided = outcome.Evaluate(0, 3, outcome.TaggedCount, timeRemainingSeconds: 500f);
 
             Assert.IsTrue(decided);
             Assert.AreEqual(RoundResult.SeekerWin, outcome.Result);
         }
 
-        // 13) 러너가 0명이면 전원 태그로 치지 않는다(공허한 참 방지).
+        // 13) RunnerC는 태그되지 않은 채 남아 있어도 결과가 확정된다 —
+        //     남은 1명이 탈출해도 탈출 1 < 2라 도망자 승리가 산술적으로 불가능하기 때문이다.
         [Test]
-        public void ZeroRunners_IsNotAllTagged()
+        public void TwoTagged_ThirdRunnerStillFree_RoundStillEnds()
         {
             var outcome = new RoundOutcomeTracker();
-
-            Assert.IsFalse(outcome.AreAllRunnersTagged(totalRunners: 0));
-        }
-
-        // ── 혼재 경계 케이스 (검증 체크리스트 4번) ──────────────────────
-
-        // 14) GAP-13: 1명 탈출 + 2명 태그(총 3명) → 탈출자는 태그된 적이 없으므로
-        //     "전원 태그"가 아니다.
-        [Test]
-        public void OneEscapedTwoTagged_IsNotAllTagged()
-        {
-            var outcome = new RoundOutcomeTracker();
-            outcome.TryRegisterEscape(RunnerA, RoleType.Runner, gateOpen: true);
+            outcome.TryRegisterTag(RoleType.Seeker, RunnerA, RoleType.Runner);
             outcome.TryRegisterTag(RoleType.Seeker, RunnerB, RoleType.Runner);
-            outcome.TryRegisterTag(RoleType.Seeker, RunnerC, RoleType.Runner);
+            outcome.Evaluate(3, 3, outcome.TaggedCount, 500f);
 
-            Assert.IsFalse(outcome.AreAllRunnersTagged(totalRunners: 3));
+            Assert.IsFalse(outcome.IsTagged(RunnerC), "세 번째 도망자는 아직 자유롭다");
+            Assert.AreEqual(RoundResult.SeekerWin, outcome.Result);
         }
 
-        // 15) **가장 중요한 경계**: 혼재 상황에서도 §6.3의 if/else 순서가 지배한다.
-        //     밸브 완료 + 1명 탈출이면, 나머지가 전부 태그돼도 러너 승리다.
+        // ── 혼재 경계 케이스 ───────────────────────────────────────────
+
+        // 14) §6.3 경계표: "태그 2명과 탈출이 동일 프레임 → 탈출1·태그2 = 술래 승".
         [Test]
-        public void EscapeWithValvesComplete_BeatsRemainingTags()
+        public void OneEscapedTwoTagged_SeekerWins()
         {
             var outcome = new RoundOutcomeTracker();
             outcome.TryRegisterEscape(RunnerA, RoleType.Runner, gateOpen: true);
@@ -210,49 +200,66 @@ namespace Marco.Core.Tests
             outcome.TryRegisterTag(RoleType.Seeker, RunnerC, RoleType.Runner);
 
             outcome.Evaluate(valvesOpened: 3, totalValves: 3,
-                allRunnersTagged: outcome.AreAllRunnersTagged(3), timeRemainingSeconds: 200f);
+                taggedRunners: outcome.TaggedCount, timeRemainingSeconds: 200f);
 
-            Assert.AreEqual(RoundResult.RunnersWin, outcome.Result,
-                "탈출은 §6.3 첫 분기라 태그보다 우선한다");
+            Assert.AreEqual(RoundResult.SeekerWin, outcome.Result,
+                "탈출을 먼저 확정해도 1명뿐이라 도망자 조건에 못 미친다");
         }
 
-        // 16) 탈출 전에 전원 태그되면 술래 승리로 확정되고, 이후 탈출은 무의미하다
+        // 15) **가장 중요한 경계**: 혼재 상황에서도 §6.3의 우선순위(탈출 → 태그)가 지배한다.
+        //     밸브 완료 + 2명 탈출이면, 나머지가 태그돼도 러너 승리다.
+        [Test]
+        public void TwoEscapesWithValvesComplete_BeatRemainingTags()
+        {
+            var outcome = new RoundOutcomeTracker();
+            outcome.TryRegisterEscape(RunnerA, RoleType.Runner, gateOpen: true);
+            outcome.TryRegisterEscape(RunnerB, RoleType.Runner, gateOpen: true);
+            outcome.TryRegisterTag(RoleType.Seeker, RunnerC, RoleType.Runner);
+
+            outcome.Evaluate(valvesOpened: 3, totalValves: 3,
+                taggedRunners: outcome.TaggedCount, timeRemainingSeconds: 200f);
+
+            Assert.AreEqual(RoundResult.RunnersWin, outcome.Result,
+                "탈출은 §6.3 우선순위 1이라 태그보다 앞선다");
+        }
+
+        // 16) 탈출 전에 태그 2명이 되면 술래 승리로 확정되고, 이후 탈출은 무의미하다
         //     (라운드가 이미 끝났으므로 등록 자체가 거부된다).
         [Test]
-        public void AllTaggedBeforeEscape_LatchesSeekerWin()
+        public void TwoTaggedBeforeEscape_LatchesSeekerWin()
         {
             var outcome = new RoundOutcomeTracker();
             outcome.TryRegisterTag(RoleType.Seeker, RunnerA, RoleType.Runner);
             outcome.TryRegisterTag(RoleType.Seeker, RunnerB, RoleType.Runner);
-            outcome.TryRegisterTag(RoleType.Seeker, RunnerC, RoleType.Runner);
-            outcome.Evaluate(3, 3, outcome.AreAllRunnersTagged(3), 400f);
+            outcome.Evaluate(3, 3, outcome.TaggedCount, 400f);
 
-            bool escaped = outcome.TryRegisterEscape(RunnerA, RoleType.Runner, gateOpen: true);
+            bool escaped = outcome.TryRegisterEscape(RunnerC, RoleType.Runner, gateOpen: true);
 
             Assert.IsFalse(escaped);
             Assert.AreEqual(RoundResult.SeekerWin, outcome.Result);
         }
 
-        // 17) §6.3 세 분기가 모두 도달 가능해졌는지 최종 확인 —
-        //     이번 스프린트의 목적 자체를 고정하는 테스트.
+        // 17) §6.3 세 종료 경로가 모두 도달 가능한지 최종 확인.
         [Test]
         public void AllThreeVerdictPaths_AreReachable()
         {
-            // (a) 러너 승리 — 밸브 완료 + 탈출
+            // (a) 러너 승리 — 밸브 완료 + 탈출 2명
             var a = new RoundOutcomeTracker();
             a.TryRegisterEscape(RunnerA, RoleType.Runner, gateOpen: true);
-            a.Evaluate(3, 3, false, 300f);
+            a.TryRegisterEscape(RunnerB, RoleType.Runner, gateOpen: true);
+            a.Evaluate(3, 3, 0, 300f);
             Assert.AreEqual(RoundResult.RunnersWin, a.Result);
 
-            // (b) 술래 승리 — 전원 태그(시간 남음) ← 이번 스프린트로 열린 경로
+            // (b) 술래 승리 — 태그 2명(시간 남음)
             var b = new RoundOutcomeTracker();
             b.TryRegisterTag(RoleType.Seeker, RunnerA, RoleType.Runner);
-            b.Evaluate(0, 3, b.AreAllRunnersTagged(1), 300f);
+            b.TryRegisterTag(RoleType.Seeker, RunnerB, RoleType.Runner);
+            b.Evaluate(0, 3, b.TaggedCount, 300f);
             Assert.AreEqual(RoundResult.SeekerWin, b.Result);
 
             // (c) 술래 승리 — 시간 초과
             var c = new RoundOutcomeTracker();
-            c.Evaluate(0, 3, false, 0f);
+            c.Evaluate(0, 3, 0, 0f);
             Assert.AreEqual(RoundResult.SeekerWin, c.Result);
         }
     }

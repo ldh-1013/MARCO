@@ -32,13 +32,13 @@ namespace Marco.Core.Tests
             Assert.IsTrue(GhostFlight.IsFlying(RoleType.Echo));
         }
 
-        // ── §3.2 이동속도 8.0 m/s ────────────────────────────────────────
+        // ── §3.2 이동속도 6.0 m/s ────────────────────────────────────────
 
         [Test]
         public void Speed_MatchesDesignDoc()
         {
-            // §3.2 "이동속도 8.0 m/s". 지상 이동과 같은 상수를 공유해야 값이 갈라지지 않는다.
-            Assert.AreEqual(8.0f, GhostFlight.SpeedMetersPerSecond);
+            // §3.2 "이동속도 6.0 m/s"(기획서 갱신 8.0 → 6.0). 지상 이동과 같은 상수를 공유해야 값이 갈라지지 않는다.
+            Assert.AreEqual(6.0f, GhostFlight.SpeedMetersPerSecond);
             Assert.AreEqual(LocomotionConfig.EchoSpeed, GhostFlight.SpeedMetersPerSecond);
         }
 
@@ -47,7 +47,7 @@ namespace Marco.Core.Tests
         {
             Vector3 v = GhostFlight.Velocity(new Vector2(0f, 1f), 0f, Forward, Right);
 
-            Assert.AreEqual(8.0f, v.magnitude, 0.001f);
+            Assert.AreEqual(6.0f, v.magnitude, 0.001f);
             Assert.AreEqual(1f, Vector3.Dot(v.normalized, Forward), 0.001f);
         }
 
@@ -57,7 +57,7 @@ namespace Marco.Core.Tests
             // §4.2 "대각 입력이 직선보다 빨라지지 않도록" — 비행에도 같은 규칙을 적용한다.
             Vector3 v = GhostFlight.Velocity(new Vector2(1f, 1f), 1f, Forward, Right);
 
-            Assert.AreEqual(8.0f, v.magnitude, 0.001f, "3축을 동시에 눌러도 8.0m/s를 넘으면 안 된다.");
+            Assert.AreEqual(6.0f, v.magnitude, 0.001f, "3축을 동시에 눌러도 6.0m/s를 넘으면 안 된다.");
         }
 
         [Test]
@@ -74,8 +74,8 @@ namespace Marco.Core.Tests
             Vector3 up = GhostFlight.Velocity(Vector2.zero, 1f, Forward, Right);
             Vector3 down = GhostFlight.Velocity(Vector2.zero, -1f, Forward, Right);
 
-            Assert.AreEqual(8.0f, up.y, 0.001f);
-            Assert.AreEqual(-8.0f, down.y, 0.001f);
+            Assert.AreEqual(6.0f, up.y, 0.001f);
+            Assert.AreEqual(-6.0f, down.y, 0.001f);
         }
 
         [Test]
@@ -87,7 +87,7 @@ namespace Marco.Core.Tests
             Vector3 v = GhostFlight.Velocity(new Vector2(0f, 1f), 0f, tiltedForward, Right);
 
             Assert.Less(v.y, 0f, "카메라가 아래를 보는데 고도가 유지되면 자유 비행이 아니다.");
-            Assert.AreEqual(8.0f, v.magnitude, 0.001f);
+            Assert.AreEqual(6.0f, v.magnitude, 0.001f);
         }
 
         [Test]
@@ -96,7 +96,7 @@ namespace Marco.Core.Tests
             // 호출자가 정규화하지 않은 축을 넘겨도 속도가 부풀지 않아야 한다.
             Vector3 v = GhostFlight.Velocity(new Vector2(0f, 1f), 0f, Forward * 7f, Right * 3f);
 
-            Assert.AreEqual(8.0f, v.magnitude, 0.001f);
+            Assert.AreEqual(6.0f, v.magnitude, 0.001f);
         }
 
         // ── §5.1 "메아리는 발소리 없음" (GAP-61 2번과 맞물리는 지점) ──────
@@ -132,7 +132,7 @@ namespace Marco.Core.Tests
         [Test]
         public void Simulator_AsEcho_UsesEchoSpeed()
         {
-            // §3.2 8.0m/s가 지상 이동 경로에서도 같은 값으로 나오는지(상수 분기 방지).
+            // §3.2 6.0m/s가 지상 이동 경로에서도 같은 값으로 나오는지(상수 분기 방지).
             var sim = new LocomotionSimulator(RoleType.Echo);
             var input = new LocomotionInput(new Vector2(0f, 1f), sprintHeld: false,
                 diveHeld: false, isOnWaterSurface: false);

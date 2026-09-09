@@ -131,6 +131,7 @@ namespace Marco.EditorTools
             EnsureComponent<SettingsScreen>(flowGo);    // 스프린트 23: §12.6 설정 화면
             EnsureComponent<Voice.LocalVoicePipeline>(flowGo); // 스프린트 26a: §5.2 음성 1단계
             EnsureComponent<Marco.Presentation.Echo.EchoKnockController>(flowGo); // 스프린트 27: §3.2 메아리 노크
+            EnsureComponent<Marco.Presentation.Sound.ShoutInputController>(flowGo); // 5단계: §3.5 외침·숨 참기
 
             // 로비에서 pawn이 무한 낙하하지 않도록 임시 바닥(맵 로드 전 대기용).
             EnsureLobbyFloor(lobby);
@@ -391,6 +392,7 @@ namespace Marco.EditorTools
                 EnsureComponent<SettingsScreen>(flowGo);
                 EnsureComponent<Voice.LocalVoicePipeline>(flowGo);
                 EnsureComponent<Marco.Presentation.Echo.EchoKnockController>(flowGo);
+                EnsureComponent<Marco.Presentation.Sound.ShoutInputController>(flowGo);
 
                 EditorSceneManager.MarkSceneDirty(lobbyScene);
             }

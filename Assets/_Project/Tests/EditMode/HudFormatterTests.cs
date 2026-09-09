@@ -135,11 +135,15 @@ namespace Marco.Core.Tests
         }
 
         [Test]
-        public void FormatResultReason_SeekerWin_TimeRemaining_IsAllTagged()
+        public void FormatResultReason_SeekerWin_TimeRemaining_IsTagWin()
         {
-            // 시간이 남은 채 술래가 이기는 경로는 전원 태그뿐이다(서버가 확정 시 타이머를 멈추므로
-            // 남은 시간 값이 그대로 보존된다 — ServerRoundDriver.Tick).
-            StringAssert.Contains("붙잡", HudFormatter.FormatResultReason(RoundResult.SeekerWin, 120f));
+            // 시간이 남은 채 술래가 이기는 경로는 §6.3 "태그 2명 도달"뿐이다(서버가 확정 시
+            // 타이머를 멈추므로 남은 시간 값이 그대로 보존된다 — ServerRoundDriver.Tick).
+            string reason = HudFormatter.FormatResultReason(RoundResult.SeekerWin, 120f);
+
+            StringAssert.Contains("붙잡", reason);
+            StringAssert.Contains(WinConditionEvaluator.TagWinThreshold.ToString(), reason,
+                "'전원'이 아니라 임계 인원(2명)을 밝혀야 §12.3 HUD의 두 칸 표기와 맞는다.");
         }
 
         [Test]

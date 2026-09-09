@@ -150,19 +150,34 @@ namespace Marco.Core.Tests
 
         // ── §6.3 판정 연결 ─────────────────────────────────────────────
 
-        // 11) 밸브 전부 개방 + 1인 탈출 → 러너 승리. **이 스프린트로 처음 성립하는 경로.**
+        // 11) 밸브 전부 개방 + 2인 탈출 → 러너 승리(§6.3 갱신: 탈출 2명이 목표).
         [Test]
-        public void AllValvesOpenAndOneEscaped_DecidesRunnersWin()
+        public void AllValvesOpenAndTwoEscaped_DecidesRunnersWin()
+        {
+            var outcome = new RoundOutcomeTracker();
+            outcome.TryRegisterEscape(RunnerA, RoleType.Runner, gateOpen: true);
+            outcome.TryRegisterEscape(RunnerB, RoleType.Runner, gateOpen: true);
+
+            bool decided = outcome.Evaluate(valvesOpened: 3, totalValves: 3,
+                taggedRunners: 0, timeRemainingSeconds: 500f);
+
+            Assert.IsTrue(decided);
+            Assert.AreEqual(RoundResult.RunnersWin, outcome.Result);
+            Assert.IsTrue(outcome.IsDecided);
+        }
+
+        // 11-b) 탈출 1명으로는 결정되지 않는다(갱신 전에는 여기서 러너 승리였다).
+        [Test]
+        public void AllValvesOpenButOnlyOneEscaped_StaysUndecided()
         {
             var outcome = new RoundOutcomeTracker();
             outcome.TryRegisterEscape(RunnerA, RoleType.Runner, gateOpen: true);
 
             bool decided = outcome.Evaluate(valvesOpened: 3, totalValves: 3,
-                allRunnersTagged: false, timeRemainingSeconds: 500f);
+                taggedRunners: 0, timeRemainingSeconds: 500f);
 
-            Assert.IsTrue(decided);
-            Assert.AreEqual(RoundResult.RunnersWin, outcome.Result);
-            Assert.IsTrue(outcome.IsDecided);
+            Assert.IsFalse(decided);
+            Assert.AreEqual(RoundResult.InProgress, outcome.Result);
         }
 
         // 12) 시간 초과 + 아무도 탈출 못함 → 술래 승리.
@@ -172,7 +187,7 @@ namespace Marco.Core.Tests
             var outcome = new RoundOutcomeTracker();
 
             bool decided = outcome.Evaluate(valvesOpened: 2, totalValves: 3,
-                allRunnersTagged: false, timeRemainingSeconds: 0f);
+                taggedRunners: 0, timeRemainingSeconds: 0f);
 
             Assert.IsTrue(decided);
             Assert.AreEqual(RoundResult.SeekerWin, outcome.Result);
@@ -185,7 +200,7 @@ namespace Marco.Core.Tests
             var outcome = new RoundOutcomeTracker();
 
             bool decided = outcome.Evaluate(valvesOpened: 1, totalValves: 3,
-                allRunnersTagged: false, timeRemainingSeconds: 400f);
+                taggedRunners: 0, timeRemainingSeconds: 400f);
 
             Assert.IsFalse(decided);
             Assert.AreEqual(RoundResult.InProgress, outcome.Result);
@@ -199,9 +214,10 @@ namespace Marco.Core.Tests
         {
             var outcome = new RoundOutcomeTracker();
             outcome.TryRegisterEscape(RunnerA, RoleType.Runner, gateOpen: true);
+            outcome.TryRegisterEscape(RunnerB, RoleType.Runner, gateOpen: true);
 
-            bool first = outcome.Evaluate(3, 3, false, 500f);   // RunnersWin 확정
-            bool second = outcome.Evaluate(0, 3, true, 0f);     // 술래 승리 조건으로 재평가 시도
+            bool first = outcome.Evaluate(3, 3, 0, 500f);   // RunnersWin 확정
+            bool second = outcome.Evaluate(0, 3, 2, 0f);    // 술래 승리 조건으로 재평가 시도
 
             Assert.IsTrue(first);
             Assert.IsFalse(second, "이미 결정된 라운드는 다시 결정되지 않는다");
@@ -213,7 +229,7 @@ namespace Marco.Core.Tests
         public void EscapeAfterRoundDecided_IsIgnored()
         {
             var outcome = new RoundOutcomeTracker();
-            outcome.Evaluate(0, 3, false, 0f); // 시간 초과 → SeekerWin
+            outcome.Evaluate(0, 3, 0, 0f); // 시간 초과 → SeekerWin
 
             bool escaped = outcome.TryRegisterEscape(RunnerA, RoleType.Runner, gateOpen: true);
 
@@ -221,18 +237,33 @@ namespace Marco.Core.Tests
             Assert.AreEqual(RoundResult.SeekerWin, outcome.Result);
         }
 
-        // 16) 시간 초과 시점에 이미 탈출자가 있었다면 러너 승리가 우선한다
-        //     (§6.3 의사코드의 if/else 순서 — 탈출은 취소되지 않는 달성이다).
+        // 16) 시간 초과 시점에 이미 탈출 2명이 확정돼 있으면 러너 승리가 우선한다
+        //     (§6.3 "동일 프레임 우선순위" 1 탈출 → 3 시간 종료).
         [Test]
-        public void TimeExpiredButSomeoneEscaped_RunnersWinTakesPrecedence()
+        public void TimeExpiredButTwoEscaped_RunnersWinTakesPrecedence()
+        {
+            var outcome = new RoundOutcomeTracker();
+            outcome.TryRegisterEscape(RunnerA, RoleType.Runner, gateOpen: true);
+            outcome.TryRegisterEscape(RunnerB, RoleType.Runner, gateOpen: true);
+
+            outcome.Evaluate(valvesOpened: 3, totalValves: 3,
+                taggedRunners: 0, timeRemainingSeconds: 0f);
+
+            Assert.AreEqual(RoundResult.RunnersWin, outcome.Result);
+        }
+
+        // 16-b) §6.3 ★ 케이스: 시간 종료 · 탈출1 · 태그0 · 미탈출2 → 술래 승리.
+        //       갱신 전 코드는 이것을 도망자 승리로 판정했다.
+        [Test]
+        public void TimeExpiredWithOneEscaped_SeekerWins()
         {
             var outcome = new RoundOutcomeTracker();
             outcome.TryRegisterEscape(RunnerA, RoleType.Runner, gateOpen: true);
 
             outcome.Evaluate(valvesOpened: 3, totalValves: 3,
-                allRunnersTagged: false, timeRemainingSeconds: 0f);
+                taggedRunners: 0, timeRemainingSeconds: 0f);
 
-            Assert.AreEqual(RoundResult.RunnersWin, outcome.Result);
+            Assert.AreEqual(RoundResult.SeekerWin, outcome.Result);
         }
 
         // 17) 타이머 만료 → 판정까지 이어지는 흐름(코디네이터가 하는 일의 순수 부분).
@@ -241,7 +272,7 @@ namespace Marco.Core.Tests
         {
             var timer = new RoundTimer();
             var outcome = new RoundOutcomeTracker();
-            timer.Expired += () => outcome.Evaluate(1, 3, false, timer.RemainingSeconds);
+            timer.Expired += () => outcome.Evaluate(1, 3, 0, timer.RemainingSeconds);
 
             timer.Start(5f);
             timer.Tick(2f);

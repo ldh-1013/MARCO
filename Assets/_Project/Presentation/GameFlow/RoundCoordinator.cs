@@ -28,8 +28,8 @@ namespace Marco.Presentation.GameFlow
         [SerializeField] private float _roundDurationSeconds = RoundTimer.FourPlayerSeconds;
 
         [Header("판정 입력 보조")]
-        [Tooltip("태그 시스템을 거치지 않고 §6.3 술래 승리 분기를 강제로 확인하고 싶을 때만 사용.")]
-        [SerializeField] private bool _forceAllRunnersTagged;
+        [Tooltip("태그 시스템을 거치지 않고 §6.3 술래 승리 분기(태그 2명 도달)를 강제로 확인하고 싶을 때만 사용.")]
+        [SerializeField] private bool _forceSeekerTagWin;
 
         [Header("디버그")]
         [Tooltip("남은 시간 로그 간격(초). 0이면 끈다.")]
@@ -113,9 +113,9 @@ namespace Marco.Presentation.GameFlow
             if (_valveTracker == null)
                 _valveTracker = FindAnyObjectByType<ValveObjectiveTracker>();
 
-            // §6.3 allRunnersTagged 판정의 분모. 로컬에서는 씬에 놓인 대역 도망자 수다.
-            // 스프린트 11 주의: 네트워크 모드에서 실제 러너 수를 반영하는 것은 라운드 결과
-            // 네트워크화(다음 스프린트) 몫이라, 이 분모는 아직 대역 기준이다(GAP-18 기록).
+            // **판정에는 더 이상 쓰이지 않는다** — §6.3이 종료 조건을 "태그 2명 도달"로 확정해
+            // 분모가 필요 없어졌고(GAP-13/GAP-18 소멸), 이 값은 이제 로그 표시용이다
+            // ("태그 1/3"처럼 진행 상황을 읽기 위한 것). 로컬에서는 씬의 대역 도망자 수다.
             _totalRunners = FindObjectsByType<TaggableRunner>().Length;
         }
 
@@ -346,9 +346,13 @@ namespace Marco.Presentation.GameFlow
         {
             int opened = _valveTracker != null ? _valveTracker.OpenedCount : 0;
             int total = _valveTracker != null ? _valveTracker.TotalValves : 0;
-            bool allTagged = _forceAllRunnersTagged || _outcome.AreAllRunnersTagged(_totalRunners);
+            // §6.3은 "태그 2명 도달"이 종료 조건이라 전체 러너 수(분모)가 필요 없다 —
+            // 강제 옵션도 임계값을 그대로 넘기는 것으로 충분하다.
+            int tagged = _forceSeekerTagWin
+                ? WinConditionEvaluator.TagWinThreshold
+                : _outcome.TaggedCount;
 
-            if (!_outcome.Evaluate(opened, total, allTagged, _timer.RemainingSeconds))
+            if (!_outcome.Evaluate(opened, total, tagged, _timer.RemainingSeconds))
                 return;
 
             _timer.Stop();

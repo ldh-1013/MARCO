@@ -1147,3 +1147,538 @@ EchoKnockController.cs  mouse.position.ReadValue() → TryResolveWorldPoint → 
 ### 상태
 
 **코드 완료** — §29 통합 실기 재검증 대기.
+
+---
+
+## 기획서 정합 2단계 — 노크 규칙 정리 (B3·B4·B5)
+
+갱신된 `docs/마르코_상세기획서.md` §3.2·§3.2-1·§4.3을 코드에 반영했다.
+
+### B5. 미니맵 삭제 — 발생 위치를 메아리의 현재 위치로
+
+§3.2-1이 **"미니맵 시스템은 존재하지 않는다"**, §4.3이 `Tab(미니맵 토글) + 좌클릭(지점 지정)` 행의
+삭제를 명시하면서, 노크만 예외적으로 지점을 클라이언트가 정하던 구조가 통째로 사라졌다.
+
+**이제 노크는 발소리·밸브·음성과 완전히 같은 규칙이다** — 서버가 `caller.FirstObject`에서 위치를
+얻는다(GAP-24). 그 결과 `ServerRpc` 페이로드가 **비었다**: 클라이언트가 정할 수 있는 것은
+"지금 쓴다"뿐이다.
+
+**GAP-66 (신규 판단)**: §3.2는 1.5초 지연 **중**에 메아리가 움직였을 때 어느 위치에서 소리가
+나는지 규정하지 않는다. **요청 시점의 위치로 고정**했다 — 그래야 "그 자리에 가서 누르고
+빠져나온다"는 §3.2의 유인 플레이가 성립한다. 발생 시점 위치를 쓰면 메아리가 소리를 끌고 다니게 된다
+(6.0m/s × 1.5초 = 9m, 노크 반경과 같은 크기라 무시할 수 없는 차이다).
+
+### B3. 라운드당 5회 하드캡 · B4. 전환 후 20초 잠금
+
+`ServerKnockDriver`가 **역할 → 횟수 → 잠금 → 쿨다운** 순으로 판정한다. 순서에 이유가 있다:
+5회를 다 쓴 사람에게 "쿨다운 12초"라고 알리면 기다리면 다시 쓸 수 있다는 잘못된 기대를 준다.
+
+**20초 잠금의 기준 시각**은 `ObserveEcho`가 기록한다 — `PulseNetworkSync`가 매 틱
+`RoleNetworkSync.EffectiveRole`로 메아리를 관측해 넘기며, **최초 1회만** 기록되므로 매 틱 불러도
+잠금이 뒤로 밀리지 않는다. 청취자 스냅샷의 `Role`이 아니라 `EffectiveRole`을 쓰는 이유는 태그
+직후 몇 프레임 동안 역할 SyncVar가 아직 `Runner`일 수 있고, 잠금은 **태그당한 순간**부터 세야
+하기 때문이다(`TryGetCallerIdentity`가 쓰던 판정을 `EffectiveRole` 한 곳으로 모았다).
+
+### `Reset()` 호출부가 없었다 — 이번에 연결했다
+
+지시대로 확인한 결과, **`ServerKnockDriver.Reset()`을 부르는 코드가 어디에도 없었다.** 스프린트 27
+당시에는 초기화할 라운드 상태가 없어 드러나지 않던 결함인데, 5회 카운터가 생기는 순간
+**2라운드부터 노크가 아예 불가능해지는** 버그가 된다.
+
+`RoundNetworkSync`가 `PulseNetworkSync`를 호출하게 만들지 않고, **`TickKnocks`가 페이즈 전이를
+관측**하는 쪽을 골랐다 — 이 컴포넌트는 이미 매 틱 `RoundNetworkSync.ServerPhase`를 읽고 있어
+(노크 페이즈 게이트) 새 결합이 생기지 않는다.
+
+### 삭제·신설 목록
+
+| 대상 | 내용 |
+|---|---|
+| 삭제 (메서드) | `EchoKnockController.HandleDesignationClick` · `TryResolveWorldPoint` · `SetMinimap` · `ApplyCursorRelease` · `EnsureCamera` |
+| 삭제 (필드) | `_minimapKey` · `_mapCenter` · `_orthographicSize` · `_cameraHeight` · `_groundPlaneY` · `_minimapCamera` · `_minimapOpen`, 프로퍼티 `MinimapOpen` |
+| 삭제 (씬) | `Lobby.unity`의 미니맵 직렬화 필드 5개 → `_knockKey: 20`(Key.F) + `_showHud` |
+| 삭제 (시그니처) | `IPulseNetworkBridge.SubmitKnock(Vector3)` → `SubmitKnock()`, `ServerSubmitKnock(Vector3, NetworkConnection)` → `ServerSubmitKnock(NetworkConnection)` |
+| 신규 필드 | `ServerKnockDriver._usesThisRound` · `_becameEchoAt`, `PulseNetworkSync._lastKnockPhase` |
+| 신규 API | `ServerKnockDriver.ObserveEcho` · `UsesRemaining` · `LockoutRemaining`, `KnockRequestResult.NoUsesLeft` · `Locked`, `RoleNetworkSync.EffectiveRole`, `PulseNetworkSync.ObserveEchoes` |
+| **삭제한 파일** | **없다** — `EchoKnockController`는 키 입력 계층으로 남는다 |
+
+### 검증
+
+- Core / Net / Presentation / Core.Tests / Assembly-CSharp / Marco.DebugTools: **오류 0 · Marco 코드 경고 0**.
+- EditMode 총계 **557 → 573 전수 통과**(신규·갱신 케이스는 아래 표).
+- **EditMode로 검증 불가능한 부분**: 라운드 전이에서 `Reset()`이 실제로 불리는지, 태그 순간부터
+  20초가 세지는지, `Key.F` 입력이 실제로 도달하는지는 `MonoBehaviour` 수명주기 + FishNet 스폰이
+  필요하다 — §29 실기 항목이다.
+
+### GAP 기록
+
+| # | 내용 | 처리 |
+|---|---|---|
+| **62** | 노크 지정 모드에서 커서가 잠겨 클릭 좌표가 고정됨 | ✅ **삭제된 UI와 함께 소멸** — 미니맵·지점 클릭이 §3.2-1로 폐지돼 커서 해제 경로 자체가 없어졌다 |
+| **65** | §4.3이 노크 키를 **미확정**으로 둔다 | 🟡 **기록** — 임시로 `Key.F`. 키 리바인딩 작업에서 확정한다(§4.3 "미확정 표기된 키는 이 문서에서 확정하지 않는다") |
+| **66** | §3.2가 1.5초 지연 **중** 이동 시 발생 위치를 규정하지 않는다 | 🟡 **판단하여 구현** — **요청 시점 위치로 고정**. 위 근거 참조 |
+
+**GAP-61 재확인**: 이번에 건드린 코드에서 `LocalPlayerRegistry.Current`를 필드에 굳힌 곳은 없다.
+`EchoKnockController`는 `Update`·`OnGUI`가 각각 `IsLocalEcho()`를 거쳐 **매 프레임 재조회**하며,
+캐시하던 유일한 경로였던 `ApplyCursorRelease`는 이번에 삭제됐다.
+
+### 남은 것 (이번 스코프 밖)
+
+- `FirstPersonController.SetCursorReleased`/`_cursorReleased`가 **호출자를 잃었다**. 커서 정책
+  자체는 유지하는 편이 안전해 이번에는 두었다 — 삭제 여부는 별도 판단이 필요하다.
+- §8.3 유인 판정이 갱신본(2초 사전 창 · 0.5초 샘플링 · 접근누적 3.0초 · 감시 30초)과 다르다.
+  현재 코드는 GAP-59 휴리스틱(9m 밖 → 25초 내 진입)이다. **갭 분석의 별도 단계**다.
+
+### 상태
+
+**코드 완료** — §29 통합 실기 재검증 대기.
+
+---
+
+## 기획서 정합 3단계 — 승리 판정 (B1·B2 + 이월 C1)
+
+### 변경 전 / 후 조건식
+
+```csharp
+// 이전
+if (valvesOpened >= totalValves && runnersEscaped >= 1)   return RunnersWin;
+if (allRunnersTagged || timeRemaining <= 0f)              return SeekerWin;
+
+// 이후 (§6.3 갱신본)
+if (totalValves > 0 && valvesOpened >= totalValves
+    && runnersEscaped >= EscapeWinThreshold /* 2 */)      return RunnersWin;
+if (taggedRunners >= TagWinThreshold /* 2 */
+    || timeRemaining <= 0f)                               return SeekerWin;
+```
+
+판정 **순서는 그대로 유지**했다 — §6.3 "동일 프레임 처리 우선순위: 탈출 → 태그 → 시간 종료".
+
+### B1 — 왜 코드는 `escaped > (tagged + notEscaped)`가 아니라 "탈출 ≥ 2"인가
+
+§6.3의 정식 판정식은 **미탈출**을 입력으로 쓰는데, 미탈출은 정의상 "시간 종료 시점에 살아
+있으나 탈출하지 못함"이라 **라운드 도중에는 존재하지 않는 값**이다. 판정은 매 프레임 호출되므로,
+도중에도 계산 가능한 등가식으로 옮겨야 "탈출 2명이 나온 순간 즉시 도망자 승리"가 성립한다.
+
+도망자 3명 고정(§1)에서 세 상태의 합은 항상 3이므로
+`escaped > 3 - escaped` ⟺ `2·escaped > 3` ⟺ `escaped ≥ 2`다.
+
+### B2 — 태그 2명 즉시 종료
+
+`allRunnersTagged`(불리언) → `taggedRunners`(정수)로 바꿨다.
+§6.3: "**술래는 도망자 3명을 전부 태그할 필요가 없다. 2명이면 확정이다.**"
+
+### ServerRoundDriver의 태그 카운트 — 세는 방식이 바뀌었다
+
+| | 이전 | 이후 |
+|---|---|---|
+| API | `static bool AllRunnersTagged(IReadOnlyList<ITagTarget>)` | `static int TaggedCount(IReadOnlyList<ITagTarget>)` |
+| 계산 | 태그 수 > 0 **&& 미태그 러너 수 == 0** | 태그 수만 센다 |
+| 모집단 의존 | **있음** — 미태그 대상이 하나라도 등록돼 있으면 false | **없음** |
+
+**GAP-19가 이 변경으로 소멸했다.** GAP-19의 본체는 "분모(전체 러너 수)를 어떻게 아는가"였고,
+그 때문에 씬 대역 러너가 활성화돼 있으면 실제 플레이어를 다 태그해도 라운드가 끝나지 않았다
+(스프린트 13에서 지적 → 스프린트 15에서 대역 비활성화로 우회). §6.3이 종료 조건을 **절대 인원**으로
+확정하면서 분모가 판정에서 완전히 빠졌다 — 대역이 등록돼 있든 없든 결과가 같다.
+`RoundOutcomeTracker`도 같은 이유로 `AreAllRunnersTagged(int totalRunners)`를 걷어냈다(GAP-13 소멸).
+
+### 이월 C1 — `totalValves == 0` 방어
+
+**없었고, 이번에 추가했다.** `totalValves > 0`을 도망자 승리 분기의 선행 조건으로 넣었다.
+
+**요구사항 문구와 다른 방향으로 구현했다.** 지시는 "`totalValves == 0`일 때 즉시 RunnersWin을
+반환하는 방어 코드"였는데, 3/3 검증 기록(이 로그 403행)이 **`totalValves == 0`이면 `0 >= 0`이 참이
+되어 즉시 RunnersWin이 나오는 것 자체를 결함으로** 적고 있다. 밸브 목표가 구성되지 않은 씬을
+"목표를 전부 달성했다"로 읽는 것은 §6.1과 정반대이므로, **미구성은 승리가 아니라 판정 불가**로
+다뤘다. 반대 방향을 의도했다면 조건식 한 줄이므로 알려주면 뒤집는다.
+
+### 3 Runner 전수검증 (§6.3 표 10행 — 테스트로 고정)
+
+`ThreeRunnerExhaustive_MatchesDesignDocFormula`가 각 행마다 세 가지를 확인한다:
+① §6.3 원식 `escaped > (tagged + notEscaped)`를 테스트 안에서 직접 계산해 표의 판정과 대조,
+② 코드의 실제 결과, ③ "탈출 ≥ 2"와의 정확한 일치.
+
+| 탈출 | 태그 | 미탈출 | §6.3 원식 | 코드 결과 | 탈출≥2 | 일치 |
+|---:|---:|---:|---|---|---|---|
+| 3 | 0 | 0 | 도망자 승 | RunnersWin | ✓ | ✅ |
+| 2 | 1 | 0 | 도망자 승 | RunnersWin | ✓ | ✅ |
+| 2 | 0 | 1 | 도망자 승 | RunnersWin | ✓ | ✅ |
+| 1 | 2 | 0 | 술래 승 | SeekerWin | ✗ | ✅ |
+| 1 | 1 | 1 | 술래 승 | SeekerWin | ✗ | ✅ |
+| **1** | **0** | **2** | **술래 승** | **SeekerWin** | ✗ | ✅ ← ★ 이전 코드는 도망자 승이었다 |
+| 0 | 3 | 0 | 술래 승 | SeekerWin | ✗ | ✅ |
+| 0 | 2 | 1 | 술래 승 | SeekerWin | ✗ | ✅ |
+| 0 | 1 | 2 | 술래 승 | SeekerWin | ✗ | ✅ |
+| 0 | 0 | 3 | 술래 승 | SeekerWin | ✗ | ✅ |
+
+**10/10 일치.** ★ 행은 `TimeoutWithOneEscapedAndNoneTagged_SeekerWins`로 한 번 더 단독 고정했다.
+
+### 함께 바뀐 것
+
+| 파일 | 변경 |
+|---|---|
+| `RoundNetworkSync` | `AllRunnersTagged` → `TaggedCount` 호출, 종료 로그를 `탈출 n/2, 태그 n/2`로 |
+| `RoundCoordinator` | `_forceAllRunnersTagged` → `_forceSeekerTagWin`(씬 필드 포함), `_totalRunners`는 로그 전용으로 강등 |
+| `HudFormatter` | "도망자가 전원 붙잡혔다" → "도망자 2명이 붙잡혔다", 러너 승리 문구도 임계값 반영 |
+| `수동검증_절차.md` | §8-2·§9-4·§13-4·§14-6을 새 규칙으로. **2인 테스트에서는 태그로 라운드가 끝나지 않는다**는 경고 추가 |
+
+### 실기에 미치는 영향 (반드시 인지할 것)
+
+**2인 테스트 구성에서는 태그로 라운드가 끝나지 않는다.** 러너가 1명뿐이라 태그 최대치가 1이고
+§6.3 임계값은 2다. 회귀가 아니라 **도망자 3명 전제(§1)를 벗어난 구성의 정상 귀결**이며,
+태그 종료를 확인하려면 **최소 3인(술래 1 + 러너 2)** 이 필요하다.
+같은 이유로 탈출 승리도 **2명이 나가야** 확인된다.
+
+### 검증
+
+- Core / Net / Presentation / Core.Tests / Assembly-CSharp / Marco.Editor: **오류 0 · Marco 코드 경고 0**.
+- EditMode 총계 **573 → 596 전수 통과**.
+- **EditMode로 검증 불가능한 부분**: `TagTargetRegistry`/`EscapeGateRegistry`의 실제 모집단 구성과
+  라운드 종료 전파는 FishNet 스폰이 필요하다 — 위 실기 항목이다.
+
+### 상태
+
+**코드 완료** — 실기 재검증 대기(§8-2 · §9-4 · §13-4 · §14-6, 그리고 스프린트 27 §29).
+
+---
+
+## 기획서 정합 4단계 — 발소리 발생 주기(B6) · 재질 배율(C11)
+
+§8 무성 생존상의 **입력값**을 문서와 맞추는 단계다. 어워드 판정식 자체(`PulseCount == 0`
+이진 판정)는 손대지 않았다 — 그건 6단계다.
+
+### B6. 시간 기준 → 이동거리 기준
+
+§5.1-1: "발소리 파문은 **자신의 발생 반경과 같은 거리를 이동할 때마다** 1회 발생한다."
+
+| | 이전(구 GAP-8) | 이후(§5.1-1) |
+|---|---|---|
+| 기준 | `_timeSinceLastPulse` ≥ 지속시간 | 등급별 누적 이동거리 ≥ 발생 반경 |
+| 걷기 | 0.4초마다 | **2m마다** |
+| 질주 | 0.8초마다 | **6m마다** |
+| 첫 파문 | 이동 시작 즉시 | **임계값 도달 시** |
+| 제자리 회전 | 계속 소리가 났다 | **소리 없음** |
+
+**필드와 갱신 위치**: `LocomotionSimulator`에 `_walkDistance`·`_sprintDistance` 두 개.
+`Tick`의 발소리 블록에서 `speed * deltaSeconds`를 해당 등급 누적에 더하고, 임계값을 넘으면
+파문을 내고 **임계값만큼 뺀다**(0으로 밀지 않는다 — 그래야 프레임률에 따라 1m당 파문 수가
+달라지지 않는다). Idle·Diving 진입 시 둘 다 0으로 리셋한다.
+
+**걷기와 질주를 따로 세는 이유**: 등급이 바뀌었다고 진행 중이던 누적을 버리면
+걷기↔질주를 번갈아 눌러 발소리를 지울 수 있다.
+
+**알려진 한계**: 누적은 시뮬레이터가 낸 **의도 속도**를 적분한 값이라, 벽에 붙어 W를 누르고
+있으면 실제로 나아가지 않아도 파문이 난다. 순수 Core를 유지하려는 선택의 결과이며
+(`CharacterController`의 실제 변위를 되먹이려면 인터페이스가 Presentation에 묶인다),
+방향은 **은신에 불리한 쪽**이라 악용되지 않는다.
+
+**체감 변화**: 이동 시작 후 첫 0.4초가 **무음**이 됐다. §5.1-1의 "미세 이동으로 파문을
+양산할 수 없다"가 그대로 적용된 결과다.
+
+### C11. 재질 배율 — 어디서 판정하고 어디에 곱하는가
+
+기존 구조를 그대로 따랐다. `PhysicsOcclusionProbe`가 **Physics 조회(Probe)** 와
+**순수 규칙(Classify)** 을 나눠 갖는 그 구조를 복제했다.
+
+| 계층 | 추가물 | 역할 |
+|---|---|---|
+| Core | `FootstepMaterial` enum · `FootstepMaterialRules` | §5.9 표(배율·물 예외·적용 대상)의 순수 규칙 |
+| Core | `IFootstepMaterialProbe` | "이 좌표의 바닥은 무슨 재질인가" 계약 |
+| Core | `PulseNetworkRegistry.FootstepMaterialProbe` + `SampleMaterial` | Net ↔ Presentation 지연 바인딩(차폐 프로브와 같은 자리) |
+| Presentation | `PhysicsFootstepMaterialProbe` | 발밑으로 짧은 레이 → 콜라이더 **태그** 판독 |
+| Net | `PulseNetworkSync.ServerSubmitPulse` | **서버가** 서버 측 위치에서 재질을 조회해 드라이버로 넘김 |
+| Core | `ServerPulseDriver.AddPulse(..., FootstepMaterial)` | §5.1 기본 반경 × 배율. 물이면 등록 거부(-1) |
+
+**왜 태그인가**: `PhysicsOcclusionProbe`가 이미 벽을 `Wall`/`HardBlocker` 태그로 구분한다.
+새 컴포넌트를 바닥마다 붙이면 그레이박스 정리가 늘고, 레이어는 이미 차폐용으로 의미가 겹친다.
+`ProjectSettings/TagManager.asset`에 7개 태그(`FloorConcrete`·`FloorWood`·`FloorMetalGrating`·
+`FloorTile`·`FloorMat`·`FloorStage`·`FloorWater`)를 등록했다 —
+**미등록 태그에 `CompareTag`를 호출하면 UnityException이 난다.**
+
+**왜 서버가 판정하는가**: 클라이언트가 반경을 정할 수 없다는 GAP-24와 같은 원칙이다.
+클라이언트가 "나는 카펫 위다"라고 주장하면 발소리를 마음대로 줄일 수 있다.
+로컬 단독 실행 경로(`LocalPulsePipelineBehaviour`)도 **같은 Core 규칙**을 호출해,
+두 경로가 다른 반경을 내지 않는다.
+
+**§5.1-1 준수**: 배율은 오직 `ServerPulseDriver.AddPulse`의 **반경**에만 곱해진다.
+`LocomotionSimulator`는 재질을 **입력으로 받지도 않는다** — 구조적으로 간격에 섞일 수 없다.
+
+**§5.9 표에서 옮기지 않은 것**: 나무 마루의 "**상시 강제 발생(은신 불가)**".
+§11 폐극장 맵 자체가 없어 재현 대상이 없고, "정지 중에도 소리가 난다"는 §5.1-1의 이동거리
+규칙을 정면으로 뒤집는 예외라 별도 작업이 맞다. **배율 ×1.2만** 옮겼다.
+
+**음성·밸브·노크에는 적용하지 않는다**(`FootstepMaterialRules.AppliesTo`). §5.9의 제목이
+"재질별 **발소리** 배율"이고, 카펫 위에서 고함쳤다고 22m가 15.4m로 줄면 §5.1이 무너진다.
+
+### 검증
+
+- Core / Net / Presentation / Core.Tests / Assembly-CSharp / Marco.Editor: **오류 0 · Marco 코드 경고 0**.
+- EditMode 총계 **596 → 637 전수 통과**.
+- **EditMode로 검증 불가능한 부분**: 실제 레이캐스트가 바닥을 맞히는지, 태그가 씬에 붙어
+  있는지, 서버 물리 씬에 맵이 로드돼 있는지는 §2·§2-1 실기 항목이다.
+
+### 상태
+
+**코드 완료** — 실기 재검증 대기(§2 · §2-1). **현재 그레이박스 맵에는 바닥 태그가 없어
+모든 재질이 콘크리트(×1.0)로 판정된다** — 배율의 실기 확인은 태그 배선 후에 가능하다.
+
+---
+
+## 기획서 정합 5단계 — 숨 게이지(§5.9-1) · 술래 외침(§3.5) · 비명(§5.1)
+
+셋이 서로의 입력이라 한 덩어리로 진행했다. 커밋도 나누지 않았다.
+
+### 착수 전 확인 — 기존 기록과의 충돌 여부
+
+| 확인 대상 | 결과 |
+|---|---|
+| §5.9-1 "4상태" vs 구현 | **충돌 아님**. §5.9-1 표 자신이 회복 대기를 *"위 3상태와 별개로 … 유지되는 **플래그**"* 로 정의한다. 잠수이면서 동시에 회복 대기일 수 있어 한 enum에 넣으면 표현 불가능한 조합이 생긴다 → **3상태 enum + 플래그 1개**로 구현 |
+| `MovementState.Diving` 재사용 가능 여부 | **가능. 재사용했다.** 잠수 진입 판정(§4.3 "수면 위에서만, 홀드")은 이미 `LocomotionSimulator`가 소유한다. `BreathConfig.ZoneOf(MovementState, bool)`가 그 결과를 **읽기만** 한다 — 새 잠수 상태를 만들지 않았다 |
+| 잠수 중 억제의 게이지 처리 | **§3.5 표에 이미 답이 있었다**: "잠수 중 / 이미 게이지 소모 중 / 자동 억제(물속이라 비명 못 지름)". 즉 **-3이 붙지 않는다** — 억제와 잠수 소모가 같은 프레임에 이중 차감되는 상황이 구조적으로 발생하지 않는다 |
+
+### 신규 클래스 / 필드
+
+| 계층 | 대상 | 내용 |
+|---|---|---|
+| Core | `BreathZone` (enum) | 잠수 / 수면 / 물 밖 — §5.9-1 3상태 |
+| Core | `BreathConfig` | 8초 · -1/s · -3 · +2/s · +4/s · 대기 2초 · 페널티 3초/×0.8 · `ZoneOf` · `MaxConsecutiveSuppressions`(8÷3 유도) |
+| Core | `BreathGauge` | `_current` · `_recoveryDelayRemaining` · `_chokePenaltyRemaining`, `Tick` · `TrySuppressScream` · `CanSubmerge` · `SpeedMultiplier` · `Reset` |
+| Core | `SuppressionResult` · `BreathTick` | 억제 결과 3종 / 질식 1회성 신호 |
+| Core | `ScreamConfig` | §5.1 9m · 1.0초 |
+| Core | `SeekerShoutConfig` | **A** `ShoutPulseRadiusMeters`(고함 등급 참조) · **B** `FearRadiusMeters`(독립 상수) · 1초 · 45초 |
+| Core | `ServerShoutDriver` | `_cooldownUntil` · `_pending` · `_suppressAttemptAt`, `TryRequest` · `CancelOnMove` · `NotifySuppressAttempt` · `Tick` · `ResolveFear` · `IsInFearRadius` |
+| Core | `ShoutRequestResult` · `ScreamOutcome` · `ShoutTarget` · `ScreamReaction` · `ShoutActivation` | 판정 입출력 |
+| Core | `SoundType.Scream` | §5.1 신설. `Shout`과 **별개 종류** |
+| Core | `LocomotionInput.CanSubmerge` · `SpeedMultiplier` | 기본값 있는 선택 인자 — 기존 호출부 전부 그대로 컴파일된다 |
+| Core | `IPulseNetworkBridge.SubmitShout` · `SubmitHoldBreath` | 둘 다 **인자 없음**(GAP-24) |
+| Net | `PulseNetworkSync._shoutDriver` · `_breath` · `_shoutAnchor` · `_shoutTargets` · `_movedSeekers` | 서버 권위 상태 |
+| Net | `ServerSubmitShout` · `ServerSubmitHoldBreath` (ServerRpc) | 페이로드 없음 |
+| Net | `TickBreath` · `TickShouts` · `CancelMovedShouts` · `BuildShoutTargets` · `ZoneOf` · `BreathOf` | 서버 루프 |
+| Presentation | `ShoutInputController` | `_shoutKey`(임시 R) · `_holdBreathKey`(Left Ctrl, §4.3 확정) |
+
+### 상태 전이표 (§5.9-1)
+
+| 현재 상태 | 입력 | 다음 상태 | 게이지 변화 | 회복 대기 |
+|---|---|---|---|---|
+| 물 밖 | Ctrl 홀드 + 수면 존 + 숨 > 0 | **잠수** | -1/초 | **매 틱 2초로 리셋** |
+| 물 밖 | Ctrl 홀드 + 수면 존 + **숨 = 0** | 물 밖 (진입 거부) | 없음 | 유지 |
+| 잠수 | Ctrl 해제 / 수면 존 이탈 | 수면·물 밖 | 소모 중단 | 부상 시점부터 2초 |
+| 잠수 | 게이지 0 도달 | **강제 부상** | 0에서 고정 | 2초 |
+| 수면 | 대기 > 0 | 수면 | 없음 | 소진 중 |
+| 수면 | 대기 = 0 | 수면 | **+2/초** (8 상한) | — |
+| 물 밖 | 대기 = 0 | 물 밖 | **+4/초** (8 상한) | — |
+| 수면·물 밖 | 억제 입력 + 숨 ≥ 3 | 그대로 | **-3 즉시** | **2초로 리셋** |
+| 수면·물 밖 | 억제 입력 + 숨 < 3 | 그대로 | **변화 없음** (음수 불가) | 유지 |
+| 잠수 | 억제(입력 유무 무관) | 그대로 | **변화 없음**(자동 억제) | 잠수 규칙대로 |
+| 라운드 시작 | `Reset()` | 물 밖 · 만충 | 8 | 해제 |
+
+### 상태 전이표 (§3.5 외침)
+
+| 현재 | 입력 | 다음 | 비고 |
+|---|---|---|---|
+| 대기 | 술래 아님 | 거부 `NotSeeker` | — |
+| 대기 | 쿨다운 중 | 거부 `OnCooldown` | — |
+| 대기 | 술래 + 쿨다운 없음 | **선딜레이(1초)** | 위치 고정점 기록 |
+| 선딜레이 | 재요청 | 거부 `AlreadyWindingUp` | 연타로 창을 못 늘린다 |
+| 선딜레이 | **이동(>0.15m)** | 대기 | **쿨다운 소모 없음** |
+| 선딜레이 | 1초 경과 | **발동** | 쿨다운 45초가 **여기서** 시작 |
+| 발동 | — | 대기 | A 파문(22m) + B 판정 |
+
+### 경계 조건 계산 검증표
+
+| # | 상황 | 계산 | 코드 결과 | 테스트 |
+|---|---|---|---|---|
+| 1 | 5초 잠수 직후 외침 | 8-5=3 ≥ 3 | **억제 가능**(잔여 0) | `DocTable_DiveThenShout(5, true)` |
+| 2 | 6초 잠수 직후 외침 | 8-6=2 < 3 | **억제 불가 → 비명 강제** | `DocTable_DiveThenShout(6, false)` |
+| 3 | 게이지 3 미만에서 억제 시도 | 2 - 3 = **-1 금지** | 게이지 **2 그대로**, 음수 없음 | `Suppress_BelowThree_FailsAndLeavesGaugeUntouched` |
+| 4 | 게이지 0에서 억제 시도 | — | 0 유지, `NotEnoughBreath` | `Suppress_AtZero_FailsAndStaysAtZero` |
+| 5 | 정확히 3 남았을 때 | 3-3 = 0 | **성공**, 0 도달 | `Suppress_ExactlyThreeRemaining_Succeeds` |
+| 6 | 잠수 중 억제 + 같은 프레임 잠수 소모 | -3 **미적용**, -1×dt만 | `before - 0.02` | `Suppress_ThenSameFrameDiveTick_DoesNotDoubleSpend` |
+| 7 | 잠수 중 잔여 2에서 억제 | 비용 0이라 3 미만 규칙 무관 | **자동 억제 성공** | `Suppress_WhileSubmergedBelowThree_StillSucceeds` |
+| 8 | 억제 프레임에 회복이 붙는가 | 5 + 2×dt 금지 | **5 그대로** | `Suppress_OnSurface_ThenSameFrameTick_HasNoRecovery` |
+| 9 | 연속 억제 한계 | 8 → 5 → 2, 3회차 불가 | 정확히 **2회** | `ConsecutiveSuppressions_MaxTwoOnFullGauge` |
+| 10 | 45초 쿨다운이 한계를 만드는가 | 수면 회복 +2/s로도 45초면 만충 | **한계 미발동** | `ShoutCooldownAlone_NeverTriggersTheLimit` |
+| 11 | 육상 억제 1회 총 복구 | 2 + 3÷4 = **2.75초** | 2.75 | `DocTable_LandSuppression_TakesTwoPointSevenFive` |
+| 12 | 수면 억제 1회 총 복구 | 2 + 3÷2 = **3.5초** | 3.5 | `DocTable_SurfaceSuppression_TakesThreePointFive` |
+| 13 | 7초 잠수 후 물 밖 | 2 + 7÷4 = **3.75초** | 3.75 | `DocTable_SevenSecondDive_TakesThreePointSevenFive` |
+| 14 | 전체 고갈 후 물 밖 | 2 + 8÷4 = **4.0초** | 4.0 | `DocTable_FullDepletion_TakesFour` |
+| 15 | 비명 청취 반경 | 9 × 1.2 = **10.8m** | 새 상수 0개 | `ScreamListeningRadius_IsDerivedFromExistingMultiplier` |
+| 16 | 10.8~22m 구간 | 비명은 나지만 술래는 못 들음 | 표와 일치 | `DocTable_DistanceReaction(15, true, false)` |
+| 17 | 공포 반경 경계 | 22m 포함 / 22.01m 제외 | 일치 | `FearRadius_BoundaryIsInclusive` |
+
+### §3.5 "세 가지 22m"를 코드에서 분리한 방식
+
+| # | 개념 | 코드 | 차폐 |
+|---|---|---|---|
+| **A** | 외침 소리 22m | `SeekerShoutConfig.ShoutPulseRadiusMeters` → `_driver.AddPulse(SoundType.Shout, …)` | **적용**(일반 파문 경로) |
+| **B** | 공포 반경 22m | `SeekerShoutConfig.FearRadiusMeters` → `ServerShoutDriver.IsInFearRadius` | **미적용**(순수 직선거리) |
+| **C** | 비명 청취 10.8m | 상수 없음 — 9m × `SoundPulseResolver.RoleRadiusMultiplier(Seeker)` | 적용 |
+
+A는 §5.1 고함 등급을 **참조**해 함께 조정되게 했고, B는 **독립 상수**로 뒀다.
+`FearRadiusAndShoutRadius_AreSeparateConstants`가 이 관계를 고정한다.
+
+### 미해결로 남긴 것 (판단하지 않고 보고만 한다)
+
+**§5.1과 §3.4가 `Scream`의 방향 게이지에 대해 어긋난다.**
+
+- §5.1 표: 비명 방향 표시 **✓ (10.8m)**, 그리고 "대화·비명·노크는 … 방향 표시가 모두 동일 —
+  술래는 셋을 구분할 수 없다. 이것이 메아리 심리전의 근간이다."
+- §3.4: "**대화·고함 등급만** 트리거된다. 밸브 회전음, 발소리, **노크는 제외**."
+
+스프린트 27이 노크에 대해 이미 **§3.4를 따르기로**(게이지 제외) 결정해 코드에 기록돼 있어,
+같은 선례로 이번에도 `DirectionGaugeRules.TriggersGauge`를 **건드리지 않았다**(Scream 제외).
+그 결과 술래는 게이지 유무로 대화와 비명을 구분할 수 있어 §5.1의 "구분 불가 그룹"이 깨진다 —
+노크에 이미 있던 문제가 이제 두 종류로 늘었다. **결정이 필요한 사항이므로 기록만 남긴다.**
+
+### 범위 밖으로 지킨 것
+
+`AwardTally.RecordPulse`와 `RoundNetworkSync.ServerRecordPulse`를 **건드리지 않았다.**
+그래서 비명 파문도 외침 파문도 §8 어워드에 집계되지 않는다 — 6단계 작업이다.
+해당 위치에 주석으로 명시해 뒀다.
+
+### 알려진 배선 한계 (기존 결함, 이번에 새로 생긴 것이 아니다)
+
+**물 볼륨(수면 존) 감지가 아직 없다.** `FirstPersonController`가 예전부터
+`isOnWaterSurface: false`를 하드코딩하고 있고(§5.9 후속 태스크), 서버도 관측 수단이 없어
+`PulseNetworkSync.ZoneOf`가 현재 **항상 `OutOfWater`** 를 돌려준다. 결과:
+
+- 잠수·질식·강제 부상·이동속도 -20%는 **실기에서 아직 도달 불가**다(규칙과 테스트는 완비).
+- §5.9-1이 말한 "이 제약이 실제로 작동하는 것은 잠수와 겹칠 때뿐"이라는 긴장도 그 전까지는
+  발현되지 않는다 — 외침만으로는 45초 쿨다운 덕에 항상 억제 가능하기 때문이다(계산 검증 #10).
+- 물 볼륨이 들어오면 **`ZoneOf` 한 곳만** 고치면 된다. 규칙은 `BreathConfig.ZoneOf`가 전부 갖고 있다.
+
+**숨 게이지는 서버에만 있다.** 소유자 클라이언트에 잔량을 보여주려면 SyncVar가 필요한데,
+새 `NetworkBehaviour`/`SyncVar`는 사전 승인 대상이라 만들지 않았다. 현재 클라이언트 표시는
+외침 쿨다운 근사값뿐이다.
+
+### GAP 기록
+
+| # | 내용 | 처리 |
+|---|---|---|
+| **67** | §4.3이 **외침 키를 미확정**으로 둔다 | 🟡 임시 `R`. 키 리바인딩에서 확정(GAP-64·65와 함께) |
+| **68** | §5.1(비명 방향 표시 ✓)과 §3.4(대화·고함만 트리거)가 어긋난다 | 🔴 **미결 — 보고만.** 노크 선례를 따라 §3.4 유지 |
+| **69** | §3.5 선딜레이 취소의 **이동 허용치**가 미명시 | 🟡 0.15m로 뒀다. NetworkTransform 미세 떨림으로 취소되면 능력을 쓸 수 없다 |
+
+### 검증
+
+- Core / Net / Presentation / Core.Tests / Assembly-CSharp / Marco.Editor: **오류 0 · Marco 코드 경고 0**.
+- EditMode 총계 **637 → 706 전수 통과**.
+- **EditMode로 검증 불가능한 부분**: ServerRpc 왕복, 선딜레이 중 실제 이동 감지,
+  비명 파문의 청취자별 전달은 FishNet 스폰이 필요하다.
+
+### 상태
+
+**코드 완료** — 실기 재검증 대기. 물 볼륨이 없어 잠수 계열은 실기 확인 자체가 불가능하다.
+
+---
+
+## 기획서 정합 6단계 — GAP-68 문서 정정 + 어워드 3종 재정의(§8)
+
+### ① GAP-68 — 문서가 오류였다(코드 변경 0)
+
+§5.1 표의 **비명·노크 행 방향 표시**를 `✓ (10.8m)` → **`✗`** 로 정정했다.
+근거는 §3.4가 방향 게이지를 **"말"에 대한 술래 전용 정보 우위**로 한정하고
+"밸브 회전음, 발소리, 노크는 트리거 대상에서 제외"를 명시한다는 것이다.
+비명 역시 말이 아니라 강제 발생 SFX이므로 같은 이유로 제외 대상이며,
+`DirectionGaugeRules.TriggersGauge`(대화·고함만)는 **처음부터 옳았다**.
+
+함께 정정한 것:
+
+| 위치 | 이전 | 이후 |
+|---|---|---|
+| §5.1 "구분 불가 그룹" | **대화**·비명·노크 셋 | **비명 · 노크** 둘 |
+| 부록 [방향 표시 반경] | "대화·비명·노크 10.8m" | "대화 10.8m" + 트리거 대상은 "말"뿐 |
+
+**심리전의 근간은 유지된다** — 반경(9m)·청취(10.8m)·게이지 미표시가 모두 같은
+비명과 노크를 술래가 구분할 수 없다는 것이 §3.5 정보 비대칭의 핵심이고,
+대화와의 혼동은 애초에 §3.4가 잡아내려는 대상이다.
+
+### ② 어워드 3종 — 변경 전/후 판정식
+
+| 어워드 | 이전 | 이후(§8 갱신본) |
+|---|---|---|
+| **최다 비명상** | `SoundType.Shout` 횟수 최대 | **`SoundType.Scream` 횟수 최대.** Shout 일절 미반영 |
+| **무성 생존상** | `PulseCount == 0 && Distance > 0` 중 거리 최대 (**이진**) | **Σ(반경 × 지속) ÷ 이동거리 최솟값** (연속값). 밸브 제외 · 재질 배율 적용 후 반경 · 이동 1m 미만 제외 · 태그 아웃 제외 |
+| **최고의 거짓말상** | 9m 밖 → 25초 내 9m 진입 (**2조건**) | **§8.3 4조건** — ① 9m 밖 ② 직전 2초 비접근 ③ 0.5초 샘플 접근누적 ④ 진입 시 누적 ≥ 3.0초. 감시 30초 |
+
+**§8.1 억제 성공은 자동으로 빠진다**: 억제에 성공하면 `Scream` 파문이 애초에 생성되지 않아
+`RecordPulse`가 호출되지 않는다. **청취 여부와도 무관**하다 — 집계는 파문 *발생* 시점에
+일어나고 집계 API에 청취자 인자가 아예 없다(10.8m 밖이라 술래가 못 들어도 센다).
+
+**§8.2 "재질 배율 적용 후" 보장**: `ServerPulseDriver.TryGetAppliedSpec`을 새로 만들어
+`AddPulse`와 어워드 집계가 **같은 계산 결과**를 쓰게 했다. 두 곳이 각자 계산하면
+§5.9 재질 효과가 소음량에서 조용히 사라진다.
+
+### ③ §8.3 4조건 — 계산 검증
+
+| # | 조건 | 경계 | 코드 | 테스트 |
+|---|---|---|---|---|
+| ① | d(t0) > 9m | d = 9.00m → **감시 안 함** | `distance <= LureRadiusMeters` → Armed=false | `Condition1_ExactlyAtRadius_IsNotStarted` |
+| ① | 〃 | d = 9.01m → **감시 시작** | — | `Condition1_JustOutsideRadius_StartsWatch` |
+| ② | d(t0) ≥ d(t0−2초) | 30→20m 접근 중, d(t0−2)=22 → 20 ≥ 22 **거짓** → 감시 안 함 | 이력에서 조회 | `Condition2_AlreadyApproaching_WatchIsNotStarted` |
+| ② | 〃 | 20→30m 이탈 중 → 30 ≥ 24 **참** | — | `Condition2_MovingAway_StartsWatch` |
+| ② | 〃 | 정지(25m 유지) → 25 ≥ 25 **참**(등호) | — | `Condition2_StandingStill_StartsWatch` |
+| ② | 이력 없음 | 폴백 = 현재 거리 → 등호 성립 → **통과** | 확인 불가로 정당한 노크를 탈락시키지 않는다 | `Condition2_NoHistory_FailsOpen` |
+| ③ | 거리 감소 샘플만 누적 | 20m 정지 10샘플 → 누적 **0** | `distance < LastSampleDistance` | `Condition3_OnlyDecreasingSamplesAccumulate` |
+| ④ | 누적 ≥ 3.0초 | 8샘플(4.0초) 접근 → **성공** | — | `Condition4_SustainedApproach_IsCounted` |
+| ④ | 〃 | 4샘플(2.0초) 접근 → **실패** | §8.3 표 1 "우연히 지나감" | `Condition4_PassingBy_IsNotCounted` |
+| ④ | 〃 | 6샘플(정확히 3.0초) → **성공**(≥) | 경계 포함 | `Condition4_ExactlyThreeSeconds_IsCounted` |
+| 표3 | 반대로 갔다 복귀 | 이탈 4샘플 후 복귀 6샘플 → **성공** | 반경 안 진입해도 감시를 끝내지 않는다 | `Table3_AwayThenReturn_IsCounted` |
+| 종료 | 30초 경과 | t0+30 → 만료 | `now >= ExpiresAt` | `Watch_ExpiresAfterThirtySeconds` |
+| 종료 | 술래 태그 | 전 감시 폐기 | `NotifySeekerTagged` | `Watch_EndsWhenSeekerTags` |
+| 종료 | 라운드 종료 | `Reset()` | — | `Watch_EndsOnRoundReset` |
+
+### ④ 감시 30초 vs 쿨다운 25초 — 겹침 처리 판단
+
+**겹친다.** 노크 A가 t0에 발동하면 감시는 t0+30까지 살아 있고, 다음 노크는 요청 기준 25초 뒤,
+즉 발동은 **t0+25**다. → **최대 5초간 같은 메아리의 감시 2개가 공존한다.**
+
+§8.3 표 4·5가 이 경우를 명시적으로 다룬다 —
+"짧은 시간에 여러 Knock → **1회만**. 진입 시 가장 최근 성공 건 1개만 집계",
+"같은 위치에서 반복 Knock → **동일 위치 활성 감시는 최신 1개로 갱신**".
+
+**그래서 `Tick`이 새 감시를 만들 때 같은 플레이어의 이전 감시를 버린다**(`DropWatchesOf`).
+그렇게 하지 않으면 술래가 **한 번 접근하는 동안 두 감시가 각각 성공 판정**을 내려
+유인 1회가 2회로 세어진다. 다른 메아리의 감시는 건드리지 않는다
+(`OtherEchoWatch_IsNotDropped`).
+
+### 신규/변경 API
+
+| 대상 | 내용 |
+|---|---|
+| `AwardTally` | `Entry.ScreamCount`·`NoiseSum`·`WasTaggedOut` (기존 `ShoutCount`·`PulseCount` 제거), `RecordPulse(int, SoundType, float, float)`, `MarkTaggedOut`, `SilenceScore`, `NoiseOf`, `CountsTowardNoise`, `MinimumDistanceMeters`, `BestBy(..., bool highestWins)` |
+| `ServerPulseDriver` | `TryGetAppliedSpec(SoundType, FootstepMaterial, out float, out float)` — 등록 반경의 단일 진입점 |
+| `ServerKnockDriver` | `LureWindowSeconds` 25 → **30**, `PreApproachWindowSeconds`·`ApproachSampleSeconds`·`ApproachRequiredSeconds` 신설, `_seekerHistory`, `NotifySeekerTagged`, `DropWatchesOf`, `EvaluateStartConditions`, `RecordSeekerHistory`, `DistanceAt` |
+| `RoundNetworkSync` | `ServerRecordPulse(int, SoundType, float, float)`, `ServerMarkTaggedOut` |
+| `PulseNetworkSync` | 비명·외침·질식 파문의 §8 집계 개통, `TagTargetRegistry.TargetTagged` 서버 구독 → `NotifySeekerTagged` |
+
+### 범위대로 지킨 것
+
+- 물 볼륨 미구현으로 인한 잠수 계열 실기 불가는 **손대지 않았다**(맵 재작업 때).
+- §3.4 게이지 배율 자체는 이미 끝났으므로 **표 텍스트만** 고쳤다.
+
+### 보고: 문서에 있으나 구현하지 않은 것 1건
+
+**§8.1 "동점 — 동점자 전원 공동 수상".** 결과 전파가 수상자 id **하나**(SyncVar 3개)로 되어
+있어 공동 수상을 표현할 수단이 없다. 자료구조·전파·HUD를 함께 바꿔야 하는 별도 작업이라,
+기존대로 **동점 시 id가 작은 쪽** 단일 수상자를 유지했다(GAP-38 잔존).
+
+### GAP 기록
+
+| # | 내용 | 처리 |
+|---|---|---|
+| **68** | §5.1(비명·노크 방향 표시 ✓)과 §3.4(대화·고함만)가 어긋난다 | ✅ **해소 — 문서가 오류였다, 코드 변경 없음** |
+| **59** | 노크 "성공 유인" 판정 기준 미정의 | ✅ **해소** — §8.3이 4조건을 정의했고 코드가 교체됐다 |
+| **40** | 무성 생존상 최소 이동거리 미명시 | ✅ **해소** — §8.2 "1m 미만 제외" |
+| **37** | 최다 비명상·최고의 거짓말상에 선행 기능이 없어 수상 불가 | ✅ **해소** — §3.5 외침·§3.2 노크가 모두 들어왔다 |
+| **56** | 무성 생존상의 메아리 제외 여부 미명시 | ✅ **해소** — §8.2 "태그당한 메아리는 제외"가 명문화돼 `MarkTaggedOut`으로 구현 |
+| **38** | 동점 처리 | 🟡 **잔존** — §8은 공동 수상을 말하지만 전파 구조가 단일 id다 |
+
+### 검증
+
+- Core / Net / Presentation / Core.Tests / Assembly-CSharp / Marco.Editor: **오류 0 · Marco 코드 경고 0**.
+- EditMode 총계 **706 → 732 전수 통과**.
+- **EditMode로 검증 불가능한 부분**: 서버가 실제로 태그 이벤트를 받아 감시를 끊는지,
+  0.5초 샘플링이 네트워크 위치 갱신 주기와 맞물리는지는 FishNet 스폰이 필요하다.
+
+### 상태
+
+**코드 완료** — 실기 재검증 대기(§23 · §29-3 · §30).

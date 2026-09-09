@@ -6828,7 +6828,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d679df8577d14ae5ae4f2ac0588d1bb0, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _rotationSeconds: 3
+  _rotationSeconds: 2
   _displayName: "\uB77C\uC774\uD504\uAC00\uB4DC\uC2E4 \uBC38\uBE0C"
 --- !u!114 &830000000000000003
 MonoBehaviour:
@@ -6842,7 +6842,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d679df8577d14ae5ae4f2ac0588d1bb0, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _rotationSeconds: 3
+  _rotationSeconds: 4
   _displayName: "\uBCF4\uC77C\uB7EC \uD1B5\uB85C \uBC38\uBE0C"
 --- !u!114 &830000000000000004
 MonoBehaviour:

@@ -87,6 +87,12 @@
     <Compile Include="Assets\_Project\Core\GameFlow\ServerLobbyDriver.cs" />
     <Compile Include="Assets\_Project\Core\SoundPulse\DirectionGaugeRules.cs" />
     <Compile Include="Assets\_Project\Core\SoundPulse\SoundType.cs" />
+    <Compile Include="Assets\_Project\Core\Breath\BreathConfig.cs" />
+    <Compile Include="Assets\_Project\Core\Breath\BreathGauge.cs" />
+    <Compile Include="Assets\_Project\Core\Sound\SeekerShoutConfig.cs" />
+    <Compile Include="Assets\_Project\Core\Sound\ServerShoutDriver.cs" />
+    <Compile Include="Assets\_Project\Core\SoundPulse\IFootstepMaterialProbe.cs" />
+    <Compile Include="Assets\_Project\Core\Sound\FootstepMaterial.cs" />
     <Compile Include="Assets\_Project\Core\Objectives\ServerValveDriver.cs" />
     <Compile Include="Assets\_Project\Core\Tagging\TagRules.cs" />
     <Compile Include="Assets\_Project\Core\Objectives\RoundResult.cs" />

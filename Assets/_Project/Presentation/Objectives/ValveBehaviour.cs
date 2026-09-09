@@ -8,8 +8,10 @@ namespace Marco.Presentation.Objectives
     /// 씬의 밸브 오브젝트 하나에 Core <see cref="Valve"/> 상태기계를 붙이는 얇은 래퍼.
     /// 판정 로직은 전부 Core에 있고 여기서는 인스턴스 소유와 위치 제공만 한다.
     ///
-    /// §6.2: 회전 시간은 4인 MVP 기준 3초. 6인 구간(3.75초)은 인스펙터로 바꿀 수 있게
-    /// 직렬화해 두되, 인원별 자동 조정은 인원 관리 시스템이 생길 때 배선한다.
+    /// §6.1: 회전 시간은 **밸브마다 다르다**(A 3.0 / B 2.0 / C 4.0초).
+    /// 상수는 <see cref="Valve.ValveARotationSeconds"/> 등에 있고, 어느 밸브인지는
+    /// 씬 인스펙터에서 지정한다 — 밸브 종류를 코드가 알 필요가 없기 때문이다.
+    /// 6인 구간 보정(3.75초)도 같은 필드로 덮어쓸 수 있다.
     ///
     /// 스프린트 10(서버 권위 동기화): 같은 오브젝트에 <see cref="IValveNetworkBridge"/>
     /// (Net의 <c>ValveNetworkSync</c>)가 붙고 네트워크가 시작되면, 개방 상태의 진실은
@@ -20,8 +22,9 @@ namespace Marco.Presentation.Objectives
     /// </summary>
     public sealed class ValveBehaviour : MonoBehaviour, IValveHost
     {
-        [Tooltip("§6.2 회전 시간. 4인 MVP=3초, 6인=3.75초.")]
-        [SerializeField] private float _rotationSeconds = Valve.DefaultRotationSeconds;
+        [Tooltip("§6.1 밸브별 회전 시간 — A(기계실) 3.0 / B(수중) 2.0 / C(2층) 4.0초. " +
+                 "6인 구간 보정은 3.75초. 기본값은 A와 같다.")]
+        [SerializeField] private float _rotationSeconds = Valve.ValveARotationSeconds;
 
         [Tooltip("§10.1 구역 이름(로그 식별용).")]
         [SerializeField] private string _displayName = "Valve";

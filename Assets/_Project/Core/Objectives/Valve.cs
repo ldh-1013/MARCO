@@ -20,8 +20,28 @@ namespace Marco.Core.Objectives
     /// </summary>
     public sealed class Valve
     {
-        /// <summary>§6.2 4인(MVP) 기준 회전 시간.</summary>
+        /// <summary>§6.2 4인(MVP) 기준 회전 시간. 밸브별 값이 없을 때의 폴백이며 §6.1 밸브 A와 같다.</summary>
         public const float DefaultRotationSeconds = 3f;
+
+        // ── §6.1 밸브별 회전 시간 차등 [기획서 갱신] ──────────────────────
+        //
+        // **미니게임을 추가하지 않는다.** 세 밸브의 차이는 회전 시간과 환경 규칙으로만 만든다.
+        //
+        // | 밸브 | 위치        | 회전 | 위험                    |
+        // | A    | 기계실      | 3.0초 | 퇴로 없음(출입구 1개)   |
+        // | B    | 풀 수중 3.5m | 2.0초 | 한 숨에 완료(숨 게이지) |
+        // | C    | 물탱크실 2층 | 4.0초 | 이동 비용(금속 계단)    |
+        //
+        // 같은 12m 소음에 서로 다른 리스크를 붙인 것이 차등화의 근거다(§9.3).
+
+        /// <summary>§6.1 밸브 A(기계실) 회전 시간. 기존 값과 동일하다.</summary>
+        public const float ValveARotationSeconds = 3f;
+
+        /// <summary>§6.1 밸브 B(메인 풀 수중 3.5m) 회전 시간. 잠수 4.0초 타임라인의 중간 단계다(§6.1-1).</summary>
+        public const float ValveBRotationSeconds = 2f;
+
+        /// <summary>§6.1 밸브 C(물탱크실, 2층) 회전 시간.</summary>
+        public const float ValveCRotationSeconds = 4f;
 
         /// <summary>§6.2 6인 구간 보정(+25%). v1.x 대비 상수로만 남겨둔다.</summary>
         public const float SixPlayerRotationSeconds = 3.75f;

@@ -387,9 +387,9 @@ namespace Marco.Net
             IEscapeGateState gate = EscapeGateRegistry.Current;
             int opened = gate != null ? gate.OpenedValves : 0;
             int total = gate != null ? gate.TotalValves : 0;
-            bool allTagged = ServerRoundDriver.AllRunnersTagged(TagTargetRegistry.Targets);
+            int tagged = ServerRoundDriver.TaggedCount(TagTargetRegistry.Targets);
 
-            if (!_driver.Evaluate(opened, total, allTagged))
+            if (!_driver.Evaluate(opened, total, tagged))
                 return;
 
             _result.Value = _driver.Result;
@@ -406,7 +406,8 @@ namespace Marco.Net
             SetPhase(GameFlowState.RoundEnd);
 
             Debug.Log($"[RoundNet:Server] 라운드 종료 판정 = {_driver.Result} — 전 피어 전파 " +
-                      $"(밸브 {opened}/{total}, 탈출 {_driver.EscapedCount}, 전원태그={allTagged}, " +
+                      $"(밸브 {opened}/{total}, 탈출 {_driver.EscapedCount}/{WinConditionEvaluator.EscapeWinThreshold}, " +
+                      $"태그 {tagged}/{WinConditionEvaluator.TagWinThreshold}, " +
                       $"남은 {_driver.RemainingSeconds:0.0}초) → 리매치 투표 {RematchVoteDriver.VoteWindowSeconds:0}초");
         }
 
@@ -632,16 +633,32 @@ namespace Marco.Net
         // ── §8 어워드 집계 (서버 전용) ────────────────────────────────────
 
         /// <summary>
-        /// 파문 1건을 세션 집계에 기록한다. <c>PulseNetworkSync</c>의 ServerRpc가 발생원을 확정한
+        /// 파문 1건을 세션 집계에 기록한다. <c>PulseNetworkSync</c>가 발생원을 확정한
         /// 직후 호출한다 — 클라이언트 보고가 아니라 **서버가 받은 사실**만 센다.
+        ///
+        /// <paramref name="radiusMeters"/>는 §8.2대로 **재질 배율까지 적용된 실제 등록 반경**이며,
+        /// <c>ServerPulseDriver.TryGetAppliedSpec</c>이 낸 값을 그대로 넘긴다.
         /// </summary>
-        internal static void ServerRecordPulse(int playerId, SoundType type)
+        internal static void ServerRecordPulse(int playerId, SoundType type, float radiusMeters, float durationSeconds)
         {
             RoundNetworkSync instance = ServerInstance;
             if (instance == null)
                 return;
 
-            instance._awards.RecordPulse(playerId, type);
+            instance._awards.RecordPulse(playerId, type, radiusMeters, durationSeconds);
+        }
+
+        /// <summary>
+        /// §8.2 "생존 요건 — 탈출 또는 미탈출만 수상 대상. 태그당한 메아리는 제외".
+        /// 태그가 서버에서 확정된 뒤 호출한다.
+        /// </summary>
+        internal static void ServerMarkTaggedOut(int playerId)
+        {
+            RoundNetworkSync instance = ServerInstance;
+            if (instance == null)
+                return;
+
+            instance._awards.MarkTaggedOut(playerId);
         }
 
         /// <summary>
@@ -685,6 +702,11 @@ namespace Marco.Net
                     // 태그 전까지 쌓인 거리는 그대로 남는다 — 러너로 실제 움직인 몫이기 때문이다.
                     if (moved <= MaxDistancePerFrame && !p.IsTaggedOut)
                         _awards.AddDistance(p.OrderKey, moved);
+
+                    // §8.2 "태그당한 메아리는 제외" — 이동거리만 빼는 것으로는 부족하다.
+                    // 태그 전까지 쌓인 거리와 낮은 소음량으로 여전히 수상 후보가 되기 때문이다.
+                    if (p.IsTaggedOut)
+                        _awards.MarkTaggedOut(p.OrderKey);
                 }
                 else
                 {

@@ -254,5 +254,58 @@ namespace Marco.Core.Tests
             Assert.AreEqual(ValveState.Closed, valve.State);
             Assert.AreEqual(0f, valve.Progress01, 0.001f);
         }
+
+        // ── §6.1 밸브별 회전 시간 차등 [기획서 갱신] ──────────────────────
+
+        [Test]
+        public void RotationSeconds_MatchDesignDocTable()
+        {
+            // §6.1 표: A 기계실 3.0초 / B 풀 수중 2.0초 / C 물탱크실(2층) 4.0초
+            Assert.AreEqual(3f, Valve.ValveARotationSeconds);
+            Assert.AreEqual(2f, Valve.ValveBRotationSeconds);
+            Assert.AreEqual(4f, Valve.ValveCRotationSeconds);
+        }
+
+        [Test]
+        public void ValveA_MatchesLegacyDefault()
+        {
+            // 밸브 A는 기존 단일 상수와 같은 값이라 이번 변경으로 동작이 바뀌지 않는다.
+            Assert.AreEqual(Valve.DefaultRotationSeconds, Valve.ValveARotationSeconds);
+        }
+
+        [Test]
+        public void ValveB_FitsWithinBreathGaugeBudget()
+        {
+            // §6.1-1: 진입 1.0 + 회전 2.0 + 부상 1.0 = 4.0초, 숨 게이지 8초의 정확히 50%.
+            const float descend = 1f, ascend = 1f, gauge = 8f;
+            float total = descend + Valve.ValveBRotationSeconds + ascend;
+
+            Assert.AreEqual(4f, total, 0.001f);
+            Assert.AreEqual(gauge / 2f, total, 0.001f, "밸브 B가 한 숨에 끝나지 않으면 §6.1-1 타임라인이 무너진다.");
+        }
+
+        [TestCase(3f)]  // A
+        [TestCase(2f)]  // B
+        [TestCase(4f)]  // C
+        public void EachValve_CompletesAtItsOwnRotationTime(float rotationSeconds)
+        {
+            var valve = new Valve(rotationSeconds);
+            valve.TryBeginRotation(RunnerA, RoleType.Runner);
+
+            // 자기 회전 시간 직전까지는 열리지 않는다.
+            valve.Tick(rotationSeconds - 0.01f);
+            Assert.AreEqual(ValveState.Rotating, valve.State);
+
+            valve.Tick(0.01f);
+            Assert.AreEqual(ValveState.Open, valve.State);
+        }
+
+        [Test]
+        public void ValveB_OpensFasterThanA_AndCSlower()
+        {
+            // 차등화의 방향성 자체를 고정한다 — 값이 뒤집히면 §6.1 리스크 설계가 무너진다.
+            Assert.Less(Valve.ValveBRotationSeconds, Valve.ValveARotationSeconds);
+            Assert.Greater(Valve.ValveCRotationSeconds, Valve.ValveARotationSeconds);
+        }
     }
 }

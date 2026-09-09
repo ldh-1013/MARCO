@@ -26,6 +26,13 @@ namespace Marco.Core.Sound
         /// <summary>서버가 개별 전송한 델리버리를 그릴 소비자(T8 렌더러). 미등록이면 null.</summary>
         public static IPulseDeliverySink DeliverySink { get; private set; }
 
+        /// <summary>
+        /// §5.9 재질 판정 구현체. 서버가 발소리 파문의 **발생 반경**을 정할 때 쓴다.
+        /// 미등록이면 null — 그때는 배율 없이(콘크리트 ×1.0) 진행한다. 차폐 프로브와 달리
+        /// 판정을 건너뛰지 않는 이유는, 재질을 모른다고 발소리가 사라지면 §5.1이 무너지기 때문이다.
+        /// </summary>
+        public static IFootstepMaterialProbe FootstepMaterialProbe { get; private set; }
+
         public static void RegisterProbe(IOcclusionProbe probe)
         {
             if (probe != null)
@@ -50,6 +57,31 @@ namespace Marco.Core.Sound
                 DeliverySink = null;
         }
 
+        public static void RegisterFootstepMaterialProbe(IFootstepMaterialProbe probe)
+        {
+            if (probe != null)
+                FootstepMaterialProbe = probe;
+        }
+
+        public static void UnregisterFootstepMaterialProbe(IFootstepMaterialProbe probe)
+        {
+            if (ReferenceEquals(FootstepMaterialProbe, probe))
+                FootstepMaterialProbe = null;
+        }
+
+        /// <summary>
+        /// §5.9 재질을 조회해 발생 반경 배율을 낸다. 프로브가 없으면 콘크리트(×1.0)로 본다.
+        /// 발소리가 아닌 종류(<see cref="FootstepMaterialRules.AppliesTo"/>)는 항상 1.0이다.
+        /// </summary>
+        public static FootstepMaterial SampleMaterial(SoundType type, Vector3 worldPosition)
+        {
+            if (!FootstepMaterialRules.AppliesTo(type))
+                return FootstepMaterialRules.Default;
+
+            IFootstepMaterialProbe probe = FootstepMaterialProbe;
+            return probe != null ? probe.Sample(worldPosition) : FootstepMaterialRules.Default;
+        }
+
         /// <summary>
         /// 도메인 리로드를 끈 채 Play를 반복하면 static 상태가 남는다.
         /// 이전 판의 파괴된 구현체를 물지 않도록 진입 시 초기화한다.
@@ -59,6 +91,7 @@ namespace Marco.Core.Sound
         {
             OcclusionProbe = null;
             DeliverySink = null;
+            FootstepMaterialProbe = null;
         }
     }
 }

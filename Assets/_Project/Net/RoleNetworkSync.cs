@@ -87,6 +87,13 @@ namespace Marco.Net
             }
         }
 
+        /// <summary>
+        /// 게임 규칙이 실제로 보는 역할. <b>태그 아웃이 역할 SyncVar보다 우선한다</b> —
+        /// 태그 직후 몇 프레임 동안 <see cref="CurrentRole"/>이 아직 Runner일 수 있는데,
+        /// 그 사이에 메아리 능력(§3.2 노크)의 판정이 달라지면 안 된다.
+        /// </summary>
+        internal RoleType EffectiveRole => IsTaggedOut ? RoleType.Echo : CurrentRole;
+
         // ── 서버: RPC 호출자 신원 조회 ────────────────────────────────────
 
         /// <summary>
@@ -118,7 +125,7 @@ namespace Marco.Net
             if (sync == null)
                 return false;
 
-            role = sync.IsTaggedOut ? RoleType.Echo : sync.CurrentRole;
+            role = sync.EffectiveRole;
             playerId = (ulong)caller.ClientId;
             return true;
         }

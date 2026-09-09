@@ -190,16 +190,17 @@ namespace Marco.Tests.EditMode
         [Test]
         public void Gauge_RangeMatchesDesignTable()
         {
-            // §3.4 표: 대화 9m → 13.5m, 고함 22m → 33m
-            Assert.AreEqual(13.5f, DirectionGaugeRules.MaxRange(SoundType.Talk, 9f), 0.001f);
-            Assert.AreEqual(33f, DirectionGaugeRules.MaxRange(SoundType.Shout, 22f), 0.001f);
+            // §3.4 표: 대화 9m → 10.8m, 고함 22m → 26.4m (= 술래 청취 반경)
+            // [갱신] 배율 ×1.5 → ×1.2 — 방향 표시 반경은 술래 청취 반경과 같다(§5.0 불변 조건).
+            Assert.AreEqual(10.8f, DirectionGaugeRules.MaxRange(SoundType.Talk, 9f), 0.001f);
+            Assert.AreEqual(26.4f, DirectionGaugeRules.MaxRange(SoundType.Shout, 22f), 0.001f);
         }
 
         [Test]
         public void Gauge_ShoutDoesNotCoverWholeMap()
         {
-            // §3.4 주석: "맵 전체(45m×35m, 대각선 약 57m) … 고함조차 맵 전체를 커버하지 못하도록"
-            float mapDiagonal = (float)Math.Sqrt(45f * 45f + 35f * 35f);
+            // §3.4 주석: "맵 전체(52m×40m, 대각선 약 65.6m) … 고함조차 맵 전체를 커버하지 못하도록"
+            float mapDiagonal = (float)Math.Sqrt(52f * 52f + 40f * 40f);
 
             Assert.Less(DirectionGaugeRules.MaxRange(SoundType.Shout, 22f), mapDiagonal);
         }
@@ -207,8 +208,12 @@ namespace Marco.Tests.EditMode
         [Test]
         public void Gauge_LightsOnlyWithinRange()
         {
-            Assert.IsTrue(DirectionGaugeRules.ShouldLight(SoundType.Talk, RoleType.Seeker, 9f, 13f));
-            Assert.IsFalse(DirectionGaugeRules.ShouldLight(SoundType.Talk, RoleType.Seeker, 9f, 14f));
+            // [갱신] 대화 사거리 13.5m → 10.8m(= 술래 청취 반경). 경계를 그 값 기준으로 다시 잡는다.
+            Assert.IsTrue(DirectionGaugeRules.ShouldLight(SoundType.Talk, RoleType.Seeker, 9f, 10.7f));
+            Assert.IsFalse(DirectionGaugeRules.ShouldLight(SoundType.Talk, RoleType.Seeker, 9f, 10.9f));
+
+            // 옛 값(13.5m) 안이던 거리는 이제 밖이다 — 정정이 실제로 반영됐는지 고정한다.
+            Assert.IsFalse(DirectionGaugeRules.ShouldLight(SoundType.Talk, RoleType.Seeker, 9f, 13f));
         }
 
         [Test]
