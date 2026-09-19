@@ -1,0 +1,164 @@
+"""
+마르코! 밸브 배치 검증 — 기획서 §10.2-1 2조건을 자동 판정한다.
+
+  ① 경로 30m 이상 — 차폐가 아무리 많아도 두 밸브가 물리적으로
+     근접하는 것을 막는 하한. ②의 보조 조건이다.
+     (v0.3의 "봉쇄 반경 21.6m + 여유" 근거는 6.1절 8초화로 봉쇄
+      반경이 42.4m가 되어 폐기됨 — 10.2-1절 참조)
+  ② 동시 감시 지점 0개 — 9.3-1절이 전제하는 청취 반경 14.4m를
+     직접 검증한다. 임계 = 14.4 × (1 + 0.5^n), n = 두 밸브 사이 벽 수
+
+그레이박스 완성 후 ROOMS/DOORS/VALVES를 실제 좌표로 갱신해 재실행할 것.
+좌표계: 원점 = 남서 귀퉁이, +x = 동, +y = 북, 단위 m (§10.1)
+
+    python3 valve_layout_check.py
+"""
+import math, itertools
+from collections import deque
+
+# ── 기획서 수치 (§5.1 / §5.6 / §5.7 / §6.1) ──────────────────────────
+VALVE_SOUND_RADIUS = 12.0   # §5.1 밸브 회전 소음 발생 반경
+SEEKER_RADIUS_MULT = 1.2    # §5.7 술래 반경 청취 배율
+WALL_ATTEN         = 0.5    # §5.6 벽 통과당 반경 배율
+FLOOR_WALLS        = 2      # §5.6 층간 바닥 = 벽 2장 상당
+STAIR_PENALTY      = 12.0   # 2층 계단 왕복 근사
+MIN_PATH           = 30.0   # §10.2-1 ① 경로 거리 하한
+SEEKER_HEAR = VALVE_SOUND_RADIUS * SEEKER_RADIUS_MULT   # 14.4m
+
+W, H = 52, 40
+CUT = lambda x, y: (x >= 40 and y >= 28)          # §10.1 L자 컷
+
+ROOMS = {   # 이름: (x0,y0,x1,y1)  — §10.1
+    '로비':      (2, 32, 12, 40), '약품창고': (16, 33, 22, 38),
+    '세탁실':    (26, 33, 33, 38), '라커룸':   (2, 24, 14, 31),
+    '물탱크실':  (4, 24, 10, 29),  '메인풀홀': (18, 15, 38, 27),
+    '라이프가드': (2, 17, 7, 21),  '유아풀존': (2, 5, 14, 14),
+    '사우나':    (18, 9, 22, 13),  '샤워장':   (26, 7, 34, 12),
+    '기계실':    (41, 5, 49, 12),  '직원통로': (14, 1, 48, 3.5),
+}
+SECOND = {'물탱크실'}                              # 2층 구역
+
+DOORS = [   # (구역, 문 중심, 폭)
+    ('로비', (12, 36), 2), ('로비', (7, 32), 2),
+    ('약품창고', (16, 35), 2), ('세탁실', (29, 33), 2),
+    ('라커룸', (14, 27), 2), ('라커룸', (8, 24), 2),
+    ('메인풀홀', (18, 20), 2), ('메인풀홀', (34, 27), 2), ('메인풀홀', (38, 24), 2),
+    ('라이프가드', (7, 19), 2), ('유아풀존', (14, 10), 2), ('유아풀존', (8, 14), 2),
+    ('사우나', (20, 13), 2), ('샤워장', (30, 12), 2),
+    ('기계실', (45, 5), 2),                        # ★ 출입구 1개(남쪽) — §6.1 퇴로 없음
+    ('직원통로', (14, 3.5), 2), ('직원통로', (30, 3.5), 2), ('직원통로', (44, 3.5), 2),
+]
+EXTRA_WALLS = [(40, y) for y in range(13, 21)]     # ★ 기계실–풀홀 칸막이
+
+VALVES = {  # §10.2
+    'A 기계실': (46, 8), 'B 메인풀': (34, 22), 'C 물탱크실(2층)': (7, 26),
+    'D 약품창고': (19, 36), 'E 유아풀': (5, 9),
+}
+
+
+def build():
+    walk = [[True] * H for _ in range(W)]
+    for x in range(W):
+        for y in range(H):
+            if CUT(x, y):
+                walk[x][y] = False
+    walls = set()
+    for name, (x0, y0, x1, y1) in ROOMS.items():
+        if name in SECOND:
+            continue                                # 2층은 평면 충돌에서 제외
+        for x in range(int(x0), int(x1) + 1):
+            walls.add((x, int(y0))); walls.add((x, int(y1)))
+        for y in range(int(y0), int(y1) + 1):
+            walls.add((int(x0), y)); walls.add((int(x1), y))
+    for _, (dx, dy), wd in DOORS:                   # 문 뚫기
+        for o in range(-wd // 2, wd // 2 + 1):
+            walls.discard((int(dx + o), int(dy))); walls.discard((int(dx), int(dy + o)))
+    for (x, y) in walls:
+        if 0 <= x < W and 0 <= y < H:
+            walk[x][y] = False
+    for (x, y) in EXTRA_WALLS:
+        if 0 <= x < W and 0 <= y < H:
+            walk[x][y] = False
+    return walk
+
+
+def bfs(walk, src):
+    d = {src: 0}; q = deque([src])
+    while q:
+        c = q.popleft()
+        for dx, dy in ((1,0),(-1,0),(0,1),(0,-1),(1,1),(1,-1),(-1,1),(-1,-1)):
+            n = (c[0] + dx, c[1] + dy)
+            if not (0 <= n[0] < W and 0 <= n[1] < H): continue
+            if not walk[n[0]][n[1]] or n in d: continue
+            d[n] = d[c] + (1.414 if dx and dy else 1.0)
+            q.append(n)
+    return d
+
+
+def wall_hits(a, b, walk, extra=0):
+    """a→b 직선이 지나는 벽 덩어리 수 (+ 층간 바닥 보정)"""
+    n = int(max(abs(b[0]-a[0]), abs(b[1]-a[1])) * 4) + 1
+    hits, prev = 0, False
+    for i in range(n + 1):
+        t = i / n
+        x = int(round(a[0] + (b[0]-a[0]) * t)); y = int(round(a[1] + (b[1]-a[1]) * t))
+        blocked = not (0 <= x < W and 0 <= y < H) or not walk[x][y]
+        if blocked and not prev: hits += 1
+        prev = blocked
+    return hits + extra
+
+
+def audible(p, v, walk, extra):
+    """술래가 p에서 밸브 v의 회전 소음을 듣는가 (§5.6 차폐 반영)"""
+    return math.dist(p, v) <= SEEKER_HEAR * (WALL_ATTEN ** wall_hits(p, v, walk, extra))
+
+
+def co_watch_spots(v1, v2, walk, e1, e2):
+    """두 밸브를 동시에 감시 가능한 지점 목록 — 비어 있어야 합격"""
+    out = []
+    for x in range(W):
+        for y in range(H):
+            if not walk[x][y]: continue
+            p = (x, y)
+            if math.dist(p, v1) > SEEKER_HEAR or math.dist(p, v2) > SEEKER_HEAR:
+                continue                            # 차폐 0이어도 못 듣는 거리
+            if audible(p, v1, walk, e1) and audible(p, v2, walk, e2):
+                out.append(p)
+    return out
+
+
+def main():
+    walk = build()
+    for name, p in VALVES.items():
+        if not walk[int(p[0])][int(p[1])]:
+            print(f"[경고] {name} {p} 가 벽 또는 맵 바깥에 있다")
+    dist = {n: bfs(walk, p) for n, p in VALVES.items()}
+
+    print(f"{'쌍':30} {'직선':>6} {'경로':>7} {'동시감시':>8}  판정")
+    print("-" * 66)
+    bad = 0
+    for a, b in itertools.combinations(VALVES, 2):
+        pa, pb = VALVES[a], VALVES[b]
+        e1 = FLOOR_WALLS if '2층' in a else 0
+        e2 = FLOOR_WALLS if '2층' in b else 0
+        path = dist[a].get(pb, float('inf'))
+        if e1 or e2: path += STAIR_PENALTY
+        spots = co_watch_spots(pa, pb, walk, e1, e2)
+        ok = path >= MIN_PATH and not spots
+        if not ok:
+            bad += 1
+        reason = ""
+        if not ok:
+            parts = []
+            if path < MIN_PATH: parts.append(f"경로 {path:.0f}m < {MIN_PATH:.0f}m")
+            if spots: parts.append(f"동시감시 {spots[:3]}")
+            reason = "  (" + ", ".join(parts) + ")"
+        print(f"{a + ' ↔ ' + b:30} {math.dist(pa,pb):6.1f} {path:7.1f} {len(spots):8}  "
+              f"{'OK' if ok else 'FAIL'}{reason}")
+    print(f"\n불합격 {bad}쌍 / 총 {len(list(itertools.combinations(VALVES,2)))}쌍")
+    if bad:
+        print("→ 조정 순서: ①문 위치 ②칸막이 추가 ③밸브 좌표 ④구역 배치 (§10.2-1)")
+
+
+if __name__ == '__main__':
+    main()
