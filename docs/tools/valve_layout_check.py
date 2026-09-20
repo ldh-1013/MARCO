@@ -7,6 +7,9 @@
       반경이 42.4m가 되어 폐기됨 — 10.2-1절 참조)
   ② 동시 감시 지점 0개 — 9.3-1절이 전제하는 청취 반경 14.4m를
      직접 검증한다. 임계 = 14.4 × (1 + 0.5^n), n = 두 밸브 사이 벽 수
+  ③ 배수구 육상 거리 3.0m 이상 — 6.5-3절 수심 3.5m 규칙의 수평 짝.
+     물가에 붙으면 술래가 마른 바닥에서 부상 지점을 태그한다.
+     유아풀은 수면 폭 6m라 3.0m가 기하학적 상한이다(여유 0).
 
 그레이박스 완성 후 ROOMS/DOORS/VALVES를 실제 좌표로 갱신해 재실행할 것.
 좌표계: 원점 = 남서 귀퉁이, +x = 동, +y = 북, 단위 m (§10.1)
@@ -23,6 +26,20 @@ WALL_ATTEN         = 0.5    # §5.6 벽 통과당 반경 배율
 FLOOR_WALLS        = 2      # §5.6 층간 바닥 = 벽 2장 상당
 STAIR_PENALTY      = 12.0   # 2층 계단 왕복 근사
 MIN_PATH           = 30.0   # §10.2-1 ① 경로 거리 하한
+
+# ── 배수구 (§6.5-2 / §6.5-3) ────────────────────────────────────────
+TAG_RADIUS  = 1.2    # §6.5-3 태그 반경
+MIN_LAND    = 3.0    # D-1 배수구 ↔ 육상 최단 거리 (태그 1.2 + 여유 1.8)
+MIN_VALVE_D = 3.0    # D-2 배수구 ↔ 같은 구역 밸브 (상호작용 프롬프트 분리)
+
+WATER = {            # §10.1 수면 영역 — 잠정(GAP-72)
+    '메인풀홀':  (21, 17, 35, 25),
+    '유아풀존':  (3.5, 6.5, 12.5, 12.5),
+}
+DRAINS = {           # §6.5-2
+    '배수구1 메인풀': ('메인풀홀', (31, 21),  'B 메인풀'),
+    '배수구2 유아풀': ('유아풀존', (8, 9.5),  'E 유아풀'),
+}
 SEEKER_HEAR = VALVE_SOUND_RADIUS * SEEKER_RADIUS_MULT   # 14.4m
 
 W, H = 52, 40
@@ -127,6 +144,33 @@ def co_watch_spots(v1, v2, walk, e1, e2):
     return out
 
 
+def land_distance(p, water):
+    """배수구에서 물 밖(육상)까지의 최단 거리 — 수면 사각형 경계까지의 거리"""
+    x0, y0, x1, y1 = water
+    return min(p[0] - x0, x1 - p[0], p[1] - y0, y1 - p[1])
+
+
+def check_drains():
+    """§6.5-3 수평 거리 제약 판정. 밸브 검사와 독립이다."""
+    print(f"\n{'배수구':20} {'육상거리':>8} {'밸브거리':>8}  판정")
+    print("-" * 54)
+    bad = 0
+    for name, (room, p, valve) in DRAINS.items():
+        w = WATER[room]
+        ld = land_distance(p, w)
+        vd = math.dist(p, VALVES[valve])
+        ok = ld >= MIN_LAND and vd >= MIN_VALVE_D
+        if not ok:
+            bad += 1
+        cap = min(w[2] - w[0], w[3] - w[1]) / 2      # 이 수면에서 가능한 최대 육상거리
+        note = "  ← 수면 기하학적 상한" if abs(ld - cap) < 1e-6 else ""
+        print(f"{name:20} {ld:8.2f} {vd:8.2f}  {'OK' if ok else 'FAIL'}{note}")
+    print(f"\n배수구 불합격 {bad}개 / 총 {len(DRAINS)}개")
+    if bad:
+        print("→ 조정: ①배수구 좌표 ②수면 영역 확대 (§6.5-3, §10.1)")
+    return bad
+
+
 def main():
     walk = build()
     for name, p in VALVES.items():
@@ -158,6 +202,7 @@ def main():
     print(f"\n불합격 {bad}쌍 / 총 {len(list(itertools.combinations(VALVES,2)))}쌍")
     if bad:
         print("→ 조정 순서: ①문 위치 ②칸막이 추가 ③밸브 좌표 ④구역 배치 (§10.2-1)")
+    check_drains()
 
 
 if __name__ == '__main__':
