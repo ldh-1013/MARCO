@@ -145,7 +145,16 @@ namespace Marco.Core.Tests
         [TestCase(true, true, false, false)]   // §5.9-1 "강제 부상" — 숨 0
         public void IsDiving_MatchesDesignDoc(bool held, bool inWater, bool canSubmerge, bool expected)
         {
-            Assert.AreEqual(expected, DiveRules.IsDiving(held, inWater, canSubmerge));
+            Assert.AreEqual(expected, DiveRules.IsDiving(Role.RoleType.Runner, held, inWater, canSubmerge));
+        }
+
+        [TestCase(Role.RoleType.Runner, true)]
+        [TestCase(Role.RoleType.Seeker, false)] // [블록 5] §3.1 잠수는 도망자 능력 · §6.5-3 "술래에게 잠수를 주지 않는다"
+        [TestCase(Role.RoleType.Echo, false)]   // §3.2 비행형
+        public void IsDiving_OnlyRunnerCanDive(Role.RoleType role, bool expected)
+        {
+            Assert.AreEqual(expected, DiveRules.IsDiving(role, true, true, true));
+            Assert.AreEqual(expected, DiveRules.CanDive(role));
         }
 
         [Test]
@@ -153,18 +162,20 @@ namespace Marco.Core.Tests
         {
             // 판정이 두 곳에 있지 않다는 실증 — 시뮬레이터의 Diving 진입이
             // DiveRules.IsDiving과 모든 조합에서 일치해야 한다.
+            // [블록 5] 역할까지 전 조합으로 넓혔다 — 판정식에 역할이 들어갔기 때문이다.
+            foreach (Role.RoleType role in new[] { Role.RoleType.Runner, Role.RoleType.Seeker, Role.RoleType.Echo })
             foreach (bool held in new[] { false, true })
             foreach (bool inWater in new[] { false, true })
             foreach (bool canSubmerge in new[] { false, true })
             {
-                var sim = new LocomotionSimulator(Role.RoleType.Runner);
+                var sim = new LocomotionSimulator(role);
                 var input = new LocomotionInput(new Vector2(0f, 1f),
                     sprintHeld: false, diveHeld: held, isOnWaterSurface: inWater, canSubmerge: canSubmerge);
 
                 bool diving = sim.Tick(input, 0.02f).State == MovementState.Diving;
 
-                Assert.AreEqual(DiveRules.IsDiving(held, inWater, canSubmerge), diving,
-                    $"held={held} inWater={inWater} canSubmerge={canSubmerge}");
+                Assert.AreEqual(DiveRules.IsDiving(role, held, inWater, canSubmerge), diving,
+                    $"role={role} held={held} inWater={inWater} canSubmerge={canSubmerge}");
             }
         }
 

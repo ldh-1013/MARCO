@@ -16,13 +16,33 @@ namespace Marco.Core.Objectives
     /// </summary>
     public interface IEscapeGateState
     {
-        /// <summary>현재 개방된 밸브 수.</summary>
+        /// <summary>
+        /// <b>현재 동시에 Open 상태인</b> 밸브 수. §6.1-2 역류로 <b>줄어들 수 있다</b> —
+        /// 누적 개방 수가 아니다. 읽는 쪽이 "증가만 한다"고 가정하면 안 된다.
+        ///
+        /// <para>
+        /// §6.5-2 배수구 작업 시간 <c>T = 14 − (동시 개방 밸브 수 × 3)</c>이 이 값을 쓴다.
+        /// 블록 4가 페이즈 중에도 조회하므로 언제든 유효해야 한다.
+        /// </para>
+        /// </summary>
         int OpenedValves { get; }
 
-        /// <summary>전체 밸브 수(판정식 <c>valvesOpened == totalValves</c>의 분모).</summary>
+        /// <summary>
+        /// §6.1-0 이번 라운드 <b>활성</b> 밸브 수. 배치 수(5)가 아니라 활성 수(3~4)다 —
+        /// HUD가 표시할 슬롯 개수이기도 하다.
+        /// </summary>
         int TotalValves { get; }
 
-        /// <summary>§6.1: 밸브 전부 개방 시 배수로 게이트가 열린다 — 탈출의 전제 조건.</summary>
+        /// <summary>
+        /// §6.2 게이트가 열리는 데 필요한 <b>동시</b> 개방 수(2 또는 3). 인원별로 달라지므로
+        /// <b>3을 하드코딩하면 안 된다</b>.
+        /// </summary>
+        int RequiredOpenValves { get; }
+
+        /// <summary>
+        /// §6.1-2 게이트가 열렸는가. <b>latch다</b> — 한 번 열리면 역류로 밸브가 닫혀도
+        /// 라운드 종료까지 유지된다. 취소되지 않는다.
+        /// </summary>
         bool IsGateOpen { get; }
     }
 }

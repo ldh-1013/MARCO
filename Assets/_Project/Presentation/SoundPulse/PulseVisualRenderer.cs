@@ -1,6 +1,8 @@
 using System.Collections.Generic;
 using UnityEngine;
+using Marco.Core.Items;
 using Marco.Core.Net;
+using Marco.Core.Role;
 using Marco.Core.Sound;
 using Marco.Presentation.Palette;
 
@@ -68,6 +70,39 @@ namespace Marco.Presentation.Sound
         private Material _ringMaterial;
         private GUIStyle _indicatorStyle;
 
+        // ── [블록 6] 자기 파문 · 잔상 · 소나 · 찰칵이 섬광 ──────────────────
+
+        /// <summary>
+        /// 자기 파문(GAP-1 로컬 0ms 경로)의 시각 ID → 발생 위치·반경. 서버 파문 ID(0 이상)와
+        /// 겹치지 않게 음수를 쓴다. 자연 만료 시 이 값으로 §16.4 잔상을 남긴다.
+        /// </summary>
+        private readonly Dictionary<int, (Vector3 Position, float Radius)> _selfPulses =
+            new Dictionary<int, (Vector3, float)>();
+        private int _nextSelfPulseId = -1;
+
+        private readonly AfterglowTracker _afterglow = new AfterglowTracker();
+        private readonly Dictionary<int, LineRenderer> _afterglowRings = new Dictionary<int, LineRenderer>();
+        private readonly List<AfterglowTracker.Entry> _afterglowBuffer = new List<AfterglowTracker.Entry>();
+
+        private readonly EchoSonarView _sonar = new EchoSonarView();
+        private readonly List<EchoSonarView.Item> _sonarItems = new List<EchoSonarView.Item>();
+        private readonly Dictionary<int, LineRenderer> _residualRings = new Dictionary<int, LineRenderer>();
+        private readonly HashSet<int> _sonarShownScratch = new HashSet<int>();
+        private readonly List<int> _residualReturnScratch = new List<int>();
+
+        private struct Flash
+        {
+            public Vector3 Position;
+            public float StartTime;
+            public LineRenderer Ring;
+            public Light Light;
+        }
+
+        private readonly List<Flash> _flashes = new List<Flash>();
+
+        /// <summary>이번 프레임 로컬 플레이어가 메아리인가(소나 시야). 매 프레임 재조회(GAP-61).</summary>
+        private bool _echoView;
+
         /// <summary>인스펙터에서 카메라를 직접 지정했는가(그러면 레지스트리로 덮어쓰지 않는다).</summary>
         private bool _viewCameraOverridden;
 
@@ -107,6 +142,8 @@ namespace Marco.Presentation.Sound
             _registry.VisualAdded += OnVisualAdded;
             _registry.VisualUpdated += OnVisualUpdated;
             _registry.VisualRemoved += OnVisualRemoved;
+            _registry.VisualExpired += OnVisualExpired;
+            _afterglow.Removed += OnAfterglowRemoved;
 
             // 30개가 동시에 뜨는 순간 GameObject를 한꺼번에 만들면 그 프레임만 튄다.
             for (int i = 0; i < _prewarmRingCount; i++)
@@ -118,12 +155,133 @@ namespace Marco.Presentation.Sound
             _registry.VisualAdded -= OnVisualAdded;
             _registry.VisualUpdated -= OnVisualUpdated;
             _registry.VisualRemoved -= OnVisualRemoved;
+            _registry.VisualExpired -= OnVisualExpired;
+            _afterglow.Removed -= OnAfterglowRemoved;
         }
 
         // 스프린트 14: 서버가 개별 전송(TargetRpc)한 델리버리를 받을 소비자로 자신을 등록한다.
         // Net은 Presentation을 참조할 수 없으므로 Core 레지스트리를 경유한다(§15.2).
-        private void OnEnable() => PulseNetworkRegistry.RegisterSink(this);
-        private void OnDisable() => PulseNetworkRegistry.UnregisterSink(this);
+        private void OnEnable()
+        {
+            PulseNetworkRegistry.RegisterSink(this);
+            SelfPulseFeed.Emitted += OnSelfPulse;
+            ClickerClientEvents.FlashObserved += OnFlashObserved;
+        }
+
+        private void OnDisable()
+        {
+            PulseNetworkRegistry.UnregisterSink(this);
+            SelfPulseFeed.Emitted -= OnSelfPulse;
+            ClickerClientEvents.FlashObserved -= OnFlashObserved;
+        }
+
+        /// <summary>
+        /// [블록 6] 자기 파문을 0ms로 그린다(GAP-1). 발생 반경 그대로 — 인지 배율 없음.
+        /// 기존 레지스트리에 <b>같은 Appeared 델리버리</b>로 넣어 시각화 코드를 새로 만들지 않는다.
+        /// 메아리는 자기 파문이 없다(§3.2 — 소리는 노크뿐, 노크는 서버 경로).
+        /// </summary>
+        private void OnSelfPulse(SoundType type, float radius, float duration, Vector3 position)
+        {
+            if (IsLocalEcho())
+                return;
+
+            int id = _nextSelfPulseId--;
+            _selfPulses[id] = (position, radius);
+            var perceived = new PerceivedPulse(radius, duration, position, DirectionOctant.N, worldSpaceRingVisible: true);
+            _registry.Apply(new PulseDelivery(0UL, id, PulseDeliveryKind.Appeared, perceived), Time.time);
+        }
+
+        /// <summary>
+        /// 자연 만료 직전. ① 자기 파문이면 §16.4 잔상을 남기고 ② 메아리 시야면 §3.2-1 잔류 흔적을 남긴다.
+        /// <b>잔상은 자기 파문에만</b> — 타인 파문에 남기면 정보량이 폭증한다(지시서 6-B ★).
+        /// </summary>
+        private void OnVisualExpired(PulseVisualState state)
+        {
+            float now = Time.time;
+
+            if (_selfPulses.TryGetValue(state.PulseId, out (Vector3 Position, float Radius) self))
+                AddAfterglow(self.Position, self.Radius, now);
+
+            if (_echoView)
+                _sonar.NotifyExpired(state, now);
+        }
+
+        private void AddAfterglow(Vector3 position, float radius, float now)
+        {
+            int id = _afterglow.Add(position, radius, now);
+            LineRenderer ring = RentRing();
+            ring.enabled = true;
+            _afterglowRings[id] = ring;
+        }
+
+        private void OnAfterglowRemoved(int id)
+        {
+            if (_afterglowRings.TryGetValue(id, out LineRenderer ring))
+            {
+                _afterglowRings.Remove(id);
+                ReturnRing(ring);
+            }
+        }
+
+        /// <summary>
+        /// §7 찰칵이 섬광. <b>파문이 아니다</b> — 레지스트리를 거치지 않는 별도 표시다. 0.3초 동안
+        /// 6m 원이 밝게 보이고 실제 광원이 지형을 비춘다. 자기 섬광이면 §16.4 잔상이 남는다.
+        /// </summary>
+        private void OnFlashObserved(Vector3 position, bool self)
+        {
+            float now = Time.time;
+            LineRenderer ring = RentRing();
+            ring.enabled = true;
+
+            var lightGo = new GameObject("ClickerFlashLight");
+            lightGo.transform.SetParent(transform, worldPositionStays: false);
+            lightGo.transform.position = position + Vector3.up;
+            Light light = lightGo.AddComponent<Light>();
+            light.type = LightType.Point;
+            light.range = ClickerConfig.RadiusMeters;
+            light.intensity = 4f; // 표시 강도(규칙 수치 아님) — 암전 맵에서 6m 원이 확실히 드러나도록
+            light.color = Color.white;
+            light.shadows = LightShadows.None;
+
+            _flashes.Add(new Flash { Position = position, StartTime = now, Ring = ring, Light = light });
+
+            if (self)
+                AddAfterglow(position, ClickerConfig.RadiusMeters, now);
+        }
+
+        private void UpdateFlashes(float now)
+        {
+            for (int i = _flashes.Count - 1; i >= 0; i--)
+            {
+                Flash f = _flashes[i];
+                float t = (now - f.StartTime) / ClickerConfig.FlashSeconds;
+                if (t >= 1f)
+                {
+                    ReturnRing(f.Ring);
+                    if (f.Light != null)
+                        Destroy(f.Light.gameObject);
+                    _flashes.RemoveAt(i);
+                    continue;
+                }
+
+                f.Ring.enabled = true;
+                f.Ring.transform.position = f.Position + Vector3.up * _ringHeightOffset;
+                f.Ring.transform.localScale = new Vector3(ClickerConfig.RadiusMeters, 1f, ClickerConfig.RadiusMeters);
+                Color c = Color.white;
+                c.a = 1f - t;
+                f.Ring.startColor = c;
+                f.Ring.endColor = c;
+                if (f.Light != null)
+                    f.Light.intensity = 4f * (1f - t);
+            }
+        }
+
+        private static bool IsLocalEcho()
+        {
+            Marco.Presentation.Player.FirstPersonController player =
+                Marco.Presentation.Player.LocalPlayerRegistry.Current;
+            return player != null && player.Role == RoleType.Echo;
+        }
 
         /// <summary>파이프라인이 방출한 델리버리를 시각 상태에 반영한다.</summary>
         public void Apply(in PulseDelivery delivery, float now)
@@ -149,7 +307,17 @@ namespace Marco.Presentation.Sound
         /// <summary>매 프레임 호출: 자체 타이머 만료 처리 + 링 애니메이션 갱신.</summary>
         public void Tick(float now)
         {
+            // 메아리 시야 전환(태그 순간·새 라운드)을 매 프레임 확인한다(GAP-61).
+            bool echo = IsLocalEcho();
+            if (echo != _echoView)
+            {
+                _echoView = echo;
+                ClearResiduals();
+            }
+
             _registry.Tick(now);
+            _afterglow.Tick(now);
+            _sonar.Tick(now);
 
             // 프레임당 1회만 계산해 OnGUI가 매 이벤트마다 다시 구하지 않게 한다.
             _frameColor = ResolvePulseColor();
@@ -160,7 +328,112 @@ namespace Marco.Presentation.Sound
                 _frameCameraYaw = _viewCamera.transform.eulerAngles.y;
 
             _registry.CopyTo(_visualBuffer);
-            UpdateRings(now);
+            if (_echoView)
+                UpdateSonarRings(now);
+            else
+                UpdateRings(now);
+
+            UpdateAfterglowRings(now);
+            UpdateFlashes(now);
+        }
+
+        /// <summary>
+        /// §3.2-1 메아리 소나 — 단색 저채도 윤곽, 최근 8개, 소멸 후 3초 잔류. 발생자 구분 없음(색 하나).
+        /// 판정은 이미 서버가 했다(거리·차폐 무시는 <c>SoundPulseResolver</c>의 메아리 분기).
+        /// </summary>
+        private void UpdateSonarRings(float now)
+        {
+            _directionScratch.Clear();
+            _gaugeScratch.Clear();
+
+            _sonar.Select(_visualBuffer, now, _sonarItems);
+            _sonarShownScratch.Clear();
+
+            // §16.2 환경 파문색(#E8E8E8) — 채도 0의 단색. 역할색을 쓰면 발생자가 드러난다.
+            Color baseColor = _palette != null ? _palette.GetEnvironmentPulse(_colorblindMode) : new Color(0.9f, 0.9f, 0.9f);
+
+            for (int i = 0; i < _sonarItems.Count; i++)
+            {
+                EchoSonarView.Item item = _sonarItems[i];
+                LineRenderer ring;
+                if (item.Residual)
+                {
+                    if (!_residualRings.TryGetValue(item.PulseId, out ring))
+                    {
+                        ring = RentRing();
+                        _residualRings[item.PulseId] = ring;
+                    }
+                }
+                else if (!_activeRings.TryGetValue(item.PulseId, out ring))
+                {
+                    continue;
+                }
+
+                _sonarShownScratch.Add(item.Residual ? ~item.PulseId : item.PulseId);
+
+                float radius = Mathf.Max(item.Radius * item.Expansion, 0.01f);
+                ring.enabled = true;
+                ring.transform.position = item.Position + Vector3.up * _ringHeightOffset;
+                ring.transform.localScale = new Vector3(radius, 1f, radius);
+
+                Color c = baseColor;
+                c.a = item.Alpha;
+                ring.startColor = c;
+                ring.endColor = c;
+            }
+
+            // 상한 밖으로 밀려난 것은 숨긴다(오래된 것부터 버린다).
+            foreach (KeyValuePair<int, LineRenderer> entry in _activeRings)
+            {
+                if (!_sonarShownScratch.Contains(entry.Key))
+                    entry.Value.enabled = false;
+            }
+
+            _residualReturnScratch.Clear();
+            foreach (KeyValuePair<int, LineRenderer> entry in _residualRings)
+            {
+                if (!_sonarShownScratch.Contains(~entry.Key))
+                    _residualReturnScratch.Add(entry.Key);
+            }
+
+            for (int i = 0; i < _residualReturnScratch.Count; i++)
+            {
+                int key = _residualReturnScratch[i];
+                ReturnRing(_residualRings[key]);
+                _residualRings.Remove(key);
+            }
+        }
+
+        private void ClearResiduals()
+        {
+            _sonar.Clear();
+            foreach (LineRenderer ring in _residualRings.Values)
+                ReturnRing(ring);
+            _residualRings.Clear();
+        }
+
+        /// <summary>§16.4 잔상 — 자기 파문의 최종 반경에 8% → 0%, 8초 선형(차선책).</summary>
+        private void UpdateAfterglowRings(float now)
+        {
+            if (_afterglowRings.Count == 0)
+                return;
+
+            _afterglow.CopyTo(_afterglowBuffer);
+            for (int i = 0; i < _afterglowBuffer.Count; i++)
+            {
+                AfterglowTracker.Entry e = _afterglowBuffer[i];
+                if (!_afterglowRings.TryGetValue(e.Id, out LineRenderer ring))
+                    continue;
+
+                ring.enabled = true;
+                ring.transform.position = e.Position + Vector3.up * _ringHeightOffset;
+                ring.transform.localScale = new Vector3(e.Radius, 1f, e.Radius);
+
+                Color c = _frameColor;
+                c.a = e.Alpha(now);
+                ring.startColor = c;
+                ring.endColor = c;
+            }
         }
 
         /// <summary>
@@ -243,6 +516,8 @@ namespace Marco.Presentation.Sound
 
         private void OnVisualRemoved(int pulseId)
         {
+            _selfPulses.Remove(pulseId);
+
             if (!_activeRings.TryGetValue(pulseId, out LineRenderer ring))
                 return;
 

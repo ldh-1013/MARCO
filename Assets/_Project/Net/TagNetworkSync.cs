@@ -37,6 +37,26 @@ namespace Marco.Net
         // 서버가 확정해 전 피어에 전파하는 태그 상태.
         private readonly SyncVar<bool> _tagged = new();
 
+        /// <summary>
+        /// §3.1-1 태그가 확정된 서버 시각. 도망자 3.0초 암전의 기준점이며
+        /// 0이면 태그되지 않은 상태다. <b>전 피어에 전파해야</b> 각자 암전 연출을
+        /// 같은 시점에 시작한다.
+        /// </summary>
+        private readonly SyncVar<float> _taggedAt = new();
+
+        /// <summary>
+        /// §3.1-1 술래별 경직 시작 시각(서버 전용, 술래 playerId → 시각).
+        ///
+        /// <para>
+        /// <b>술래 오브젝트가 아니라 여기서 관리하는 이유</b>: 경직은 "태그가 성립한 순간"에
+        /// 걸리는 것이고 그 순간을 아는 것은 태그 대상 쪽의 이 RPC다. 술래 컴포넌트에
+        /// 두면 태그 성립을 다시 알려 줘야 해서 경로가 둘로 갈린다.
+        /// <c>static</c>인 이유는 태그 대상마다 인스턴스가 다르지만 술래는 하나이기 때문이다.
+        /// </para>
+        /// </summary>
+        private static readonly Dictionary<ulong, float> ServerSeekerStunnedAt =
+            new Dictionary<ulong, float>();
+
         private IRoleState _roleState;
         private bool _appliedTagEffect; // 피어별 태그 효과(역할 전환·통지)를 정확히 1회만 적용
 
@@ -61,6 +81,25 @@ namespace Marco.Net
         public RoleType Role => _roleState != null ? _roleState.Role : RoleType.Runner;
 
         public bool IsTagged => _tagged.Value;
+
+        /// <summary>§3.1-1 태그 확정 시각(네트워크 공유). 암전 연출의 기준점이다.</summary>
+        public float TaggedAt => _taggedAt.Value;
+
+        /// <summary>§3.1-1 이 대상이 지금 암전 중인가(태그 후 3.0초).</summary>
+        public bool IsBlackedOut =>
+            Core.Tagging.TagAftermath.IsRunnerBlackedOut(_taggedAt.Value, Time.time);
+
+        /// <summary>§3.1-1 암전 잔여(초).</summary>
+        public float BlackoutRemaining =>
+            Core.Tagging.TagAftermath.BlackoutRemaining(_taggedAt.Value, Time.time);
+
+        /// <summary>
+        /// §3.1-1 이 술래가 경직 중인가. <b>서버 전용</b>(경직 맵이 서버에만 있다) —
+        /// 이동 제한을 클라이언트에도 걸려면 별도 전파가 필요하다(GAP-85).
+        /// </summary>
+        internal static bool IsSeekerStunnedOnServer(ulong seekerId, float now) =>
+            ServerSeekerStunnedAt.TryGetValue(seekerId, out float at)
+            && Core.Tagging.TagAftermath.IsSeekerStunned(at, now);
 
         public Vector3 WorldPosition => transform.position;
 
@@ -114,15 +153,49 @@ namespace Marco.Net
             Vector3 seekerPosition = caller.FirstObject.transform.position;
             RoleType targetRole = Role;
 
-            if (!ServerTagDriver.Validate(seekerRole, targetRole, _tagged.Value, seekerPosition, transform.position))
+            // §6.5-3 잠수 중인 대상은 **바닥에 있는 것으로** 잰다(GAP-89) — 발 위치로 재면
+            //   술래가 수면에 선 채 3.5m 아래 배수구 작업자를 잡는다. 잠수 여부는 숨 게이지가
+            //   쓰는 것과 같은 서버 판정이다(클라이언트 주장이 아니다).
+            Vector3 targetPosition = Core.Locomotion.DiveRules.ContactPosition(
+                transform.position,
+                Core.Water.WaterVolumeRegistry.Sample(transform.position),
+                PulseNetworkSync.ServerIsSubmerged(PlayerId));
+
+            if (!ServerTagDriver.Validate(seekerRole, targetRole, _tagged.Value, seekerPosition, targetPosition))
             {
                 Debug.Log($"[TagNet:Server] targetId={PlayerId} 태그 거부 — 서버 재검증 실패 " +
                           $"(seekerRole={seekerRole} ← 서버 측 실제 역할, targetRole={targetRole}, 거리검증 포함 §5.3)");
                 return;
             }
 
+            // §3.1-1 ★ 술래 경직이 남아 있으면 태그 자체가 성립하지 않는다.
+            //   **이동만 막으면 안 된다** — 제자리 연속 태그로 붙어 있는 도망자 둘이
+            //   한 번에 정리된다.
+            if (ServerSeekerStunnedAt.TryGetValue(seekerId, out float stunnedAt)
+                && Core.Tagging.TagAftermath.IsSeekerStunned(stunnedAt, Time.time))
+            {
+                Debug.Log($"[TagNet:Server] targetId={PlayerId} 태그 거부 — 술래 경직 중 " +
+                          $"(잔여 {Core.Tagging.TagAftermath.StunRemaining(stunnedAt, Time.time):0.00}초, §3.1-1)");
+                return;
+            }
+
             _tagged.Value = true; // → OnChange가 전 피어에 전파.
-            Debug.Log($"[TagNet:Server] targetId={PlayerId} 태그 확정 — 서버 재검증 통과 (seeker={seekerId})");
+            _taggedAt.Value = Time.time;
+
+            // §3.1-1 술래 1.0초 경직(이동·태그 모두 불가).
+            ServerSeekerStunnedAt[seekerId] = Time.time;
+
+            // §3.1-1 태그 지점에서 고함급 파문 1회(발생 22m / 지속 2.5초).
+            //   **새 SoundType을 만들지 않는다** — 기존 Shout 등급 그대로다(§3.3).
+            //   발생원을 WorldSourceId로 두므로 §8.1 최다 비명상(Scream만 집계)에
+            //   섞이지 않고, 어떤 플레이어의 §8.2 소음량으로도 귀속되지 않는다.
+            PulseNetworkSync.ServerEmitWorldPulse(
+                Core.Tagging.TagAftermath.PulseType, transform.position);
+
+            Debug.Log($"[TagNet:Server] targetId={PlayerId} 태그 확정 — 서버 재검증 통과 " +
+                      $"(seeker={seekerId}, 술래 경직 {Core.Tagging.TagAftermath.SeekerStunSeconds:0.0}초, " +
+                      $"암전 {Core.Tagging.TagAftermath.RunnerBlackoutSeconds:0.0}초, " +
+                      $"태그 파문 {Core.Tagging.TagAftermath.PulseType} 1회 §3.1-1)");
         }
 
         // ── 전 피어: 확정 반영 ────────────────────────────────────────────
@@ -170,6 +243,11 @@ namespace Marco.Net
         internal void ServerResetForNewRound()
         {
             _tagged.Value = false;
+            _taggedAt.Value = 0f;
+
+            // §3.1-1 술래 경직 기록도 라운드 경계에서 비운다 — 지난 라운드의 경직이
+            // 살아남으면 새 라운드 첫 태그가 거부된다(더블체크 2).
+            ServerSeekerStunnedAt.Clear();
             _appliedTagEffect = false;
         }
 

@@ -221,19 +221,27 @@ namespace Marco.Presentation.Sound
         {
             // 네트워크면 "소리가 났다"만 알리고(서버가 §5.1 표로 반경·지속을, 서버 측 위치로
             // 발생 지점을, §5.9 재질로 반경 배율을 결정 — GAP-24), 로컬이면 직접 판정한다.
+            // §5.9 재질 배율 — 서버와 같은 Core 규칙. 자기 화면 표시(아래 SelfPulseFeed)에도 쓴다.
+            FootstepMaterial material = PulseNetworkRegistry.SampleMaterial(type, position);
+            if (!FootstepMaterialRules.EmitsPulse(material))
+            {
+                if (IsNetworkActive)
+                    _bridge.SubmitPulse(type); // 판정은 서버가 다시 한다(물이면 서버도 거부)
+                return; // §5.9 물(수면 아래) — 파문 발생 안 함
+            }
+
+            float materialRadius = FootstepMaterialRules.ApplyToRadius(radius, material);
+
+            // [블록 6] GAP-1 "본인 발생 펄스는 로컬 0ms 렌더 경로" — 자기 발소리를 자기 화면에.
+            SelfPulseFeed.Raise(type, materialRadius, duration, position);
+
             if (IsNetworkActive)
             {
                 _bridge.SubmitPulse(type);
                 return;
             }
 
-            // §5.9 재질 배율은 로컬 경로에서도 같은 Core 규칙으로 적용한다 —
-            // 두 경로가 다른 반경을 내면 "호스트에서만 다르게 들린다"가 된다.
-            FootstepMaterial material = PulseNetworkRegistry.SampleMaterial(type, position);
-            if (!FootstepMaterialRules.EmitsPulse(material))
-                return; // §5.9 물(수면 아래) — 파문 발생 안 함
-
-            float materialRadius = FootstepMaterialRules.ApplyToRadius(radius, material);
+            // 두 경로가 다른 반경을 내면 "호스트에서만 다르게 들린다"가 된다 — 같은 재질 반경.
             _pipeline.OnFootstepPulse(type, materialRadius, duration, position, Time.time);
         }
 
@@ -244,6 +252,9 @@ namespace Marco.Presentation.Sound
         /// </summary>
         public void EmitPulse(SoundType type, float radius, float duration, Vector3 position)
         {
+            // [블록 6] 자기 밸브 회전음을 자기 화면에(GAP-1 로컬 0ms 경로).
+            SelfPulseFeed.Raise(type, radius, duration, position);
+
             if (IsNetworkActive)
             {
                 _bridge.SubmitPulse(type);

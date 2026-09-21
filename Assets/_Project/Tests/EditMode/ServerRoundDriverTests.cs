@@ -72,7 +72,7 @@ namespace Marco.Core.Tests
         public void Tick_AfterDecided_DoesNotAdvance()
         {
             var d = new ServerRoundDriver(0f); // 즉시 시간 만료 상태
-            Assert.IsTrue(d.Evaluate(0, TotalValves, 0)); // → SeekerWin(시간 초과)
+            Assert.IsTrue(d.Evaluate(d.Census(3, 0))); // → SeekerWin(시간 초과)
             d.Tick(1f);
             Assert.AreEqual(0f, d.RemainingSeconds);
             Assert.AreEqual(RoundResult.SeekerWin, d.Result);
@@ -118,7 +118,7 @@ namespace Marco.Core.Tests
         public void Escape_AfterRoundDecided_IsIgnored()
         {
             var d = new ServerRoundDriver(0f);
-            Assert.IsTrue(d.Evaluate(0, TotalValves, 0)); // SeekerWin(시간)
+            Assert.IsTrue(d.Evaluate(d.Census(3, 0))); // SeekerWin(시간)
             Assert.IsFalse(d.TryRegisterEscape(1, RoleType.Runner, gateOpen: true));
             Assert.AreEqual(0, d.EscapedCount);
         }
@@ -126,22 +126,26 @@ namespace Marco.Core.Tests
         // ── §6.3 판정 위임 + 래치 ────────────────────────────────────────
 
         [Test]
-        public void Evaluate_AllValvesOpen_TwoEscaped_RunnersWin()
+        public void Evaluate_RequiredEscaped_RunnersWin()
         {
+            // §6.2 [v0.4] 도망자 3명 → 탈출 요구 ⌈3/2⌉ = 2명.
             var d = new ServerRoundDriver(600f);
             d.TryRegisterEscape(1, RoleType.Runner, gateOpen: true);
             d.TryRegisterEscape(2, RoleType.Runner, gateOpen: true);
-            Assert.IsTrue(d.Evaluate(TotalValves, TotalValves, 0));
+
+            Assert.IsTrue(d.Evaluate(d.Census(3, 0)));
             Assert.AreEqual(RoundResult.RunnersWin, d.Result);
         }
 
         [Test]
-        public void Evaluate_AllValvesOpen_OnlyOneEscaped_StaysInProgress()
+        public void Evaluate_OnlyOneEscaped_StaysInProgress()
         {
-            // §6.3 갱신: 탈출 1명으로는 부족하다(탈출 2명이 목표).
+            // §6.2 [v0.4] 도망자 3명이면 요구가 2명이라 1명으로는 부족하고,
+            // 살아있는 도망자가 2명 남아 있으므로 술래 승리도 아니다.
             var d = new ServerRoundDriver(600f);
             d.TryRegisterEscape(1, RoleType.Runner, gateOpen: true);
-            Assert.IsFalse(d.Evaluate(TotalValves, TotalValves, 0));
+
+            Assert.IsFalse(d.Evaluate(d.Census(3, 0)));
             Assert.AreEqual(RoundResult.InProgress, d.Result);
         }
 
@@ -149,16 +153,33 @@ namespace Marco.Core.Tests
         public void Evaluate_TimeExpired_SeekerWin()
         {
             var d = new ServerRoundDriver(0f);
-            Assert.IsTrue(d.Evaluate(0, TotalValves, 0));
+            Assert.IsTrue(d.Evaluate(d.Census(3, 0)));
             Assert.AreEqual(RoundResult.SeekerWin, d.Result);
         }
 
         [Test]
-        public void Evaluate_TwoTagged_SeekerWin_EvenWithTimeLeft()
+        public void Evaluate_TwoTaggedOfThree_IsNotSeekerWin_EntersPhaseInstead()
         {
-            // §6.3 "태그 2명 도달 → 즉시 술래 승리 확정, 라운드 종료".
+            // ★ v0.4에서 규칙이 **삭제됐다.** v0.3은 "태그 2명 도달 → 즉시 술래 승리"였지만
+            //   §6.3 [v0.4]가 그 규칙을 지웠다 — 도망자가 1명 남는 것은 술래의 승리가 아니라
+            //   §6.5 최후 생존자 페이즈의 시작이다. 술래는 전원을 잡아야 이긴다.
             var d = new ServerRoundDriver(600f); // 시간 충분
-            Assert.IsTrue(d.Evaluate(0, TotalValves, taggedRunners: 2));
+            RunnerCensus census = d.Census(totalRunners: 3, taggedRunners: 2);
+
+            Assert.AreEqual(1, census.Alive, "3 − 2 − 0 = 1명 생존");
+            Assert.IsTrue(census.ShouldEnterLastSurvivorPhase, "§6.5-1 진입 조건");
+
+            Assert.IsFalse(d.Evaluate(census), "술래 승리가 아니다.");
+            Assert.AreEqual(RoundResult.InProgress, d.Result);
+        }
+
+        [Test]
+        public void Evaluate_AllThreeTagged_IsSeekerWin()
+        {
+            // §6.3 [v0.4] 술래 승리 조건은 "살아있는 도망자 0명"이다.
+            var d = new ServerRoundDriver(600f);
+
+            Assert.IsTrue(d.Evaluate(d.Census(totalRunners: 3, taggedRunners: 3)));
             Assert.AreEqual(RoundResult.SeekerWin, d.Result);
         }
 
@@ -166,7 +187,7 @@ namespace Marco.Core.Tests
         public void Evaluate_OneTagged_DoesNotEndRound()
         {
             var d = new ServerRoundDriver(600f);
-            Assert.IsFalse(d.Evaluate(0, TotalValves, taggedRunners: 1));
+            Assert.IsFalse(d.Evaluate(d.Census(3, taggedRunners: 1)));
             Assert.AreEqual(RoundResult.InProgress, d.Result);
         }
 
@@ -174,7 +195,7 @@ namespace Marco.Core.Tests
         public void Evaluate_NothingMet_StaysInProgress()
         {
             var d = new ServerRoundDriver(600f);
-            Assert.IsFalse(d.Evaluate(1, TotalValves, 0));
+            Assert.IsFalse(d.Evaluate(d.Census(3, 0)));
             Assert.AreEqual(RoundResult.InProgress, d.Result);
             Assert.IsFalse(d.IsDecided);
         }
@@ -183,31 +204,35 @@ namespace Marco.Core.Tests
         public void Evaluate_Latches_SecondCallReturnsFalse_ResultUnchanged()
         {
             var d = new ServerRoundDriver(0f);
-            Assert.IsTrue(d.Evaluate(0, TotalValves, 0));  // SeekerWin(시간)
-            Assert.IsFalse(d.Evaluate(TotalValves, TotalValves, 0)); // 이미 결정됨 — 무시
+            Assert.IsTrue(d.Evaluate(d.Census(3, 0)));  // SeekerWin(시간)
+            Assert.IsFalse(d.Evaluate(d.Census(3, 0))); // 이미 결정됨 — 무시
             Assert.AreEqual(RoundResult.SeekerWin, d.Result);  // 러너 승리로 바뀌지 않는다
         }
 
         [Test]
         public void Evaluate_EscapePriorityOverTimeout_WhenBothTrue()
         {
-            // 시간도 만료(0)이고 탈출 2명도 성립 → §6.3은 탈출(RunnersWin)을 우선한다.
+            // 시간도 만료(0)이고 요구 인원 탈출도 성립 → §6.3은 탈출(RunnersWin)을 우선한다.
             var d = new ServerRoundDriver(0f);
             d.TryRegisterEscape(1, RoleType.Runner, gateOpen: true);
             d.TryRegisterEscape(2, RoleType.Runner, gateOpen: true);
-            Assert.IsTrue(d.Evaluate(TotalValves, TotalValves, 0));
+            Assert.IsTrue(d.Evaluate(d.Census(3, 0)));
             Assert.AreEqual(RoundResult.RunnersWin, d.Result);
         }
 
         [Test]
-        public void Evaluate_EscapePriorityOverTwoTagged()
+        public void Evaluate_EscapePriorityOverAllTagged()
         {
-            // §6.3 우선순위 1(탈출) → 2(태그). 탈출 2명이 이미 성립하면 태그 2명이 겹쳐도 도망자 승.
+            // §6.3 "탈출을 먼저 확정(도망자에게 유리하게 해석)". 도망자 4명 중 2명이 탈출하고
+            // 2명이 태그당해 생존 0명이 된 경우 — 요구가 ⌈4/2⌉ = 2이므로 도망자 승리다.
             var d = new ServerRoundDriver(600f);
             d.TryRegisterEscape(1, RoleType.Runner, gateOpen: true);
             d.TryRegisterEscape(2, RoleType.Runner, gateOpen: true);
-            Assert.IsTrue(d.Evaluate(TotalValves, TotalValves, taggedRunners: 2));
-            Assert.AreEqual(RoundResult.RunnersWin, d.Result);
+            RunnerCensus census = d.Census(totalRunners: 4, taggedRunners: 2);
+
+            Assert.AreEqual(0, census.Alive);
+            Assert.IsTrue(d.Evaluate(census));
+            Assert.AreEqual(RoundResult.RunnersWin, d.Result, "탈출이 술래 승리보다 우선한다.");
         }
 
         // ── §6.3 태그 인원 집계 (GAP-19 소멸) ────────────────────────────
@@ -265,24 +290,31 @@ namespace Marco.Core.Tests
             Assert.AreEqual(2, ServerRoundDriver.TaggedCount(withStandIns),
                 "대역이 등록돼 있어도 태그 인원 수는 달라지지 않는다(GAP-19 분모 문제 소멸).");
 
+            // ★ v0.4: 태그 2명이 아니라 **살아있는 도망자 0명**이 종료 조건이다.
+            //   대역이 몇 개 등록돼 있어도 태그 인원 집계는 달라지지 않는다는 것이 이 테스트의 요지고,
+            //   그 집계로 도망자 총수 2명이 전부 태그되면 라운드가 끝난다.
             var d = new ServerRoundDriver(600f);
-            Assert.IsTrue(d.Evaluate(0, TotalValves, ServerRoundDriver.TaggedCount(withStandIns)));
+            Assert.IsTrue(d.Evaluate(
+                d.Census(totalRunners: 2, ServerRoundDriver.TaggedCount(withStandIns))));
             Assert.AreEqual(RoundResult.SeekerWin, d.Result,
-                "대역이 남아 있어도 태그 2명이면 §6.3대로 라운드가 끝나야 한다.");
+                "대역이 남아 있어도 살아있는 도망자가 0이면 §6.3대로 끝난다.");
         }
 
         [Test]
         public void TaggedCount_TwoRealPlayers_OneTagged_DoesNotEndRound()
         {
-            // 실기 2인 구성(술래 + 러너 1)에서는 태그 1명이 최대다 — §6.3 기준으로는
-            // 라운드가 끝나지 않는다. **도망자 3명 전제(§1)를 벗어난 구성의 귀결**이며,
-            // 4인 미만 테스트 플레이에서 "태그해도 안 끝난다"로 보이는 것이 정상이다.
+            // ★ v0.4에서 결론이 바뀌었다. 실기 2인 구성(술래 + 러너 1)에서 그 1명이 태그되면
+            //   살아있는 도망자가 0이 되어 **라운드가 끝난다** — §6.3 [v0.4]의 술래 승리 조건이
+            //   "태그 2명"에서 "살아있는 도망자 0명"으로 바뀐 직접적 결과다.
+            //   도망자가 1명인 구성에서는 §6.5 페이즈에 들어갈 여지 없이 곧바로 끝난다
+            //   (§6.5-1 진입 조건은 "살아있는 1명"이고, 태그 전에는 이미 그 상태였다).
             var list = new List<ITagTarget> { Seeker(0), TaggedEcho(1) };
             Assert.AreEqual(1, ServerRoundDriver.TaggedCount(list));
 
             var d = new ServerRoundDriver(600f);
-            Assert.IsFalse(d.Evaluate(0, TotalValves, ServerRoundDriver.TaggedCount(list)));
-            Assert.AreEqual(RoundResult.InProgress, d.Result);
+            Assert.IsTrue(d.Evaluate(
+                d.Census(totalRunners: 1, ServerRoundDriver.TaggedCount(list))));
+            Assert.AreEqual(RoundResult.SeekerWin, d.Result);
         }
     }
 }

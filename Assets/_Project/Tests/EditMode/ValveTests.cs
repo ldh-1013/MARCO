@@ -79,17 +79,24 @@ namespace Marco.Core.Tests
 
         // 6) §6.1 핵심: 완료 전 중단 시 진행도가 0으로 리셋된다(부분 진행 저장 없음).
         [Test]
-        public void Interrupt_BeforeCompletion_ResetsProgressToZero()
+        public void Interrupt_BeforeCompletion_KeepsProgressForDecay()
         {
+            // ★ v0.4에서 의미가 뒤집혔다. v0.3은 "중단 시 진행도 0 리셋"이었지만
+            //   §6.1 [v0.4]는 **진행도를 유지하고 3초 유예 뒤 감쇠**시킨다.
+            //   그 변경의 이유가 §6.1에 있다 — 리셋 규칙에서는 일단 잡으면 끝까지
+            //   돌리는 것이 항상 최적이라 회전 중에 아무 판단도 하지 않는다.
             var valve = new Valve();
             valve.TryBeginRotation(RunnerA, RoleType.Runner);
-            valve.Tick(2.9f); // 거의 다 돌렸어도
+            valve.Tick(2.9f);
+            float before = valve.Progress01;
 
             bool interrupted = valve.Interrupt(RunnerA);
 
             Assert.IsTrue(interrupted);
             Assert.AreEqual(ValveState.Closed, valve.State);
-            Assert.AreEqual(0f, valve.Progress01, 0.001f);
+            Assert.AreEqual(before, valve.Progress01, 0.001f, "중단은 리셋이 아니다(§6.1 [v0.4]).");
+            Assert.IsTrue(valve.HasPartialProgress);
+            Assert.IsFalse(valve.IsDecaying, "유예 3초 안에는 아직 깎이지 않는다.");
             Assert.IsNull(valve.InteractorId);
         }
 
@@ -110,32 +117,40 @@ namespace Marco.Core.Tests
 
         // 8) §6.4: 중단 직후 다른 생존 도망자가 즉시 이어서 시작할 수 있다(밸브 잠금 없음).
         [Test]
-        public void AfterInterrupt_AnotherRunnerCanStartImmediately()
+        public void AfterInterrupt_AnotherRunnerResumesFromRemainingProgress()
         {
+            // ★ v0.4에서 의미가 뒤집혔다. §6.1 "다른 도망자가 즉시 이어받을 수 있다" —
+            //   0부터가 아니라 **남은 진행도에서** 이어진다. 이것이 릴레이 플레이의 근거다.
             var valve = new Valve();
             valve.TryBeginRotation(RunnerA, RoleType.Runner);
             valve.Tick(1f);
             valve.Interrupt(RunnerA);
+            float handoff = valve.Progress01;
 
             bool started = valve.TryBeginRotation(RunnerB, RoleType.Runner);
 
             Assert.IsTrue(started);
             Assert.AreEqual(ValveState.Rotating, valve.State);
             Assert.AreEqual(RunnerB, valve.InteractorId);
-            Assert.AreEqual(0f, valve.Progress01, 0.001f); // 이어받기가 아니라 처음부터
+            Assert.AreEqual(handoff, valve.Progress01, 0.001f, "이어받기는 그 시점 값에서다.");
+            Assert.Greater(handoff, 0f);
         }
 
         // 9) 회전 중인 밸브를 다른 플레이어가 가로챌 수 없다.
         [Test]
-        public void TryBeginRotation_WhileAnotherIsRotating_IsRejected()
+        public void TryBeginRotation_WhileAnotherIsRotating_JoinsAsConcurrentWork()
         {
+            // ★ v0.4에서 의미가 뒤집혔다. §6.1이 **동시 작업**을 정의한다 —
+            //   2인 ×1.6 / 3인 ×1.9(상한). 가로채기 거부가 아니라 합류다.
             var valve = new Valve();
             valve.TryBeginRotation(RunnerA, RoleType.Runner);
 
             bool started = valve.TryBeginRotation(RunnerB, RoleType.Runner);
 
-            Assert.IsFalse(started);
-            Assert.AreEqual(RunnerA, valve.InteractorId);
+            Assert.IsTrue(started, "§6.1 동시 작업 — 두 번째 도망자는 합류한다.");
+            Assert.AreEqual(2, valve.InteractorCount);
+            Assert.IsTrue(valve.IsInteracting(RunnerA));
+            Assert.IsTrue(valve.IsInteracting(RunnerB));
         }
 
         // 10) 이미 열린 밸브는 다시 돌릴 수 없다.
@@ -224,17 +239,19 @@ namespace Marco.Core.Tests
             Assert.AreEqual(1f, valve.Progress01, 0.001f);
         }
 
-        // 16) §6.2 6인 구간: 회전 시간 3.75초가 적용되며, 3초로는 아직 안 열린다.
+        // 16) [블록 7 의미 변경] v0.3 "§6.2 6인 구간 회전 3.75초(+25%)"는 v0.4 §6.2가 **폐기**했다
+        //     ("6인 구간의 회전시간 +25% 보정을 폐기했다 — 회전이 전 구간 8초로 균등"). 상수(3.75)를
+        //     지우고, 같은 모양의 검증을 v0.4 밸브(E 7.0초)로 옮겼다 — 회전 시간 전부를 채워야 열린다.
         [Test]
-        public void SixPlayerValve_RequiresLongerRotation()
+        public void ValveE_RequiresFullRotation()
         {
-            var valve = new Valve(Valve.SixPlayerRotationSeconds);
+            var valve = new Valve(ValveOccupancy.RotateSeconds(ValveId.E));
             valve.TryBeginRotation(RunnerA, RoleType.Runner);
 
-            valve.Tick(3f);
-            Assert.AreEqual(ValveState.Rotating, valve.State, "3초로는 6인 밸브가 열리면 안 된다");
+            valve.Tick(6.99f);
+            Assert.AreEqual(ValveState.Rotating, valve.State, "6.99초로는 E가 열리면 안 된다");
 
-            valve.Tick(0.75f);
+            valve.Tick(0.01f);
             Assert.AreEqual(ValveState.Open, valve.State);
         }
 
@@ -246,13 +263,15 @@ namespace Marco.Core.Tests
             var valve = new Valve();
             valve.TryBeginRotation(RunnerA, RoleType.Runner);
             valve.Tick(2f);
+            float before = valve.Progress01;
 
-            // Net 레이어가 이탈한 플레이어 ID로 Interrupt를 호출하는 시나리오
+            // Net 레이어가 이탈한 플레이어 ID로 Interrupt를 호출하는 시나리오(§13.x).
             bool handled = valve.Interrupt(RunnerA);
 
             Assert.IsTrue(handled);
             Assert.AreEqual(ValveState.Closed, valve.State);
-            Assert.AreEqual(0f, valve.Progress01, 0.001f);
+            // v0.4: 연결 끊김도 **중단**이므로 진행도는 감쇠 대상으로 남는다.
+            Assert.AreEqual(before, valve.Progress01, 0.001f);
         }
 
         // ── §6.1 밸브별 회전 시간 차등 [기획서 갱신] ──────────────────────
@@ -260,37 +279,47 @@ namespace Marco.Core.Tests
         [Test]
         public void RotationSeconds_MatchDesignDocTable()
         {
-            // §6.1 표: A 기계실 3.0초 / B 풀 수중 2.0초 / C 물탱크실(2층) 4.0초
-            Assert.AreEqual(3f, Valve.ValveARotationSeconds);
-            Assert.AreEqual(2f, Valve.ValveBRotationSeconds);
-            Assert.AreEqual(4f, Valve.ValveCRotationSeconds);
+            // §6.1 [v0.4] 배분: A 회전 8.0 / B 회전 5.0 / C 회전 8.0 / D 8.0 / E 7.0
+            // [블록 7] Valve의 중복 상수 5개를 지워 정본(ValveOccupancy) 하나로 검증한다.
+            Assert.AreEqual(8f, ValveOccupancy.RotateSeconds(ValveId.A));
+            Assert.AreEqual(5f, ValveOccupancy.RotateSeconds(ValveId.B));
+            Assert.AreEqual(8f, ValveOccupancy.RotateSeconds(ValveId.C));
+            Assert.AreEqual(8f, ValveOccupancy.RotateSeconds(ValveId.D));
+            Assert.AreEqual(7f, ValveOccupancy.RotateSeconds(ValveId.E));
         }
 
         [Test]
         public void ValveA_MatchesLegacyDefault()
         {
-            // 밸브 A는 기존 단일 상수와 같은 값이라 이번 변경으로 동작이 바뀌지 않는다.
-            Assert.AreEqual(Valve.DefaultRotationSeconds, Valve.ValveARotationSeconds);
+            // ★ v0.4에서 의미가 뒤집혔다. v0.3에서는 밸브 A(3.0초)가 폴백
+            //   DefaultRotationSeconds(3.0초)와 같은 값이었지만, §6.1 [v0.4]가 A를
+            //   8.0초로 올리면서 둘이 갈라졌다. **폴백은 그대로 3.0초로 남긴다** —
+            //   기존 씬 프리팹과 v0.3 테스트가 참조하고 있고, v0.4 밸브는
+            //   ValveOccupancy.RotateSeconds로 자기 시간을 갖기 때문이다.
+            Assert.AreEqual(3f, Valve.DefaultRotationSeconds, "폴백은 v0.3 값을 유지한다.");
+            Assert.AreEqual(8f, ValveOccupancy.RotateSeconds(ValveId.A), "§6.1 [v0.4] 밸브 A 회전 8.0초.");
+            Assert.AreNotEqual(Valve.DefaultRotationSeconds, ValveOccupancy.RotateSeconds(ValveId.A));
         }
 
         [Test]
-        public void ValveB_FitsWithinBreathGaugeBudget_LegacyV03()
+        public void ValveB_FitsWithinBreathGaugeBudget()
         {
-            // ★ 이 테스트는 **v0.3 수치**를 검사한다 — 진입 1.0 / 회전 2.0 / 부상 1.0 = 4.0초와
-            //   숨 게이지 8초. v0.4에서 둘 다 바뀌었다:
-            //     · §6.1 [v0.4] 밸브 B = 진입 1.5 / 회전 5.0 / 부상 1.5 = **총 8.0초**
-            //     · §5.9-1 [v0.4] 숨 게이지 = **12초**  (BreathConfig.TotalSeconds)
-            //   즉 "게이지의 정확히 50%"라는 논거는 v0.3의 것이고, v0.4에서는 8.0 / 12 = 67%다.
-            //   **밸브 수치의 소유자는 블록 2**이므로 여기서는 고치지 않는다. 블록 2가
-            //   ValveB 배분을 갱신할 때 이 테스트를 v0.4 기준으로 다시 써야 한다.
-            //   그래서 게이지 값을 BreathConfig에서 읽지 않고 v0.3 리터럴로 묶어 둔다 —
-            //   읽게 만들면 지금 당장 실패해 블록 1의 범위를 넘게 된다.
-            const float descend = 1f, ascend = 1f, gaugeV03 = 8f;
-            float total = descend + Valve.ValveBRotationSeconds + ascend;
+            // §6.1 [v0.4] 밸브 B 총 점유 = 진입 1.5 + 회전 5.0 + 부상 1.5 = 8.0초.
+            // §5.9-1 [v0.4] 숨 게이지 12초이므로 **한 숨에 끝난다**(8.0 < 12.0).
+            float total = ValveOccupancy.TotalSeconds(ValveId.B);
 
-            Assert.AreEqual(4f, total, 0.001f);
-            Assert.AreEqual(gaugeV03 / 2f, total, 0.001f,
-                "v0.3 §6.1-1 타임라인. v0.4 갱신은 블록 2 범위다.");
+            Assert.AreEqual(1.5f, ValveOccupancy.EntrySeconds(ValveId.B), 0.0001f);
+            Assert.AreEqual(5f, ValveOccupancy.RotateSeconds(ValveId.B), 0.0001f);
+            Assert.AreEqual(1.5f, ValveOccupancy.SurfaceSeconds(ValveId.B), 0.0001f);
+            Assert.AreEqual(8f, total, 0.0001f, "1.5 + 5.0 + 1.5 = 8.0 (§6.1 [v0.4])");
+
+            Assert.Less(total, Breath.BreathConfig.TotalSeconds,
+                "수중 밸브 B는 한 숨(12초) 안에 끝나야 §6.1-1 타임라인이 성립한다.");
+
+            // §5.9-1 [v0.4]가 지목한 경계 — 8초를 다 쓰면 잔여 4.0초로 억제(4.5)가 불가능해진다.
+            Assert.AreEqual(4f, Breath.BreathConfig.TotalSeconds - total, 0.0001f);
+            Assert.Less(Breath.BreathConfig.TotalSeconds - total, Breath.BreathConfig.SuppressionCost,
+                "수중 밸브 직후에는 비명을 억제할 수 없다(§5.9-1 [v0.4]).");
         }
 
         [TestCase(3f)]  // A
@@ -312,9 +341,19 @@ namespace Marco.Core.Tests
         [Test]
         public void ValveB_OpensFasterThanA_AndCSlower()
         {
-            // 차등화의 방향성 자체를 고정한다 — 값이 뒤집히면 §6.1 리스크 설계가 무너진다.
-            Assert.Less(Valve.ValveBRotationSeconds, Valve.ValveARotationSeconds);
-            Assert.Greater(Valve.ValveCRotationSeconds, Valve.ValveARotationSeconds);
+            // ★ v0.4에서 전제가 바뀌었다. v0.3은 "회전 시간 자체를 차등화"했지만
+            //   §6.1 [v0.4]는 **총 점유를 8.0초로 균등**하게 맞추고 배분만 다르게 한다 —
+            //   비용 격차가 크면 도망자가 항상 싼 밸브만 골라 죽은 밸브가 생기기 때문이다.
+            //   그래서 "B가 A보다 빠르다"는 이제 회전 구간에만 해당하고,
+            //   총 점유로는 완전히 같다.
+            Assert.Less(ValveOccupancy.RotateSeconds(ValveId.B), ValveOccupancy.RotateSeconds(ValveId.A),
+                "회전 구간은 B(5.0)가 A(8.0)보다 짧다 — 대신 진입·부상 3.0초가 붙는다.");
+            Assert.AreEqual(ValveOccupancy.RotateSeconds(ValveId.C), ValveOccupancy.RotateSeconds(ValveId.A),
+                "C는 A와 같은 8.0초다 — 차이는 2층 이동 비용으로 만든다(§6.1).");
+
+            Assert.IsTrue(ValveOccupancy.AllTotalsEqual(out float total),
+                "§6.1 [v0.4] 총 점유는 전 밸브 균등해야 한다.");
+            Assert.AreEqual(8f, total, 0.0001f);
         }
     }
 }

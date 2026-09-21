@@ -34,8 +34,43 @@ namespace Marco.Net
         private readonly SyncVar<ValveState> _state = new();
         private readonly SyncVar<float> _progress = new();
 
+        /// <summary>
+        /// §6.1 감쇠 중인가. <b>HUD가 색을 달리해야 하므로 플래그로 보낸다</b>(§12.4) —
+        /// 진행도 숫자만으로는 "돌고 있다"와 "깎이고 있다"를 구분할 수 없고,
+        /// 구분이 안 되면 "지금 뺄까 더 돌릴까" 판단 자체가 불가능해진다.
+        /// </summary>
+        private readonly SyncVar<bool> _decaying = new();
+
+        /// <summary>
+        /// §6.1-2 역류 시작 시점의 잔여 시간(초). <b>매 프레임 동기화하지 않는다</b>(§14.3) —
+        /// 시작할 때 1회 보내고 클라이언트가 카운트다운한다. 0이면 역류 중이 아니다.
+        /// </summary>
+        private readonly SyncVar<float> _reflowRemainingAtStart = new();
+
+        /// <summary>§6.1-0 이번 라운드 활성 여부. 비활성 밸브는 잠금 표시된다.</summary>
+        private readonly SyncVar<bool> _active = new();
+
         private IValveHost _host;
         private ServerValveDriver _driver; // 권위 구동기 — 서버에서만 생성된다.
+
+        /// <summary>
+        /// §6.1 [v0.4] 수중 밸브(B·E) 조작 중 2.5초 주기 강제 파문. 서버 전용.
+        /// 배수구(§6.5-3)와 <b>같은 클래스</b>를 쓴다 — 규칙이 하나다.
+        /// </summary>
+        private readonly UnderwaterWorkPulse _underwaterPulse = new UnderwaterWorkPulse();
+
+        /// <summary>
+        /// §6.1 [v0.4] 수중 밸브 작업 세션(플레이어별) — 진입 → 회전 → 부상. 서버 전용.
+        /// 세션이 살아 있는 동안 그 플레이어는 잠수 의도를 가진 것으로 본다(<see cref="ServerIsInUnderwaterWork"/>)
+        /// — 숨 게이지가 회전 5.0초가 아니라 <b>진입 시작부터 부상 완료까지</b> 소모된다(GAP-91 해소).
+        /// </summary>
+        private readonly Dictionary<ulong, UnderwaterWorkSession> _underwaterSessions =
+            new Dictionary<ulong, UnderwaterWorkSession>();
+
+        /// <summary>수중 밸브에 대해 "누르고 있다"고 주장한 플레이어(서버 전용).</summary>
+        private readonly HashSet<ulong> _underwaterHolding = new HashSet<ulong>();
+
+        private readonly List<ulong> _sessionScratch = new List<ulong>();
 
         // 클라이언트 송신 디듀프: 의사가 바뀔 때만 ServerRpc를 보낸다.
         private bool _hasSent;
@@ -67,6 +102,28 @@ namespace Marco.Net
 
         public ValveState State => _state.Value;
         public float Progress01 => _progress.Value;
+
+        /// <summary>§6.1 감쇠 중인가(§12.4 HUD 색 구분용).</summary>
+        public bool IsDecaying => _decaying.Value;
+
+        /// <summary>§6.1-2 역류 시작 시점의 잔여 시간(초). 클라이언트가 여기서 카운트다운한다.</summary>
+        public float ReflowRemainingAtStart => _reflowRemainingAtStart.Value;
+
+        /// <summary>§6.1-0 이번 라운드 활성 여부.</summary>
+        public bool IsActiveThisRound => _active.Value;
+
+        /// <summary>
+        /// §10.2 이 밸브의 식별자. 호스트(<c>ValveBehaviour</c>)가 들고 있는 Core 밸브에서 읽는다 —
+        /// <c>RoundNetworkSync</c>가 §6.1-0 활성 조합을 배정할 때 쓴다.
+        /// </summary>
+        internal ValveId? ValveId
+        {
+            get
+            {
+                EnsureHost();
+                return _host?.Valve?.Id;
+            }
+        }
 
         public void SubmitHoldIntent(ulong playerId, RoleType role, bool held)
         {
@@ -132,10 +189,33 @@ namespace Marco.Net
                 return;
             }
 
+            // §6.1 [v0.4] 수중 밸브(B·E)는 진입(하강)을 먼저 거친다 — 손을 대는 것은 진입이 끝난 뒤다.
+            ValveId? valveId = _host.Valve.Id;
+            if (valveId.HasValue && ValveOccupancy.IsUnderwater(valveId.Value))
+            {
+                SubmitUnderwaterHold(playerId, role, held, valveId.Value);
+                PushState();
+                return;
+            }
+
             if (held)
-                _driver.BeginHold(playerId, role);
+            {
+                bool wasHolding = _host.Valve.IsInteracting(playerId);
+                ValveInteractionRejection rejection = _driver.BeginHold(playerId, role);
+                if (rejection == ValveInteractionRejection.None && !wasHolding)
+                    EmitRotationPulse(playerId);
+
+                if (rejection != ValveInteractionRejection.None)
+                {
+                    // §6.1-0 사유를 구분해 남긴다 — HUD가 "비활성"과 "이미 열림"을
+                    // 다르게 말해야 하고, 로그만으로도 어느 규칙이 막았는지 알 수 있어야 한다.
+                    Debug.Log($"[ValveNet:Server] {name} 홀드 거부 — {rejection} (playerId={playerId})");
+                }
+            }
             else
+            {
                 _driver.EndHold(playerId);
+            }
 
             PushState();
         }
@@ -154,14 +234,48 @@ namespace Marco.Net
             if (RoundNetworkSync.ServerPhase != Core.GameFlow.GameFlowState.InGame)
                 return;
 
-            if (!_driver.IsRotating)
-                return;
-
-            bool opened = _driver.Tick(Time.deltaTime);
+            // ★ v0.4: **회전 중이 아닐 때도 반드시 Tick한다.**
+            //   이전에는 `if (!_driver.IsRotating) return;` 으로 막혀 있었는데,
+            //   그 상태로 §6.1 진행도 감쇠와 §6.1-2 역류를 넣으면 둘 다 영영 돌지 않는다
+            //   (과거 ServerKnockDriver.Reset() 호출부 부재와 같은 유형 — 더블체크 1).
+            ValveTickResult tick = _driver.Tick(Time.deltaTime);
+            TickUnderwaterSessions(Time.deltaTime);
             PushState();
 
-            if (opened)
-                Debug.Log($"[ValveNet:Server] {name} 개방 완료 — 서버가 회전 시간을 모두 확정 (§6.1)");
+            // §6.1 [v0.4] 수중 작업 중 강제 파문 — "그대로 두면 수중 밸브(B·E)가 무음 안전지대가
+            //   되어 '밸브 작업은 술래를 부를지 말지 재는 도박' 설계가 수중에서만 무효화된다."
+            //   밸브 회전음과 같은 12m 등급이며 새 SoundType을 만들지 않는다(§3.3).
+            //   수면 ×0.5를 지나 술래 청취 7.2m로 도달한다(블록 1-A②에서 테스트로 고정).
+            ValveId? id = _host?.Valve?.Id;
+            if (id.HasValue && ValveOccupancy.IsUnderwater(id.Value))
+            {
+                int pulses = _underwaterPulse.Tick(_driver.IsRotating, Time.deltaTime);
+                // 지속 = 강제 주기 2.5초(GAP-103) — 주기마다 하나씩 이어져 "작업 중 내내"가 된다.
+                for (int i = 0; i < pulses; i++)
+                    PulseNetworkSync.ServerEmitWorldPulse(Core.Sound.SoundType.Valve, transform.position,
+                        UnderwaterWorkPulse.IntervalSeconds);
+            }
+
+            if (tick.Opened)
+            {
+                Debug.Log($"[ValveNet:Server] {name} 개방 완료 — 서버가 회전 시간을 모두 확정. " +
+                          $"§6.1-2 역류 타이머 {Valve.OpenHoldSeconds:0}초 시작");
+            }
+
+            if (tick.ReflowStarted)
+            {
+                Debug.Log($"[ValveNet:Server] {name} 역류 시작 — {Valve.ReflowSeconds:0}초 후 완전 폐쇄 (§6.1-2)");
+            }
+
+            if (tick.Closed)
+            {
+                Debug.Log($"[ValveNet:Server] {name} 완전 폐쇄 — 진행도 0 (§6.1-2)");
+            }
+
+            // §6.1-2 "역류 구간 중 10초마다 1회, 총 3회" 물소리 파문.
+            // **새 SoundType을 만들지 않는다** — 기존 Valve 등급(12m) 재사용(§3.3 금지).
+            for (int i = 0; i < tick.ReflowPulses; i++)
+                EmitReflowPulse();
         }
 
         /// <summary>권위 상태를 SyncVar에 반영한다. 서버 전용.</summary>
@@ -171,10 +285,182 @@ namespace Marco.Net
             {
                 ValveState prev = _state.Value;
                 _state.Value = _driver.State;
-                Debug.Log($"[ValveNet:Server] {name} 상태 {prev} → {_driver.State} (홀더={FormatHolder(_driver.HolderId)})");
+
+                // §14.3 역류 잔여는 **시작 시 1회만** 보낸다. 클라이언트가 카운트다운한다.
+                _reflowRemainingAtStart.Value =
+                    _driver.State == ValveState.Reflowing ? _driver.ReflowRemaining : 0f;
+
+                Debug.Log($"[ValveNet:Server] {name} 상태 {prev} → {_driver.State} " +
+                          $"(홀더={FormatHolder(_driver.HolderId)} ×{_driver.HolderCount})");
             }
 
             _progress.Value = _driver.Progress01;
+
+            // 감쇠 플래그는 바뀔 때만 쓴다 — SyncVar 대입은 값이 같으면 전송하지 않지만,
+            // 의도를 코드에 남겨 둔다(§14.3 "진행도도 매 프레임 보내지 마라").
+            if (_decaying.Value != _driver.IsDecaying)
+                _decaying.Value = _driver.IsDecaying;
+
+            if (_active.Value != _driver.IsActive)
+                _active.Value = _driver.IsActive;
+        }
+
+        /// <summary>
+        /// 수중 밸브 홀드 의사. 누르면 <b>진입</b>을 시작하고(밸브에는 아직 손대지 않는다), 떼면 의사만 지운다 —
+        /// 구간 전이는 <see cref="TickUnderwaterSessions"/>가 한다.
+        /// </summary>
+        private void SubmitUnderwaterHold(ulong playerId, RoleType role, bool held, ValveId id)
+        {
+            if (!held)
+            {
+                _underwaterHolding.Remove(playerId);
+                return;
+            }
+
+            _underwaterHolding.Add(playerId);
+
+            // 이미 내려가 있거나 돌리고 있으면 그대로 둔다(매 프레임 오는 같은 의사).
+            if (_underwaterSessions.TryGetValue(playerId, out UnderwaterWorkSession existing) &&
+                (existing.Phase == UnderwaterWorkPhase.Entry || existing.Phase == UnderwaterWorkPhase.Rotate))
+                return;
+
+            // 어차피 거부될 작업이면 내려가지도 않는다(비활성·이미 열림·메아리).
+            ValveInteractionRejection pre = _host.Valve.CheckInteract(role);
+            if (pre != ValveInteractionRejection.None)
+            {
+                _underwaterHolding.Remove(playerId);
+                Debug.Log($"[ValveNet:Server] {name} 홀드 거부 — {pre} (playerId={playerId})");
+                return;
+            }
+
+            _underwaterSessions[playerId] = new UnderwaterWorkSession(id);
+            Debug.Log($"[ValveNet:Server] {name} 수중 진입 시작 — playerId={playerId}, " +
+                      $"진입 {ValveOccupancy.EntrySeconds(id):0.0}초 후 회전 (§6.1 총 점유 {ValveOccupancy.TotalSeconds(id):0.0}초 전 구간 잠수)");
+        }
+
+        /// <summary>
+        /// 수중 작업 세션을 진전시킨다. 진입이 끝나면 밸브에 손을 대고(<c>BeginHold</c> + 회전 파문),
+        /// 끊기면 뗀다(<c>EndHold</c>). 숨이 다하면 §5.9-1 강제 부상으로 세션이 끝난다.
+        /// </summary>
+        private void TickUnderwaterSessions(float dt)
+        {
+            if (_underwaterSessions.Count == 0)
+                return;
+
+            _sessionScratch.Clear();
+            _sessionScratch.AddRange(_underwaterSessions.Keys);
+
+            for (int i = 0; i < _sessionScratch.Count; i++)
+            {
+                ulong playerId = _sessionScratch[i];
+                UnderwaterWorkSession session = _underwaterSessions[playerId];
+
+                RoleType role = CurrentRoleOf(playerId);
+                bool holding = _underwaterHolding.Contains(playerId) && role == RoleType.Runner;
+                bool finished = _driver.State == ValveState.Open;
+                bool canSubmerge = PulseNetworkSync.ServerCanSubmerge(playerId);
+
+                UnderwaterWorkTick step = session.Tick(dt, holding, finished, canSubmerge);
+
+                if (step.BeginRotation)
+                {
+                    ValveInteractionRejection rejection = _driver.BeginHold(playerId, role);
+                    if (rejection == ValveInteractionRejection.None)
+                    {
+                        EmitRotationPulse(playerId);
+                    }
+                    else
+                    {
+                        session.ForceSurface(); // 내려간 사이 다른 사람이 열었다 등
+                        Debug.Log($"[ValveNet:Server] {name} 진입 후 회전 거부 — {rejection} (playerId={playerId}) → 부상");
+                    }
+                }
+
+                if (step.StopRotation)
+                    _driver.EndHold(playerId);
+
+                if (!canSubmerge && session.Phase == UnderwaterWorkPhase.Done)
+                    Debug.Log($"[ValveNet:Server] {name} 강제 부상 — playerId={playerId} 숨 0 (§5.9-1)");
+
+                if (session.Phase == UnderwaterWorkPhase.Done)
+                    _underwaterSessions.Remove(playerId);
+            }
+        }
+
+        private static RoleType CurrentRoleOf(ulong playerId)
+        {
+            List<RoleNetworkSync> players = RoleNetworkSync.Spawned;
+            for (int i = 0; i < players.Count; i++)
+            {
+                RoleNetworkSync p = players[i];
+                if (p != null && p.OrderKey >= 0 && (ulong)p.OrderKey == playerId)
+                    return p.EffectiveRole;
+            }
+
+            return RoleType.Echo; // 나갔다 — 작업 자격 없음
+        }
+
+        /// <summary>
+        /// 이 플레이어가 지금 어느 수중 밸브의 작업 구간(진입·회전·부상) 안에 있는가. 서버 전용, 라운드 중에만.
+        /// <c>PulseNetworkSync.ZoneOf</c>가 잠수 의도로 합친다 — 실제로 머리가 잠기는지는 지오메트리가 정한다.
+        /// </summary>
+        internal static bool ServerIsInUnderwaterWork(ulong playerId)
+        {
+            if (RoundNetworkSync.ServerPhase != Core.GameFlow.GameFlowState.InGame)
+                return false;
+
+            for (int i = 0; i < Spawned.Count; i++)
+            {
+                ValveNetworkSync v = Spawned[i];
+                if (v != null && v._underwaterSessions.TryGetValue(playerId, out UnderwaterWorkSession s) && s.KeepsSubmerged)
+                    return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// §6.1 밸브 회전 소음 — <b>서버가</b> 홀드를 수락한 순간 1회 낸다(블록 7).
+        ///
+        /// <para>
+        /// <b>결함 수정.</b> 네트워크 경로(<c>ValveInteractor.TickNetworked</c>)는 홀드 의사만 보내고 소리를
+        /// 내지 않아, 멀티플레이에서 밸브가 <b>무음</b>이었다 — §6.1 "밸브 작업은 술래를 부를지 말지 재는
+        /// 도박"이 통째로 빠져 있었다. 게다가 서버 표 값은 v0.3의 3초였고 밸브 A의 ×0.5도 어느 경로에도
+        /// 없었다. 이제 반경 = <see cref="ValveOccupancy.SoundRadiusMeters"/>(A 6m / 나머지 12m),
+        /// 지속 = <see cref="ValveOccupancy.PulseDurationSeconds"/>(§5.1 "각 밸브 회전 시간"),
+        /// 위치 = 밸브, 발생원 = 돌리는 사람.
+        /// </para>
+        /// </summary>
+        private void EmitRotationPulse(ulong playerId)
+        {
+            ValveId? id = _host?.Valve?.Id;
+            if (!id.HasValue)
+                return;
+
+            PulseNetworkSync.ServerEmitPlayerPulse(playerId, Core.Sound.SoundType.Valve, transform.position,
+                ValveOccupancy.SoundRadiusMeters(id.Value), ValveOccupancy.PulseDurationSeconds(id.Value));
+        }
+
+        /// <summary>
+        /// §6.1-2 역류 물소리 파문. 발생 반경은 §5.1 Valve 등급(12m)이며
+        /// <b>밸브 A의 ×0.5 기계 앰비언스 보정은 적용하지 않는다</b> —
+        /// §6.1의 ×0.5는 <i>회전음</i>에 붙은 환경 규칙이고, 역류는 물소리라
+        /// 같은 환경 보정을 받는다는 근거가 기획서에 없다(GAP-83).
+        ///
+        /// <para>
+        /// 파문 자체는 <c>PulseNetworkSync</c>의 서버 경로를 쓴다 — 밸브 회전음과 완전히
+        /// 같은 경로라 새 채널을 만들지 않는다.
+        /// </para>
+        /// </summary>
+        private void EmitReflowPulse()
+        {
+            // 지속은 이 밸브의 회전 시간(§5.1 Valve 등급 "각 밸브 회전 시간") — GAP-103.
+            ValveId? id = _host?.Valve?.Id;
+            PulseNetworkSync.ServerEmitWorldPulse(
+                Core.Sound.SoundType.Valve, transform.position,
+                id.HasValue ? ValveOccupancy.PulseDurationSeconds(id.Value) : 0f);
+
+            Debug.Log($"[ValveNet:Server] {name} 역류 물소리 파문 (§6.1-2, Valve 등급 {Valve.SoundRadiusMeters:0}m)");
         }
 
         private static string FormatHolder(ulong? holder) => holder.HasValue ? holder.Value.ToString() : "-";
@@ -198,6 +484,19 @@ namespace Marco.Net
         }
 
         /// <summary>
+        /// §6.1-0 이번 라운드 활성 여부를 서버가 지정한다. 서버 전용.
+        /// <c>RoundNetworkSync</c>가 라운드 시작 시 <c>ValveRoster.SelectActive</c> 결과로 호출한다.
+        /// </summary>
+        internal void ServerSetActive(bool active)
+        {
+            if (_driver == null)
+                return;
+
+            _driver.SetActive(active);
+            PushState();
+        }
+
+        /// <summary>
         /// 새 라운드를 위해 서버 권위 밸브 상태를 초기값으로 되돌린다(스프린트 17). 서버 전용.
         ///
         /// <see cref="IValveHost"/>(<c>ValveBehaviour</c>)가 Core <see cref="Valve"/> 인스턴스를
@@ -210,16 +509,41 @@ namespace Marco.Net
             if (_host == null)
                 return;
 
-            _host.ResetValveForNewRound();
-            _driver = new ServerValveDriver(_host.Valve);
+            // ★ v0.4: Valve 인스턴스를 **교체하지 않는다.** 교체하면 구동기가 구독한
+            //   Opened/ReflowStarted/ReflowPulse/Closed 이벤트가 끊어져 감쇠·역류 전파가
+            //   조용히 사라진다. §6.1 [v0.4]가 Valve.ResetForNewRound를 제공하므로
+            //   같은 인스턴스를 제자리에서 되돌린다.
+            _driver.ResetForNewRound(active: true);
+            _underwaterPulse.Reset();
+            _underwaterSessions.Clear();
+            _underwaterHolding.Clear();
 
             _state.Value = _driver.State;
             _progress.Value = _driver.Progress01;
+            _decaying.Value = false;
+            _reflowRemainingAtStart.Value = 0f;
+            _active.Value = true;
 
             // 송신 디듀프 상태도 지워, 새 라운드의 첫 홀드 의사가 반드시 서버로 전달되게 한다.
             _hasSent = false;
             _lastSentHeld = false;
             _lastSentPlayer = 0;
+        }
+
+        /// <summary>
+        /// §3.6 "밸브 상호작용 중" — 이 플레이어가 지금 어느 밸브든 돌리고 있는가. 서버 전용.
+        /// 캠핑 방지 일시중단 판정이 쓴다(정지가 강제되는 행동이고 이미 12m 파문을 내고 있다).
+        /// </summary>
+        internal static bool ServerIsInteracting(ulong playerId)
+        {
+            for (int i = 0; i < Spawned.Count; i++)
+            {
+                ValveNetworkSync v = Spawned[i];
+                if (v != null && v._driver != null && v._host?.Valve != null && v._host.Valve.IsInteracting(playerId))
+                    return true;
+            }
+
+            return false;
         }
 
         /// <summary>

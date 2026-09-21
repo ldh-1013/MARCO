@@ -19,17 +19,48 @@ namespace Marco.Presentation.Objectives
     /// </summary>
     public sealed class ValveObjectiveTracker : MonoBehaviour, IEscapeGateState
     {
-        [Tooltip("§6.2 4인 MVP 기준 밸브 수. 비워두면 씬에서 찾은 개수를 쓴다.")]
+        [Tooltip("이번 라운드 활성 밸브 수를 강제한다. 0이면 씬의 활성 밸브를 센다(§6.1-0).")]
         [SerializeField] private int _totalValvesOverride;
+
+        [Tooltip("총원(§6.2 요구 개방 수 유도용). 0이면 씬의 역할 수를 못 알므로 5인 기준을 쓴다.")]
+        [SerializeField] private int _totalPlayersOverride;
 
         private ValveBehaviour[] _valves;
         private int _lastOpenedCount = -1;
 
-        public int TotalValves => _totalValvesOverride > 0 ? _totalValvesOverride : _valves.Length;
+        /// <summary>
+        /// §6.1-0 이번 라운드 <b>활성</b> 밸브 수. 배치 수(5)가 아니다 —
+        /// HUD 슬롯 개수이자 게이트 판정의 모집단이다.
+        /// </summary>
+        public int TotalValves => _totalValvesOverride > 0 ? _totalValvesOverride : CountActive();
+
+        /// <summary>
+        /// <b>현재 동시에 Open인</b> 밸브 수. §6.1-2 역류로 <b>줄어든다</b> —
+        /// 누적 카운터가 아니다.
+        /// </summary>
         public int OpenedCount { get; private set; }
 
-        /// <summary>§6.1: 밸브 전부 개방 시 배수로 게이트가 열린다 — 탈출의 전제 조건.</summary>
-        public bool IsEscapeGateOpen => TotalValves > 0 && OpenedCount >= TotalValves;
+        /// <summary>
+        /// §6.2 게이트가 열리는 데 필요한 동시 개방 수(2 또는 3).
+        /// <b>3을 하드코딩하지 않는다</b> — 총원에서 유도한다.
+        /// </summary>
+        public int RequiredOpenCount => ValveRoster.RequiredOpenCount(
+            _totalPlayersOverride > 0 ? _totalPlayersOverride : DefaultTotalPlayers);
+
+        /// <summary>§6.2 권장 구성(5인). 총원을 모를 때의 폴백이다.</summary>
+        private const int DefaultTotalPlayers = 5;
+
+        /// <summary>
+        /// §6.1-2 게이트 latch. <b>한 번 true가 되면 되돌아가지 않는다</b> —
+        /// *"출구 바로 앞에서 문이 닫히는 연출은 극적이지만 억울함이 재미를 넘어선다"*.
+        /// 라운드 초기화(<see cref="Rescan"/>)에서만 풀린다.
+        /// </summary>
+        public bool IsEscapeGateOpen => _latch.IsOpen;
+
+        /// <summary>§6.1-2 latch 규칙(Core). 라운드 번호가 바뀌면 풀린다 — 리매치 결함 수정(블록 7).</summary>
+        private readonly EscapeGateLatch _latch = new EscapeGateLatch();
+
+        private Marco.Presentation.GameFlow.RoundCoordinator _round;
 
         /// <summary>
         /// 씬에서 찾은 밸브 목록(읽기 전용 용도). 스프린트 16 HUD가 밸브별 상태·진행률을
@@ -40,6 +71,7 @@ namespace Marco.Presentation.Objectives
         // ── IEscapeGateState (스프린트 12: 서버 라운드 판정기가 읽는 게이트 상태) ──
         int IEscapeGateState.OpenedValves => OpenedCount;
         int IEscapeGateState.TotalValves => TotalValves;
+        int IEscapeGateState.RequiredOpenValves => RequiredOpenCount;
         bool IEscapeGateState.IsGateOpen => IsEscapeGateOpen;
 
         private void Awake()
@@ -61,6 +93,10 @@ namespace Marco.Presentation.Objectives
             _valves = FindObjectsByType<ValveBehaviour>();
             OpenedCount = 0;
             _lastOpenedCount = -1; // 다음 Update에서 로그를 한 번 다시 찍게 한다
+
+            // §6.1-2 latch는 라운드 경계에서만 풀린다. 여기가 그 지점이다 —
+            // 풀지 않으면 다음 라운드가 게이트 열린 상태로 시작한다(더블체크 2).
+            _latch.Reset();
         }
 
         // Net(RoundNetworkSync)이 §15.2를 넘어 게이트 상태를 읽도록 Core 레지스트리에 등록한다.
@@ -87,16 +123,49 @@ namespace Marco.Presentation.Objectives
         private void Update()
         {
             OpenedCount = CountOpened();
+
+            // §6.1-2 latch: **현재 동시 개방 수**가 요구치에 닿는 순간 한 번 열고, 그 뒤로는
+            // 역류로 개방 수가 줄어도 닫지 않는다. 누적 카운터를 쓰지 않는 것이 핵심이다 —
+            // "A를 열고 닫고, B를 열고 닫고" 로는 절대 열리지 않아야 한다.
+            // [블록 7] 리매치는 맵을 다시 로드하지 않는다 — 라운드 번호로 latch를 푼다(더블체크 2).
+            if (_round == null)
+                _round = FindAnyObjectByType<Marco.Presentation.GameFlow.RoundCoordinator>();
+            _latch.ResetIfNewRound(_round != null ? _round.RoundNumber : 0);
+
+            if (_latch.Update(OpenedCount, RequiredOpenCount))
+            {
+                Debug.Log($"[Valve] 동시 개방 {OpenedCount}/{RequiredOpenCount} 달성 — " +
+                          "배수로 게이트 Open(latch, §6.1-2). 역류로 밸브가 닫혀도 유지된다");
+            }
+
             if (OpenedCount == _lastOpenedCount)
                 return;
 
             _lastOpenedCount = OpenedCount;
-            Debug.Log($"[Valve] 개방 {OpenedCount}/{TotalValves}");
-
-            if (IsEscapeGateOpen)
-                Debug.Log("[Valve] 밸브 전체 개방 — 배수로 게이트 Open, 탈출 가능 (§6.1)");
+            Debug.Log($"[Valve] 동시 개방 {OpenedCount}/{RequiredOpenCount} (활성 {TotalValves})" +
+                      (IsEscapeGateOpen ? " · 게이트 Open 유지" : string.Empty));
         }
 
+        /// <summary>§6.1-0 이번 라운드 활성 밸브 수. 비활성은 상호작용 불가라 모집단에서 뺀다.</summary>
+        private int CountActive()
+        {
+            if (_valves == null)
+                return 0;
+
+            int active = 0;
+            for (int i = 0; i < _valves.Length; i++)
+            {
+                if (_valves[i] != null && _valves[i].IsActiveThisRound)
+                    active++;
+            }
+
+            return active;
+        }
+
+        /// <summary>
+        /// <b>현재 Open 상태인</b> 밸브 수. 상태를 직접 읽으므로 역류로 Open이 풀리면
+        /// 다음 프레임에 자동으로 줄어든다 — 증가만 하는 카운터가 아니다.
+        /// </summary>
         private int CountOpened()
         {
             int opened = 0;

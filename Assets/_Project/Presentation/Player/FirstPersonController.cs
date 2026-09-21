@@ -68,6 +68,28 @@ namespace Marco.Presentation.Player
         /// 초기값이 false라 첫 입력이 반드시 전송된다.
         /// </summary>
         private bool _lastSentDiveHeld;
+        private bool _lastSentMenuOpen;
+
+        // §6.1 [v0.4] 수중 밸브 작업 잠수 자세(표시 전용).
+        private bool _workDiveHeld;
+        private float _workDiveUntil;
+
+        /// <summary>
+        /// 수중 밸브(B·E)를 잡고 있는 동안 잠수 자세를 유지하고, 놓은 뒤에는 부상 구간(<paramref name="surfaceSeconds"/>)
+        /// 동안 더 유지한다 — 서버의 작업 구간(진입 → 회전 → 부상)과 화면을 맞춘다.
+        /// </summary>
+        public void SetWorkDive(bool engaged, float surfaceSeconds)
+        {
+            if (engaged)
+            {
+                _workDiveHeld = true;
+                return;
+            }
+
+            if (_workDiveHeld)
+                _workDiveUntil = Time.time + surfaceSeconds;
+            _workDiveHeld = false;
+        }
 
         private const float Gravity = -9.81f;
         private const float GroundedStick = -2f;
@@ -104,6 +126,9 @@ namespace Marco.Presentation.Player
 
             // §3.2 "충돌 없음(벽 통과)" — 비행 전환 시 컨트롤러를 놓고, 되돌아오면 다시 잡는다.
             ApplyGhostFlightState();
+
+            // §16.1 역할이 바뀌면 몸 색도 바뀐다(태그 → 메아리 보라).
+            ApplyRoleColor();
         }
 
         /// <summary>
@@ -198,9 +223,30 @@ namespace Marco.Presentation.Player
         /// 격리에 그것을 쓰면 로컬 플레이어 참조가 사라져 HUD·스폰 배치가 전부 어긋난다
         /// (스프린트 22에서 실제로 겪은 등록 유실과 같은 유형의 사고가 된다).
         /// </summary>
-        public bool MovementLocked { get; private set; }
+        /// <summary>
+        /// 이동 잠금. 원인이 셋이라 따로 들고 합친다 — §10.1 술래 격리(<see cref="SetMovementLocked"/>),
+        /// §12.4 로비 브리핑(<see cref="SetBriefingLocked"/>), §3.1-1 술래 경직 1초(<see cref="StunFor"/>).
+        /// 한 플래그를 여럿이 쓰면 먼저 풀린 쪽이 다른 잠금까지 풀어 버린다.
+        /// </summary>
+        public bool MovementLocked => _isolationLocked || _briefingLocked || Time.time < _stunUntil;
 
-        public void SetMovementLocked(bool locked) => MovementLocked = locked;
+        private bool _isolationLocked;
+        private bool _briefingLocked;
+        private float _stunUntil;
+
+        /// <summary>
+        /// §12.4 브리핑 30초 동안 이동을 잠근다 — GAP-100. "라운드 시작 전"에 움직이면 평면도를 보며
+        /// 밸브로 걸어가게 되고(인게임 지도 금지와 충돌) 술래 격리 3초가 의미를 잃는다.
+        /// </summary>
+        public void SetBriefingLocked(bool locked) => _briefingLocked = locked;
+
+        /// <summary>
+        /// §3.1-1 술래 경직 1.0초 — 이동도 막는다. 태그 판정 차단은 서버가 이미 한다(블록 3).
+        /// 이동은 클라이언트 권위라 여기서 건다(GAP-85 해소).
+        /// </summary>
+        public void StunFor(float seconds) => _stunUntil = Mathf.Max(_stunUntil, Time.time + seconds);
+
+        public void SetMovementLocked(bool locked) => _isolationLocked = locked;
 
         public void ApplyLookSettings(float mouseSensitivity, bool invertY)
         {
@@ -315,6 +361,7 @@ namespace Marco.Presentation.Player
             // 몸체 렌더러(스프린트 9 `Body` 캡슐). 자기 오브젝트의 컴포넌트라 캐시해도 안전하다 —
             // GAP-61이 금지한 것은 **다른 pawn(LocalPlayerRegistry.Current)** 참조를 굳히는 것이다.
             _bodyRenderers = GetComponentsInChildren<Renderer>(includeInactive: true);
+            ApplyRoleColor();
 
             if (_cameraTransform == null && Camera.main != null)
                 _cameraTransform = Camera.main.transform;
@@ -399,17 +446,41 @@ namespace Marco.Presentation.Player
 
             bool diveHeld = keyboard.leftCtrlKey.isPressed;
             SubmitDiveIntentIfChanged(diveHeld);
+            HandleClickerUse(keyboard);
+            SubmitMenuIntentIfChanged(UI.SettingsScreen.IsAnyOpen);
+
+            // [블록 7] GAP-76 해소 — 서버가 소유자에게 보낸 숨 게이지로 강제 부상·질식 감속을 예측한다.
+            // 네트워크가 없으면(로컬 스모크 리그) 기본값(잠수 가능·감속 없음) 그대로.
+            bool networked = _pulseBridge != null && _pulseBridge.NetworkActive;
+            bool canSubmerge = !networked || Core.Breath.BreathClientState.CanSubmerge;
+            float speedMultiplier = networked ? Core.Breath.BreathClientState.SpeedMultiplier : 1f;
+
+            // §3.1 술래 잠행 — §4.3에 키가 없어 술래가 쓰지 않는 Left Ctrl(도망자 잠수 키)을
+            // 홀드로 잠정 배정했다(GAP-94). 역할 분기는 시뮬레이터가 한다(도망자에겐 무의미).
+            // §6.1 [v0.4] 수중 밸브 작업 구간 동안은 잠수 자세(머리가 수면 아래)로 보인다 — 서버는 같은 구간을
+            // 잠수로 쳐서 숨을 소모한다. 표시 전용이라 서버에 잠수 의도로 보내지 않는다(서버가 이미 안다).
+            bool workDive = _workDiveHeld || Time.time < _workDiveUntil;
 
             var input = new LocomotionInput(
                 moveAxis,
                 sprintHeld: keyboard.leftShiftKey.isPressed,
-                diveHeld: diveHeld,
-                isOnWaterSurface: water.BodyInWater);
+                diveHeld: diveHeld || workDive,
+                isOnWaterSurface: water.BodyInWater,
+                canSubmerge: canSubmerge,
+                speedMultiplier: speedMultiplier,
+                stealthHeld: diveHeld);
+
+            // §6.2 / §6.2-1 술래 이속 보정 입력을 매 프레임 갱신한다 —
+            // 필드에 굳히면 라운드 중 인원 변화·종반 진입이 반영되지 않는다.
+            _simulator.TotalPlayers = Core.Net.RoundStateRegistry.TotalPlayers;
+            _simulator.EndgamePressure = Core.Net.RoundStateRegistry.EndgamePressure;
 
             LocomotionTick tick = _simulator.Tick(input, Time.deltaTime);
 
             // §5.9-1은 잠수를 "카메라(머리)가 수면 아래"로 정의한다 — 그 카메라를 내리는 곳.
+            // 연출.md §2.1 bob은 같은 자리에서 **발소리 위상**으로 얹는다.
             ApplyHeadHeight(tick.State);
+            ApplyStateFov(tick.State);
 
             // §3.2 메아리: 자유 비행(충돌 없음·중력 없음). 시뮬레이터는 그대로 돌려 둔다 —
             // 상태 전이와 "메아리는 발소리 없음"(§5.1) 판정이 거기 있기 때문이다.
@@ -451,22 +522,82 @@ namespace Marco.Presentation.Player
         /// 그때는 시뮬레이터의 로컬 판정만으로 잠수가 돌아간다.
         /// </para>
         /// </summary>
+        /// <summary>
+        /// §7 찰칵이 사용 — §4.3 "Q 또는 마우스 우클릭". 소지·역할·섬광 대상은 서버가 판정한다.
+        /// 섬광에는 소리가 없다(연출.md §9.1) — 여기서 파문·SFX를 내지 않는다.
+        /// </summary>
+        private void HandleClickerUse(Keyboard keyboard)
+        {
+            if (!Core.Items.ClickerClientEvents.LocalHolding)
+                return;
+
+            Mouse mouse = Mouse.current;
+            bool pressed = keyboard.qKey.wasPressedThisFrame
+                           || (mouse != null && mouse.rightButton.wasPressedThisFrame);
+            if (!pressed)
+                return;
+
+            Core.Items.IClickerNetworkBridge bridge = Core.Items.ClickerClientEvents.Bridge;
+            if (bridge != null && bridge.NetworkActive)
+                bridge.RequestUse();
+        }
+
+        /// <summary>
+        /// §3.6 메뉴 개방 상태가 바뀌었을 때만 서버에 알린다(잠수 주장과 같은 경로·같은 디듀프).
+        /// </summary>
+        private void SubmitMenuIntentIfChanged(bool open)
+        {
+            if (open == _lastSentMenuOpen)
+                return;
+
+            IPulseNetworkBridge bridge = ResolvePulseBridge();
+            if (bridge == null || !bridge.NetworkActive)
+                return; // 다음 프레임에 다시 시도한다(_lastSentMenuOpen을 갱신하지 않는다)
+
+            bridge.SubmitMenuIntent(open);
+            _lastSentMenuOpen = open;
+        }
+
+        /// <summary>
+        /// 새 라운드 배치 시 이동 상태를 되돌린다(더블체크 2). 역할이 같으면 시뮬레이터가
+        /// 다시 만들어지지 않으므로(<see cref="ApplyRole"/>) 지난 라운드 막판의 스태미나 소진이
+        /// 새 라운드 첫 3초로 넘어오지 않게 여기서 비운다.
+        /// </summary>
+        public void ResetLocomotionForNewRound() => _simulator?.Stamina.Reset();
+
+        /// <summary>§3.1 질주 스태미나 0~1(HUD용).</summary>
+        public float Stamina01 => _simulator != null ? _simulator.Stamina.Normalized : 1f;
+
+        /// <summary>§3.1 소진 페널티 중인가(HUD·연출용).</summary>
+        public bool IsStaminaExhausted => _simulator != null && _simulator.Stamina.IsExhausted;
+
+        /// <summary>§3.1 술래 잠행 중인가(연출용).</summary>
+        public bool IsStealthing => _simulator != null && _simulator.IsStealthing;
+
+        /// <summary>씬의 파문 브릿지를 한 번 찾아 둔다(씬 수명 내내 같은 오브젝트 — GAP-61 대상 아님).</summary>
+        private IPulseNetworkBridge ResolvePulseBridge()
+        {
+            if (_pulseBridge != null)
+                return _pulseBridge;
+
+            foreach (MonoBehaviour candidate in FindObjectsByType<MonoBehaviour>(FindObjectsInactive.Exclude))
+            {
+                if (candidate is IPulseNetworkBridge found)
+                {
+                    _pulseBridge = found;
+                    break;
+                }
+            }
+
+            return _pulseBridge;
+        }
+
         private void SubmitDiveIntentIfChanged(bool diveHeld)
         {
             if (diveHeld == _lastSentDiveHeld)
                 return;
 
-            if (_pulseBridge == null)
-            {
-                foreach (MonoBehaviour candidate in FindObjectsByType<MonoBehaviour>(FindObjectsInactive.Exclude))
-                {
-                    if (candidate is IPulseNetworkBridge found)
-                    {
-                        _pulseBridge = found;
-                        break;
-                    }
-                }
-            }
+            ResolvePulseBridge();
 
             if (_pulseBridge == null || !_pulseBridge.NetworkActive)
                 return; // 로컬 전용 — 다음 프레임에 다시 시도한다(_lastSentDiveHeld를 갱신하지 않는다)
@@ -494,13 +625,113 @@ namespace Marco.Presentation.Player
             if (_cameraTransform == null)
                 return;
 
-            float target = DiveRules.HeadHeight(state == MovementState.Diving);
+            float target = DiveRules.HeadHeight(state == MovementState.Diving) + BobOffset(state);
             Vector3 local = _cameraTransform.localPosition;
             if (Mathf.Approximately(local.y, target))
                 return;
 
             local.y = target;
             _cameraTransform.localPosition = local;
+        }
+
+        /// <summary>
+        /// 연출.md §2.1 — <b>bob 위상 = 발소리 위상.</b> 오프셋은 <c>진폭 × sin(π × 위상)</c>이라
+        /// 위상 0(파문이 난 순간 = 발이 닿은 순간)에서 가장 낮고 한 스텝의 중간에서 가장 높다.
+        /// 주기를 시간으로 따로 세지 않는다 — 시뮬레이터의 이동거리 누적(§5.1-1)을 그대로 쓰므로
+        /// "2m를 나아가는 데 걸리는 시간이 곧 한 스텝"이 자동으로 성립한다.
+        ///
+        /// <para>진폭은 연출 표시값이다(규칙 수치 아님). §2.2: 걷기 소 · 질주 대 · 잠행 최소 · 메아리 없음.</para>
+        /// </summary>
+        private float BobOffset(MovementState state)
+        {
+            if (_role == RoleType.Echo || state == MovementState.Diving || state == MovementState.Idle)
+                return 0f;
+
+            float amplitude = state == MovementState.Sprint ? BobSprintAmplitude
+                            : _simulator.IsStealthing ? BobStealthAmplitude
+                            : BobWalkAmplitude;
+
+            return amplitude * Mathf.Sin(Mathf.PI * _simulator.StepPhase01);
+        }
+
+        private const float BobWalkAmplitude = 0.035f;
+        private const float BobSprintAmplitude = 0.07f;
+        private const float BobStealthAmplitude = 0.015f;
+
+        // ── 연출.md §2.2 FOV — 질주 +5° / 잠행 −3° / 태그 punch −5°(0.2초 보간) ─────
+        private const float SprintFovDelta = 5f;
+        private const float StealthFovDelta = -3f;
+        private const float FovBlendSeconds = 0.2f;
+
+        private Camera _fovCamera;
+        private float _baseFov = -1f;
+        private float _fovPunch;
+        private float _fovPunchUntil;
+
+        /// <summary>연출.md §4.2 술래 태그 "FOV −5° punch-in" — HUD 태그 연출이 부른다.</summary>
+        public void PunchFov(float degrees, float seconds)
+        {
+            _fovPunch = degrees;
+            _fovPunchUntil = Time.time + seconds;
+        }
+
+        private void ApplyStateFov(MovementState state)
+        {
+            if (_cameraTransform == null)
+                return;
+
+            if (_fovCamera == null)
+                _fovCamera = _cameraTransform.GetComponent<Camera>();
+            if (_fovCamera == null)
+                return;
+
+            if (_baseFov < 0f)
+                _baseFov = _fovCamera.fieldOfView;
+
+            float delta = state == MovementState.Sprint ? SprintFovDelta
+                        : _simulator.IsStealthing ? StealthFovDelta
+                        : 0f;
+            if (Time.time < _fovPunchUntil)
+                delta += _fovPunch;
+
+            float target = _baseFov + delta;
+            float step = Time.deltaTime / FovBlendSeconds;
+            _fovCamera.fieldOfView = Mathf.Lerp(_fovCamera.fieldOfView, target, Mathf.Clamp01(step));
+        }
+
+        // ── §16.1 캐릭터 색(림라이트 대체 — 캡슐 + 역할 색, 사용자 지시) ─────────────
+        private static readonly Color RunnerBodyColor = new Color(0x7F / 255f, 0xE7 / 255f, 0xE0 / 255f, 1f); // #7FE7E0
+        private static readonly Color SeekerBodyColor = new Color(0xEF / 255f, 0x6A / 255f, 0x4C / 255f, 1f); // #EF6A4C
+        private static readonly Color EchoBodyColor = new Color(0xB7 / 255f, 0x9C / 255f, 0xFF / 255f, 0.5f); // #B79CFF 반투명
+
+        private MaterialPropertyBlock _bodyBlock;
+
+        /// <summary>
+        /// §16.1 역할별 캐릭터 색. 머티리얼을 복제하지 않고 프로퍼티 블록으로 칠한다(URP Lit <c>_BaseColor</c>,
+        /// 빌트인 <c>_Color</c> 둘 다). 메아리 반투명은 머티리얼이 불투명이면 알파가 먹지 않는다 —
+        /// 생존자에게는 어차피 렌더링되지 않고(§16.1), 메아리끼리만 보인다.
+        /// </summary>
+        private void ApplyRoleColor()
+        {
+            if (_bodyRenderers == null)
+                return;
+
+            _bodyBlock ??= new MaterialPropertyBlock();
+            Color c = _role == RoleType.Seeker ? SeekerBodyColor
+                    : _role == RoleType.Echo ? EchoBodyColor
+                    : RunnerBodyColor;
+
+            for (int i = 0; i < _bodyRenderers.Length; i++)
+            {
+                Renderer r = _bodyRenderers[i];
+                if (r == null || r is LineRenderer)
+                    continue;
+
+                r.GetPropertyBlock(_bodyBlock);
+                _bodyBlock.SetColor("_BaseColor", c);
+                _bodyBlock.SetColor("_Color", c);
+                r.SetPropertyBlock(_bodyBlock);
+            }
         }
 
         /// <summary>

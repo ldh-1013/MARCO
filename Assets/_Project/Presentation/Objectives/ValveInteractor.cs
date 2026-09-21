@@ -114,7 +114,9 @@ namespace Marco.Presentation.Objectives
         /// </summary>
         private void TickNetworked(ValveBehaviour nearest, Vector3 playerPosition, bool interactHeld)
         {
-            bool inRange = Vector3.Distance(playerPosition, nearest.transform.position) <= _interactionRange;
+            // [블록 7] 수중 밸브는 수평 거리(GAP-88) — 로컬 컨트롤러와 같은 규칙.
+            bool inRange = InteractionRules.DistanceTo(playerPosition, nearest.transform.position,
+                ValveOccupancy.IsUnderwater(nearest.ValveId)) <= _interactionRange;
             bool held = interactHeld && inRange;
 
             IValveNetworkBridge bridge = nearest.NetworkBridge;
@@ -123,9 +125,30 @@ namespace Marco.Presentation.Objectives
             if (_engagedBridge != null && !ReferenceEquals(_engagedBridge, bridge))
                 ReleaseEngagedBridge();
 
+            // [블록 7] 자기 밸브 회전음을 자기 화면에(GAP-1 로컬 0ms 경로) — 작업 1회에 1번.
+            //   다른 사람에게 들리는 소리는 서버가 회전을 시작시킬 때 낸다(ValveNetworkSync).
+            //   수중 밸브는 진입(하강)이 끝나야 회전하므로, 서버 상태가 회전 중이 된 뒤에 낸다.
+            bool underwater = ValveOccupancy.IsUnderwater(nearest.ValveId);
+            if (!held)
+                _selfPulseRaised = false;
+            else if (!_selfPulseRaised && (!underwater || nearest.State == ValveState.Rotating))
+            {
+                _selfPulseRaised = true;
+                SelfPulseFeed.Raise(SoundType.Valve, ValveOccupancy.SoundRadiusMeters(nearest.ValveId),
+                    ValveOccupancy.PulseDurationSeconds(nearest.ValveId), nearest.transform.position);
+            }
+
+            // §6.1 [v0.4] 수중 작업 구간 동안 잠수 자세(표시) — 놓으면 부상 초만큼 더 유지한다.
+            _player.SetWorkDive(underwater && held, ValveOccupancy.SurfaceSeconds(nearest.ValveId));
+            if (underwater)
+                _workDiveSurfaceSeconds = ValveOccupancy.SurfaceSeconds(nearest.ValveId);
+
             bridge.SubmitHoldIntent(_player.PlayerId, _player.Role, held);
             _engagedBridge = held ? bridge : null;
         }
+
+        private bool _selfPulseRaised;
+        private float _workDiveSurfaceSeconds;
 
         /// <summary>진행 중이던 네트워크 홀드가 있으면 해제 의사(held=false)를 보낸다.</summary>
         private void ReleaseEngagedBridge()
@@ -135,6 +158,8 @@ namespace Marco.Presentation.Objectives
 
             _engagedBridge.SubmitHoldIntent(_player.PlayerId, _player.Role, false);
             _engagedBridge = null;
+            _selfPulseRaised = false;
+            _player.SetWorkDive(false, _workDiveSurfaceSeconds);
         }
 
         /// <summary>범위 제한은 컨트롤러가 하므로 여기서는 최근접 하나만 고른다.</summary>
@@ -149,7 +174,9 @@ namespace Marco.Presentation.Objectives
                 if (valve == null)
                     continue;
 
-                float sqr = (valve.transform.position - playerPosition).sqrMagnitude;
+                float d = InteractionRules.DistanceTo(playerPosition, valve.transform.position,
+                    ValveOccupancy.IsUnderwater(valve.ValveId));
+                float sqr = d * d;
                 if (sqr < nearestSqr)
                 {
                     nearestSqr = sqr;
@@ -189,11 +216,11 @@ namespace Marco.Presentation.Objectives
                     break;
 
                 case ValveInteractionEvent.CancelledByRelease:
-                    Debug.Log($"[Valve] {label} 취소 — E를 뗌, 진행도 0으로 리셋 (§6.1)");
+                    Debug.Log($"[Valve] {label} 중단 — E를 뗌, 3초 유예 후 감쇠 (§6.1 v0.4)");
                     break;
 
                 case ValveInteractionEvent.CancelledByRangeExit:
-                    Debug.Log($"[Valve] {label} 취소 — 범위 이탈, 진행도 0으로 리셋 (§6.1)");
+                    Debug.Log($"[Valve] {label} 중단 — 범위 이탈, 3초 유예 후 감쇠 (§6.1 v0.4)");
                     break;
 
                 case ValveInteractionEvent.Completed:
@@ -216,10 +243,11 @@ namespace Marco.Presentation.Objectives
             if (_pulsePipeline == null || valve == null)
                 return;
 
+            // [블록 7] §6.1 밸브 A ×0.5(기계 앰비언스) — 로컬 경로에도 없었다.
             _pulsePipeline.EmitPulse(
                 SoundType.Valve,
-                Valve.SoundRadiusMeters,
-                valve.Valve.RotationSeconds,
+                ValveOccupancy.SoundRadiusMeters(valve.ValveId),
+                ValveOccupancy.PulseDurationSeconds(valve.ValveId),
                 valve.transform.position);
         }
     }

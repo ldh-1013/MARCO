@@ -31,8 +31,14 @@ namespace Marco.Core.Locomotion
         /// </summary>
         public readonly float SpeedMultiplier;
 
+        /// <summary>
+        /// §3.1 술래 잠행(3.5 m/s) 입력. <b>술래에게만 의미가 있다.</b> §4.3에 잠행 키가 없다 —
+        /// 홀드로 두고 술래가 쓰지 않는 Left Ctrl(도망자 잠수 키)을 잠정 배정했다(GAP-94).
+        /// </summary>
+        public readonly bool StealthHeld;
+
         public LocomotionInput(Vector2 moveAxis, bool sprintHeld, bool diveHeld, bool isOnWaterSurface,
-            bool canSubmerge = true, float speedMultiplier = 1f)
+            bool canSubmerge = true, float speedMultiplier = 1f, bool stealthHeld = false)
         {
             MoveAxis = moveAxis;
             SprintHeld = sprintHeld;
@@ -40,6 +46,7 @@ namespace Marco.Core.Locomotion
             IsOnWaterSurface = isOnWaterSurface;
             CanSubmerge = canSubmerge;
             SpeedMultiplier = speedMultiplier > 0f ? speedMultiplier : 0f;
+            StealthHeld = stealthHeld;
         }
     }
 
@@ -115,9 +122,47 @@ namespace Marco.Core.Locomotion
         private float _walkDistance;
         private float _sprintDistance;
 
+        /// <summary>
+        /// §6.2 이번 라운드 총원. 술래 이속 보정의 입력이다. 0이면 §6.2 권장 구성(5인)을 쓴다.
+        /// </summary>
+        public int TotalPlayers { get; set; }
+
+        /// <summary>
+        /// §6.2-1 종반 압박(잔여 1분 +5%)이 걸렸는가. <b>1회 적용 후 라운드 끝까지 유지</b>되며
+        /// 서버가 전파한 값을 호출부가 여기 꽂는다.
+        /// </summary>
+        public bool EndgamePressure { get; set; }
+
+        /// <summary>§3.1 질주 스태미나. 도망자만 소모한다(다른 역할은 질주 불가라 가득 찬 채 남는다).</summary>
+        public SprintStamina Stamina { get; } = new SprintStamina();
+
+        /// <summary>§3.1 이번 틱에 술래가 잠행으로 이동했는가(연출·HUD용).</summary>
+        public bool IsStealthing { get; private set; }
+
+        /// <summary>
+        /// 연출.md §2.1 "발이 땅에 닿는 순간 = 파문 발생 시점" — 다음 발소리까지의 진행도(0~1).
+        /// 0이 방금 파문이 난 순간(발이 닿은 순간)이다. 카메라 bob이 <b>이 값 하나로</b> 위상을 잡으므로
+        /// bob 주기와 발소리 주기가 구조적으로 어긋날 수 없다(§5.1-1 이동거리 기준 그대로).
+        /// 정지·잠수·메아리는 0.
+        /// </summary>
+        public float StepPhase01 { get; private set; }
+
         public LocomotionSimulator(RoleType role)
         {
             _role = role;
+        }
+
+        /// <summary>
+        /// §3.1 × §6.2 이 역할의 현재 기본 속도. 술래만 인원·종반 보정을 받는다 —
+        /// <b>5.30·5.57 같은 결과값을 상수로 박지 않는다.</b>
+        /// </summary>
+        private float CurrentBaseSpeed()
+        {
+            if (_role != RoleType.Seeker)
+                return LocomotionConfig.BaseSpeed(_role);
+
+            int players = TotalPlayers > 0 ? TotalPlayers : 5;
+            return LocomotionConfig.SeekerSpeedFor(players, EndgamePressure);
         }
 
         public MovementState CurrentState { get; private set; } = MovementState.Idle;
@@ -129,10 +174,14 @@ namespace Marco.Core.Locomotion
             //
             // 조건식 자체는 DiveRules가 소유한다 — 서버도 같은 판정을 해야 하는데
             // (§5.9-1 숨 게이지가 서버 권위), 여기 인라인으로 두면 두 곳이 어긋난다.
-            if (DiveRules.IsDiving(input.DiveHeld, input.IsOnWaterSurface, input.CanSubmerge))
+            IsStealthing = false;
+            StepPhase01 = 0f;
+
+            if (DiveRules.IsDiving(_role, input.DiveHeld, input.IsOnWaterSurface, input.CanSubmerge))
             {
                 CurrentState = MovementState.Diving;
                 ResetPulseDistance();
+                Stamina.Tick(false, deltaSeconds); // 정지 = 질주 아님 — 페널티·회복은 계속 흐른다
                 return new LocomotionTick(MovementState.Diving, Vector3.zero, null);
             }
 
@@ -147,17 +196,30 @@ namespace Marco.Core.Locomotion
                 // 제자리 회전은 MoveAxis가 0이라 여기로 들어온다.
                 CurrentState = MovementState.Idle;
                 ResetPulseDistance();
+                Stamina.Tick(false, deltaSeconds);
                 return new LocomotionTick(MovementState.Idle, Vector3.zero, null);
             }
 
-            bool sprinting = input.SprintHeld && LocomotionConfig.CanSprint(_role); // §3.1 + §4.3 이동 중에만
+            // §3.1 + §4.3 이동 중에만, 도망자만, **스태미나가 있고 소진 페널티 중이 아닐 때만**.
+            bool sprinting = input.SprintHeld && LocomotionConfig.CanSprint(_role) && Stamina.CanSprint;
 
-            // §5.9-1 질식 페널티는 **실제 이동속도**를 낮춘다. 그래서 발소리 등급 판정
-            // (§5.1 "이동속도 ≤ 5.0m/s")과 §5.1-1 이동거리 누적에도 그대로 반영된다 —
-            // 느리게 움직이면 실제로 더 조용해지는 것이 §5.1의 문자 그대로다.
-            float speed = (sprinting ? LocomotionConfig.RunnerSprintSpeed : LocomotionConfig.BaseSpeed(_role))
-                          * input.SpeedMultiplier;
+            // §3.1 술래 잠행 — 3.5 m/s 고정(인원·종반 보정 없음, GAP-84). 발소리 등급을 따로
+            // 분기하지 않는다: 3.5 ≤ 5.0이라 아래의 속도 판정이 **자동으로 걷기 2m**를 고른다.
+            bool stealth = _role == RoleType.Seeker && input.StealthHeld;
+            IsStealthing = stealth;
+
+            float baseSpeed = sprinting ? LocomotionConfig.RunnerSprintSpeed
+                            : stealth ? LocomotionConfig.SeekerStealthSpeed
+                            : CurrentBaseSpeed();
+
+            // §5.9-1 질식 페널티와 §3.1 소진 페널티는 **실제 이동속도**를 낮춘다. 그래서 발소리 등급
+            // 판정(§5.1 "이동속도 ≤ 5.0m/s")과 §5.1-1 이동거리 누적에도 그대로 반영된다.
+            // 둘이 겹치면 곱하지 않고 느린 쪽 하나만(GAP-93, SprintConfig.CombineSpeedMultipliers).
+            float multiplier = SprintConfig.CombineSpeedMultipliers(input.SpeedMultiplier, Stamina.SpeedMultiplier);
+            float speed = baseSpeed * multiplier;
             CurrentState = sprinting ? MovementState.Sprint : MovementState.Walk;
+
+            Stamina.Tick(sprinting, deltaSeconds);
 
             Vector3 velocity = new Vector3(axis.x, 0f, axis.y) * speed;
 
@@ -178,6 +240,8 @@ namespace Marco.Core.Locomotion
                         _sprintDistance -= LocomotionConfig.SprintPulseRadius;
                         pulse = new FootstepPulse(SoundType.Sprint, LocomotionConfig.SprintPulseRadius, LocomotionConfig.SprintPulseDuration);
                     }
+
+                    StepPhase01 = _sprintDistance / LocomotionConfig.SprintPulseRadius;
                 }
                 else
                 {
@@ -187,6 +251,8 @@ namespace Marco.Core.Locomotion
                         _walkDistance -= LocomotionConfig.WalkPulseRadius;
                         pulse = new FootstepPulse(SoundType.Walk, LocomotionConfig.WalkPulseRadius, LocomotionConfig.WalkPulseDuration);
                     }
+
+                    StepPhase01 = _walkDistance / LocomotionConfig.WalkPulseRadius;
                 }
             }
 

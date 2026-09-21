@@ -1,0 +1,151 @@
+namespace Marco.Core.Objectives
+{
+    /// <summary>수중 밸브(B·E) 작업 1회의 구간. §6.1-1 총 점유 표의 진입 · 회전 · 부상.</summary>
+    public enum UnderwaterWorkPhase
+    {
+        /// <summary>하강 중 — 머리는 이미 수면 아래지만 밸브는 아직 돌지 않는다.</summary>
+        Entry,
+
+        /// <summary>회전 중 — 밸브 진행도가 오른다.</summary>
+        Rotate,
+
+        /// <summary>상승 중 — 손은 뗐지만 아직 수면 위로 나오지 않았다.</summary>
+        Surface,
+
+        /// <summary>수면 위로 나왔다(또는 숨이 다해 강제 부상했다). 세션 종료.</summary>
+        Done,
+    }
+
+    /// <summary>한 틱에 일어난 전이. 호출부(서버)가 밸브 구동기에 반영한다.</summary>
+    public readonly struct UnderwaterWorkTick
+    {
+        /// <summary>진입이 끝났다 — 이제 밸브에 손을 댄다(<c>BeginHold</c>).</summary>
+        public readonly bool BeginRotation;
+
+        /// <summary>회전이 끊겼다(뗐거나 숨이 다함) — 밸브에서 손을 뗀다(<c>EndHold</c>). 개방 완료는 해당 없음.</summary>
+        public readonly bool StopRotation;
+
+        public UnderwaterWorkTick(bool beginRotation, bool stopRotation)
+        {
+            BeginRotation = beginRotation;
+            StopRotation = stopRotation;
+        }
+    }
+
+    /// <summary>
+    /// §6.1 [v0.4] 수중 밸브 작업의 <b>잠수 구간</b> — 진입 시작부터 부상 완료까지.
+    ///
+    /// <para>
+    /// <b>왜 필요한가(GAP-91 해소).</b> 이전에는 밸브가 회전만 알았다. 잠수 모델(<c>DiveRules</c>)은 머리만
+    /// 내리므로 하강·상승이 없고, 숨 게이지는 회전 5.0초(B)만 소모돼 잔여 7.0 — §6.1이 설계한
+    /// <i>"숨 게이지 8.0초 소모(잔여 4.0) → 비명 억제(4.5) 불가"</i> 리스크가 실기에서 사라졌다.
+    /// 이제 작업 1회 = <b>진입 → 회전 → 부상</b>이고 그 전 구간 동안 서버가 이 플레이어를 잠수 중으로 본다.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>새 상수가 없다.</b> 진입·부상 초는 <see cref="ValveOccupancy.EntrySeconds"/>·<see cref="ValveOccupancy.SurfaceSeconds"/>,
+    /// 끊김 없는 작업 1회의 잠수 시간은 <see cref="ValveOccupancy.TotalSeconds"/>(블록 2의 "총 점유 8.0")와 같다.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>강제로 잠기게 하지 않는다.</b> 이 세션은 "잠수 키를 누른 것"과 같은 <i>의도</i>만 만든다. 실제로 머리가
+    /// 수면 아래인지는 여전히 서버 지오메트리(<c>DiveRules.ZoneOf</c>)가 정한다 — 물이 얕아 머리가 안 잠기는
+    /// 자리면 숨은 소모되지 않는다.
+    /// </para>
+    /// </summary>
+    public sealed class UnderwaterWorkSession
+    {
+        public UnderwaterWorkSession(ValveId id)
+        {
+            Id = id;
+            Phase = UnderwaterWorkPhase.Entry;
+        }
+
+        public ValveId Id { get; }
+
+        public UnderwaterWorkPhase Phase { get; private set; }
+
+        /// <summary>현재 구간에서 흐른 시간(초).</summary>
+        public float PhaseElapsed { get; private set; }
+
+        /// <summary>이 세션이 잠수 의도를 유지하는가(진입·회전·부상 전 구간).</summary>
+        public bool KeepsSubmerged => Phase != UnderwaterWorkPhase.Done;
+
+        /// <summary>
+        /// 시간을 진전시킨다.
+        /// </summary>
+        /// <param name="holding">플레이어가 아직 E를 누르고 있다(도망자 한정 — 호출부가 역할을 확인한다).</param>
+        /// <param name="rotationFinished">밸브가 열렸다(이 플레이어든 동시 작업자든).</param>
+        /// <param name="canSubmerge">§5.9-1 숨이 남아 있다. 0이면 강제 부상 — 세션이 즉시 끝난다.</param>
+        public UnderwaterWorkTick Tick(float deltaSeconds, bool holding, bool rotationFinished, bool canSubmerge)
+        {
+            if (Phase == UnderwaterWorkPhase.Done)
+                return default;
+
+            // §5.9-1 강제 부상 — 숨이 다하면 어느 구간이든 그 자리에서 끝난다(더 소모할 숨이 없다).
+            if (!canSubmerge)
+            {
+                bool wasRotating = Phase == UnderwaterWorkPhase.Rotate;
+                Enter(UnderwaterWorkPhase.Done);
+                return new UnderwaterWorkTick(false, wasRotating);
+            }
+
+            if (deltaSeconds < 0f)
+                deltaSeconds = 0f;
+
+            switch (Phase)
+            {
+                case UnderwaterWorkPhase.Entry:
+                    if (!holding)
+                    {
+                        Enter(UnderwaterWorkPhase.Surface); // 내려가다 그만뒀다 — 올라와야 한다
+                        return default;
+                    }
+
+                    PhaseElapsed += deltaSeconds;
+                    if (PhaseElapsed < ValveOccupancy.EntrySeconds(Id))
+                        return default;
+
+                    Enter(UnderwaterWorkPhase.Rotate);
+                    return new UnderwaterWorkTick(true, false);
+
+                case UnderwaterWorkPhase.Rotate:
+                    if (rotationFinished)
+                    {
+                        Enter(UnderwaterWorkPhase.Surface);
+                        return default;
+                    }
+
+                    if (!holding)
+                    {
+                        Enter(UnderwaterWorkPhase.Surface);
+                        return new UnderwaterWorkTick(false, true);
+                    }
+
+                    PhaseElapsed += deltaSeconds;
+                    return default;
+
+                case UnderwaterWorkPhase.Surface:
+                    PhaseElapsed += deltaSeconds;
+                    if (PhaseElapsed >= ValveOccupancy.SurfaceSeconds(Id))
+                        Enter(UnderwaterWorkPhase.Done);
+                    return default;
+            }
+
+            return default;
+        }
+
+        /// <summary>회전을 시작하지 못했다(그 사이 다른 사람이 열었거나 잠겼다) — 곧장 올라온다.</summary>
+        public void ForceSurface()
+        {
+            if (Phase != UnderwaterWorkPhase.Done)
+                Enter(UnderwaterWorkPhase.Surface);
+        }
+
+        private void Enter(UnderwaterWorkPhase phase)
+        {
+            Phase = phase;
+            PhaseElapsed = 0f;
+        }
+    }
+}

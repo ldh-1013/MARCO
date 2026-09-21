@@ -80,6 +80,15 @@ namespace Marco.Net
         /// </summary>
         private readonly Dictionary<ulong, bool> _diveIntent = new Dictionary<ulong, bool>();
 
+        /// <summary>§3.6 메뉴 개방 주장(서버 전용). 캠핑 방지 일시중단 조건 — GAP-95.</summary>
+        private readonly Dictionary<ulong, bool> _menuOpen = new Dictionary<ulong, bool>();
+
+        /// <summary>§3.6 플레이어별 캠핑 판정기(서버 전용).</summary>
+        private readonly Dictionary<ulong, CampingMonitor> _camping = new Dictionary<ulong, CampingMonitor>();
+
+        /// <summary>§3.6 누적 이동거리 계산용 직전 위치(서버 관측값).</summary>
+        private readonly Dictionary<ulong, Vector3> _campingLastPos = new Dictionary<ulong, Vector3>();
+
         /// <summary>
         /// §3.5 "선딜레이 중 이동하면 취소"를 판정하기 위한 직전 프레임 위치(서버 관측값).
         /// 선딜레이 중인 술래에 대해서만 채워진다.
@@ -163,6 +172,14 @@ namespace Marco.Net
             ServerSubmitDiveIntent(held);
         }
 
+        public void SubmitMenuIntent(bool open)
+        {
+            if (!NetworkActive)
+                return;
+
+            ServerSubmitMenuIntent(open);
+        }
+
         // ── 서버: 수집 ────────────────────────────────────────────────────
 
         public override void OnStartServer()
@@ -175,13 +192,30 @@ namespace Marco.Net
                 _subscribedToTags = true;
             }
 
+            _serverInstance = this;
             _driver = new ServerPulseDriver();
             _knockDriver = new ServerKnockDriver();
             _shoutDriver = new ServerShoutDriver();
             _breath.Clear();
             _diveIntent.Clear();
             _shoutAnchor.Clear();
+            _menuOpen.Clear();
+            _camping.Clear();
+            _campingLastPos.Clear();
             Debug.Log("[PulseNet:Server] 서버 권위 파문 판정 시작 — 청취자별 개별 전송(§14.3)");
+        }
+
+        /// <summary>
+        /// 서버가 멈추면 정적 인스턴스를 놓는다. 도메인 리로드를 끈 채 Play를 반복하면
+        /// 파괴된 이전 판을 물고 있다가 <see cref="ServerEmitWorldPulse"/>가 조용히
+        /// 실패한다(레지스트리들과 같은 안전장치 — 더블체크 2).
+        /// </summary>
+        public override void OnStopServer()
+        {
+            base.OnStopServer();
+
+            if (_serverInstance == this)
+                _serverInstance = null;
         }
 
         /// <summary>
@@ -327,6 +361,26 @@ namespace Marco.Net
                 return;
             }
 
+            // §3.6 호흡음은 서버가 "20초 정지"를 관측한 결과다 — 클라이언트 주장은 받지 않는다.
+            if (ServerPulseDriver.IsServerOnly(type))
+            {
+                Debug.LogWarning($"[PulseNet:Server] 파문 거부 — {type}은 서버 전용 종류(§3.6 호흡·§3.5 비명·§3.2 노크). " +
+                                 $"callerId={caller.ClientId}");
+                return;
+            }
+
+            // §3.2 메아리는 발소리가 없고(비행형) 음성은 생존자에게 들리지 않는다 — 메아리의 소리는
+            //   노크(전용 경로)뿐이다. 역할 검사가 없어 메아리의 말소리가 생존자 화면에 파문으로 떴다
+            //   (블록 6에서 발견). 역할은 서버가 호출자에서 읽는다(GAP-24).
+            if (RoleNetworkSync.TryGetCallerIdentity(caller, out RoleType callerRole, out ulong _)
+                && callerRole == RoleType.Echo)
+            {
+                if (_logDiagnostics)
+                    Debug.Log($"[PulseNet:Server] 파문 거부 — 메아리의 {type}(§3.2 메아리 소리는 노크뿐). " +
+                              $"callerId={caller.ClientId}");
+                return;
+            }
+
             ulong sourceId = (ulong)caller.ClientId;
             Vector3 serverPosition = caller.FirstObject.transform.position;
 
@@ -460,6 +514,9 @@ namespace Marco.Net
             // §5.9-1 숨 게이지: 소모·회복은 서버가 소유한다(§3.5 억제 비용이 여기서 빠진다).
             TickBreath(Time.deltaTime);
 
+            // §3.6 캠핑 방지: 서버가 관측한 누적 이동으로 판정하고 호흡음을 발생시킨다.
+            TickCamping(Time.deltaTime);
+
             // §3.2 노크: 지연이 끝난 것을 파문화하고, 술래 위치로 §8 유인을 판정한다.
             // 청취자 스냅샷을 이미 만들어 둔 이 자리가 술래 위치를 얻기 가장 싼 지점이다.
             TickKnocks();
@@ -506,8 +563,11 @@ namespace Marco.Net
                     _shoutDriver?.Reset();      // §3.5 쿨다운·선딜레이도 라운드 경계에서 비운다.
                     _shoutAnchor.Clear();
                     _diveIntent.Clear();        // §4.3 지난 라운드의 홀드 주장이 살아남으면 안 된다.
+                    _camping.Clear();           // §3.6 새 라운드는 20초를 처음부터 센다.
+                    _campingLastPos.Clear();    //      스폰 이동이 "5m 이동"으로 세어지지 않게 위치도 버린다.
                     foreach (BreathGauge gauge in _breath.Values)
                         gauge.Reset();          // §5.9-1 새 라운드는 만충으로 시작한다.
+                    _breathSent.Clear();        // 다음 틱에 만충 값이 소유자에게 다시 간다.
                     Debug.Log($"[KnockNet:Server] 라운드 시작 — 노크 상태 초기화(§3.2 라운드당 {KnockConfig.MaxUsesPerRound}회 재충전).");
                 }
 
@@ -595,6 +655,16 @@ namespace Marco.Net
             _diveIntent[playerId] = held;
         }
 
+        /// <summary>§3.6 메뉴 개방 주장 접수. 페이로드는 bool 하나(GAP-24).</summary>
+        [ServerRpc(RequireOwnership = false)]
+        private void ServerSubmitMenuIntent(bool open, NetworkConnection caller = null)
+        {
+            if (!RoleNetworkSync.TryGetCallerIdentity(caller, out RoleType _, out ulong playerId))
+                return;
+
+            _menuOpen[playerId] = open;
+        }
+
         /// <summary>
         /// §5.9-1 이 플레이어의 숨 상태. <b>서버가 지오메트리로 재계산한다.</b>
         ///
@@ -622,10 +692,116 @@ namespace Marco.Net
                 return BreathZone.OutOfWater;
 
             _diveIntent.TryGetValue(playerId, out bool held);
-            bool diving = DiveRules.IsDiving(held, water.BodyInWater, BreathOf(playerId).CanSubmerge);
+
+            // §6.1 [v0.4] 수중 밸브 작업 구간(진입 → 회전 → 부상)은 잠수 키와 같은 의도로 친다(GAP-91 해소).
+            //   **강제로 잠기게 하지는 않는다** — 머리가 실제로 수면 아래인지는 아래 지오메트리 판정이 정한다.
+            held |= ValveNetworkSync.ServerIsInUnderwaterWork(playerId);
+
+            // §3.1 잠수는 도망자 능력 — 술래가 Ctrl을 눌러도 잠기지 않는다(블록 5, §6.5-3).
+            bool diving = DiveRules.IsDiving(player.EffectiveRole, held, water.BodyInWater, BreathOf(playerId).CanSubmerge);
 
             return DiveRules.ZoneOf(water, feet.y, diving);
         }
+
+        /// <summary>§5.9-1 이 플레이어의 숨이 남아 있는가(서버 게이지). 서버가 아니면 true.</summary>
+        internal static bool ServerCanSubmerge(ulong playerId)
+        {
+            PulseNetworkSync instance = _serverInstance;
+            if (instance == null || !instance.IsServerStarted)
+                return true;
+
+            return instance.BreathOf(playerId).CanSubmerge;
+        }
+
+        /// <summary>
+        /// 이 플레이어가 <b>서버 기준으로</b> 잠수 중(머리가 수면 아래)인가. 수중 작업 자격
+        /// (§6.5-2 배수구)이 쓴다. 판정은 <see cref="ZoneOf"/> 그대로 — 숨 게이지가 쓰는 것과
+        /// <b>같은 식</b>이라 "숨은 안 줄었는데 작업은 된다"가 생길 수 없다.
+        /// 서버가 아니면 false.
+        /// </summary>
+        internal static bool ServerIsSubmerged(ulong playerId)
+        {
+            PulseNetworkSync instance = _serverInstance;
+            if (instance == null || !instance.IsServerStarted)
+                return false;
+
+            List<RoleNetworkSync> players = RoleNetworkSync.Spawned;
+            for (int i = 0; i < players.Count; i++)
+            {
+                RoleNetworkSync p = players[i];
+                if (p != null && p.OrderKey >= 0 && (ulong)p.OrderKey == playerId)
+                    return instance.ZoneOf(p) == BreathZone.Submerged;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// <b>플레이어가 아닌 발생원</b>의 파문을 서버가 발행한다 — 지형·오브젝트·규칙이
+        /// 내는 소리다. 현재 호출부: §6.1-2 밸브 역류 물소리, §6.5-1 최후 생존자 페이즈
+        /// 진입 알림, §6.2-1 종반 출구 파문.
+        ///
+        /// <para>
+        /// <b>왜 정적 진입점인가</b>: 이 소리들의 주인은 밸브·라운드 상태기계이고 그들은
+        /// 씬 오브젝트라 <c>PulseNetworkSync</c> 인스턴스를 들고 있지 않다. 각자 찾아
+        /// 캐시하게 만들면 캐시가 어긋나므로(GAP-61과 같은 유형), 레지스트리처럼
+        /// 여기 한 곳을 경유하게 한다.
+        /// </para>
+        ///
+        /// <para>
+        /// <b>발생원 ID는 <see cref="WorldSourceId"/>다.</b> 어떤 플레이어와도 겹치지 않으므로
+        /// GAP-1(본인 제외)이 아무도 배제하지 않고, §8 어워드에도 귀속되지 않는다 —
+        /// 지형이 낸 소리가 누군가의 "소음량"으로 세어지면 안 된다.
+        /// </para>
+        ///
+        /// <para>
+        /// 서버가 아니거나 아직 스폰되지 않았으면 <b>아무 일도 하지 않는다</b>(false 반환).
+        /// 로컬 단독 실행에서는 Presentation의 로컬 파이프라인이 그 역할을 한다.
+        /// </para>
+        /// </summary>
+        public static bool ServerEmitWorldPulse(SoundType type, Vector3 worldPosition, float durationOverride = 0f)
+        {
+            PulseNetworkSync instance = _serverInstance;
+            if (instance == null || instance._driver == null || !instance.IsServerStarted)
+                return false;
+
+            int id = instance._driver.AddPulse(WorldSourceId, type, worldPosition, Time.time,
+                durationOverride: durationOverride);
+            return id >= 0;
+        }
+
+        /// <summary>
+        /// [블록 7] <b>플레이어가 일으켰지만 서버가 결정한</b> 파문 — 밸브 회전음. 발생원은 그 플레이어라
+        /// GAP-1(본인 제외)이 적용되고(본인은 <c>SelfPulseFeed</c>로 0ms에 본다), 반경·지속은 서버가
+        /// 밸브별로 정한다(§6.1 A ×0.5 · §5.1 "각 밸브 회전 시간"). §8.2 집계는 밸브라 제외된다.
+        /// </summary>
+        public static bool ServerEmitPlayerPulse(ulong sourceId, SoundType type, Vector3 position,
+            float radius, float duration)
+        {
+            PulseNetworkSync instance = _serverInstance;
+            if (instance == null || instance._driver == null || !instance.IsServerStarted)
+                return false;
+
+            int id = instance._driver.AddPulse(sourceId, type, position, Time.time,
+                radiusOverride: radius, durationOverride: duration);
+            if (id < 0)
+                return false;
+
+            RoundNetworkSync.ServerRecordPulse((int)sourceId, type, radius, duration);
+            return true;
+        }
+
+        /// <summary>
+        /// 지형·규칙이 내는 소리의 발생원 ID. 플레이어 ID는 <c>RoleNetworkSync.OrderKey</c>
+        /// (0 이상의 작은 정수)에서 오므로 절대 겹치지 않는다.
+        /// </summary>
+        public const ulong WorldSourceId = ulong.MaxValue;
+
+        /// <summary>
+        /// 서버 인스턴스. 씬에 <c>PulseSystem</c>이 하나라는 전제이며(기존 설계),
+        /// <see cref="ServerEmitWorldPulse"/>가 이것을 경유한다.
+        /// </summary>
+        private static PulseNetworkSync _serverInstance;
 
         /// <summary>이 플레이어의 숨 게이지(없으면 만충으로 새로 만든다). 서버 전용.</summary>
         private BreathGauge BreathOf(ulong playerId)
@@ -656,7 +832,12 @@ namespace Marco.Net
                     continue;
 
                 ulong id = (ulong)p.OrderKey;
-                BreathTick tick = BreathOf(id).Tick(ZoneOf(p), deltaSeconds);
+                BreathZone zone = ZoneOf(p);
+                BreathGauge gauge = BreathOf(id);
+                BreathTick tick = gauge.Tick(zone, deltaSeconds);
+
+                SendBreathToOwner(p, id, gauge, zone);
+
                 if (!tick.Choked)
                     continue;
 
@@ -669,6 +850,116 @@ namespace Marco.Net
                           $"{BreathConfig.ChokePenaltySeconds:0}초 + 고함급 파문(§5.9-1)");
             }
         }
+
+        /// <summary>
+        /// §3.6 장시간 정지 시 자동 소리(캠핑 방지). 서버 전용, 매 프레임. <b>라운드 중에만</b> 돈다.
+        ///
+        /// <list type="bullet">
+        /// <item><b>적용: 도망자 + 술래</b>(§3.6 "고정"). 메아리는 판정기를 비운다.
+        ///   ★ 술래가 빠지면 §6.5-3 마지막 대치("술래가 풀에서 대기하면 20초 후부터 위치를 광고한다")가
+        ///   무너져 최후 생존자 페이즈가 술래의 일방적 승리가 된다.</item>
+        /// <item><b>일시중단(정지, 초기화 아님)</b>: 잠수 중(서버 숨 판정 — 술래는 잠수 불가라 물에 서 있어도
+        ///   해당 없음) / 밸브 조작 중 / 메뉴 개방 주장 / 술래 경직 1초(이동불가 연출).</item>
+        /// <item>이동거리는 서버가 관측한 위치 변화의 합(3D)이다 — 클라이언트는 이동을 주장하지 않는다.</item>
+        /// </list>
+        /// </summary>
+        private void TickCamping(float deltaSeconds)
+        {
+            if (RoundNetworkSync.ServerPhase != Core.GameFlow.GameFlowState.InGame)
+                return;
+
+            float now = Time.time;
+            List<RoleNetworkSync> players = RoleNetworkSync.Spawned;
+            for (int i = 0; i < players.Count; i++)
+            {
+                RoleNetworkSync p = players[i];
+                if (p == null || p.OrderKey < 0)
+                    continue;
+
+                ulong id = (ulong)p.OrderKey;
+                RoleType role = p.EffectiveRole;
+                Vector3 pos = p.transform.position;
+
+                if (!CampingConfig.AppliesTo(role))
+                {
+                    // 메아리는 미적용. 태그로 전환되는 순간 진행 중이던 판정도 버린다.
+                    _camping.Remove(id);
+                    _campingLastPos.Remove(id);
+                    continue;
+                }
+
+                float moved = _campingLastPos.TryGetValue(id, out Vector3 last) ? Vector3.Distance(last, pos) : 0f;
+                _campingLastPos[id] = pos;
+
+                _menuOpen.TryGetValue(id, out bool menuOpen);
+                // "잠수 중"은 **잠수 능력이 있는 역할에만** 성립한다(§3.1 — 도망자 전용). 지오메트리만 보면
+                // 깊은 물에 선 술래의 머리가 수면 아래로 판정될 수 있는데(GAP-90), 그때 술래의 캠핑
+                // 방지가 꺼지면 §6.5-3이 무너진다 — 역할 조건으로 그 경로를 원천 차단한다.
+                bool suspended = (DiveRules.CanDive(role) && ZoneOf(p) == BreathZone.Submerged)
+                                 || ValveNetworkSync.ServerIsInteracting(id)
+                                 || menuOpen
+                                 || (role == RoleType.Seeker && TagNetworkSync.IsSeekerStunnedOnServer(id, now));
+
+                if (!_camping.TryGetValue(id, out CampingMonitor monitor))
+                {
+                    monitor = new CampingMonitor();
+                    _camping[id] = monitor;
+                }
+
+                float radius = monitor.Tick(deltaSeconds, moved, suspended);
+                if (radius <= 0f)
+                    continue;
+
+                // §5.1 Breath — 반경만 증폭값, 지속 0.6초는 표 그대로.
+                int pulseId = _driver.AddPulse(id, SoundType.Breath, pos, now, radiusOverride: radius);
+                if (pulseId >= 0)
+                {
+                    // §8.2 무성 생존상: "본인이 발생시킨 파문 — 단, 밸브 회전음은 제외". 호흡음은
+                    //   제외 목록에 없으므로 **문자 그대로 포함**한다(GAP-96 — 명시 없음).
+                    RoundNetworkSync.ServerRecordPulse((int)id, SoundType.Breath, radius, CampingConfig.DurationSeconds);
+                }
+
+                Debug.Log($"[Camping:Server] playerId={id} role={role} 호흡음 {radius:0}m " +
+                          $"(발동 후 {monitor.PulsesFired}번째, §3.6)");
+            }
+        }
+
+        /// <summary>
+        /// GAP-76 해소 — 숨 게이지를 <b>소유자에게만</b> 보낸다. 매 프레임 보내지 않는다(§14.3):
+        /// 값이 <see cref="BreathSendStepSeconds"/> 이상 변했거나 잠수·질식 상태가 바뀔 때만.
+        /// 소유자 HUD(하단 중앙 숨 게이지)와 이동 예측(강제 부상·질식 감속)이 읽는다.
+        /// </summary>
+        private void SendBreathToOwner(RoleNetworkSync p, ulong id, BreathGauge gauge, BreathZone zone)
+        {
+            if (p.Owner == null || !p.Owner.IsActive)
+                return;
+
+            bool submerged = zone == BreathZone.Submerged;
+            bool choke = gauge.IsChokePenaltyActive;
+
+            // 경계값(0 · 만충)에 닿은 순간은 해상도와 무관하게 보낸다 — 11.8에서 멈춰 보이면 "가득 안 찼다"로 읽힌다.
+            bool atBound = gauge.Current <= 0f || gauge.Current >= BreathConfig.TotalSeconds;
+            if (_breathSent.TryGetValue(id, out (float Value, bool Submerged, bool Choke) last)
+                && (Mathf.Abs(last.Value - gauge.Current) < BreathSendStepSeconds && !(atBound && last.Value != gauge.Current))
+                && last.Submerged == submerged && last.Choke == choke)
+                return;
+
+            _breathSent[id] = (gauge.Current, submerged, choke);
+            TargetBreath(p.Owner, gauge.Current, submerged, choke);
+        }
+
+        /// <summary>
+        /// 숨 게이지 전송 해상도(초). 표시값이다 — 12초 게이지를 이 간격으로 갱신하면 HUD가 끊겨 보이지
+        /// 않으면서 초당 최대 몇 회에 그친다(§14.3 "매 프레임 보내지 마라").
+        /// </summary>
+        private const float BreathSendStepSeconds = 0.25f;
+
+        private readonly Dictionary<ulong, (float Value, bool Submerged, bool Choke)> _breathSent =
+            new Dictionary<ulong, (float, bool, bool)>();
+
+        [TargetRpc]
+        private void TargetBreath(NetworkConnection conn, float remaining, bool submerged, bool choke) =>
+            BreathClientState.Apply(remaining, submerged, choke);
 
         /// <summary>
         /// §3.5 외침의 서버 측 진행(5단계). 서버 전용, 매 프레임.

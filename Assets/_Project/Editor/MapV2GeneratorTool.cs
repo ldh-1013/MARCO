@@ -2,6 +2,8 @@ using System.Collections.Generic;
 using System.Text;
 using Marco.Core.Locomotion;
 using Marco.Core.Sound;
+using Marco.Presentation.GameFlow;
+using Marco.Presentation.Objectives;
 using Marco.Presentation.Sound;
 using Marco.Presentation.Water;
 using UnityEditor;
@@ -101,6 +103,9 @@ namespace Marco.EditorTools
             BuildStairs(root, counts);
             BuildWater(root, counts);
             BuildMarkers(root, counts);
+            AttachPlanData(root);
+            PlaceAnchors(log);
+            DisableLegacyMap(log);
 
             foreach (KeyValuePair<string, int> kv in counts)
                 log.AppendLine($"  {kv.Key}: {kv.Value}개");
@@ -294,6 +299,23 @@ namespace Marco.EditorTools
                 occluder.layer = LayerMask.NameToLayer(SoundBlockingLayer);
                 occluder.tag = PhysicsOcclusionProbe.WallTag;
 
+                // [블록 7 · GAP-90] 수면판은 **트리거**다 — 고체면 플레이어가 물 위를 걸어 잠수가 아예
+                // 성립하지 않았다(발이 수면 높이라 "덱"으로 판정). 차폐 레이는 트리거도 센다
+                // (PhysicsOcclusionProbe — SoundBlocking 레이어의 트리거는 이 판뿐이다).
+                occluder.GetComponent<Collider>().isTrigger = true;
+
+                // [블록 7 · GAP-90] 수영 바닥 — 발이 수면 아래 SwimFloorDepth에 머문다(떠 있는 높이).
+                //   소리를 막지 않는다(Default 레이어). 재질 태그는 물(§5.9 발소리 파문 없음).
+                GameObject swim = MakeCube(parent, "SwimFloor",
+                    new Vector3(w.Area.center.x, -MapV2Layout.SwimFloorDepth - MapV2Layout.FloorThickness * 0.5f, w.Area.center.y),
+                    new Vector3(w.Area.width, MapV2Layout.FloorThickness, w.Area.height));
+                StripRenderer(swim);
+                swim.tag = MapV2Layout.MaterialTag(FootstepMaterial.Water);
+
+                // [블록 7 · GAP-102] 가장자리 경사로 — 물에서 덱으로 걸어 나온다.
+                BuildPoolRamps(parent, w.Area);
+                Bump(counts, "풀 경사로", 4);
+
                 // ③ 풀 바닥 — 기본 수심. 침강부는 아래에서 한 칸 더 판다.
                 MakeFloor(parent, "PoolBed", w.Area, -w.Depth,
                     MapV2Layout.MaterialTag(FootstepMaterial.Water));
@@ -373,6 +395,44 @@ namespace Marco.EditorTools
         }
 
         /// <summary>
+        /// [블록 7 · GAP-102] 수면 사각형 네 변 안쪽에 덱(0) → 수영 바닥(−SwimFloorDepth) 경사로.
+        /// 윗면이 경사선 위에 오도록 두께만큼 법선 반대로 민다. 렌더러 없음, 소리 차폐 없음.
+        /// </summary>
+        private static void BuildPoolRamps(GameObject parent, Rect area)
+        {
+            float depth = MapV2Layout.SwimFloorDepth;
+            float run = MapV2Layout.PoolRampRun;
+            float length = Mathf.Sqrt(run * run + depth * depth);
+            float t = MapV2Layout.FloorThickness;
+
+            // (가장자리 중점, 안쪽 방향, 가장자리 길이)
+            var edges = new (Vector3 Mid, Vector3 Inward, float Length, string Name)[]
+            {
+                (new Vector3(area.center.x, 0f, area.yMin), Vector3.forward, area.width, "S"),
+                (new Vector3(area.center.x, 0f, area.yMax), Vector3.back, area.width, "N"),
+                (new Vector3(area.xMin, 0f, area.center.y), Vector3.right, area.height, "W"),
+                (new Vector3(area.xMax, 0f, area.center.y), Vector3.left, area.height, "E"),
+            };
+
+            for (int i = 0; i < edges.Length; i++)
+            {
+                (Vector3 mid, Vector3 inward, float edgeLength, string name) = edges[i];
+                Vector3 down = (inward * run + Vector3.down * depth) / length;   // 경사 방향
+                Vector3 normal = (inward * depth + Vector3.up * run) / length;   // 윗면 법선(위쪽)
+                Vector3 surfaceCenter = mid + inward * (run * 0.5f) + Vector3.down * (depth * 0.5f);
+
+                var go = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                go.name = "PoolRamp_" + name;
+                go.transform.SetParent(parent.transform, worldPositionStays: false);
+                go.transform.position = surfaceCenter - normal * (t * 0.5f);
+                go.transform.rotation = Quaternion.LookRotation(down, normal);
+                go.transform.localScale = new Vector3(edgeLength, t, length);
+                StripRenderer(go);
+                go.tag = MapV2Layout.MaterialTag(FootstepMaterial.Water);
+            }
+        }
+
+        /// <summary>
         /// 수면 사각형 네 변을 감싸는 차폐 측벽. 렌더러는 없다 — 지면 메시는 블록 7이 만든다.
         /// 모서리에서 두 장이 겹치지만, 모서리를 정확히 지나는 선은 실질적으로 없어
         /// 감쇠가 과하게 계산되는 경우가 생기지 않는다(겹침을 피하려 변마다 두께를
@@ -415,7 +475,16 @@ namespace Marco.EditorTools
                 if (v.Underwater)
                     y = -DepthAt(v.Position) + 0.5f; // 수중 밸브는 바닥 근처
 
-                MakeMarker(valves, $"Valve_{v.Id}_{v.Zone}", new Vector3(v.Position.x, y, v.Position.y));
+                // [블록 7] 실물 밸브 — 큐브 + ValveBehaviour(§10.2 식별자) + 상태 색 표시.
+                //   NetworkObject · ValveNetworkSync는 파이프라인의 Setup Network Valves가 붙인다(생성 후 실행).
+                GameObject valve = MakeCube(valves, $"Valve_{v.Id}_{v.Zone}",
+                    new Vector3(v.Position.x, y, v.Position.y), Vector3.one * ValveCubeSize);
+                valve.AddComponent<ValveBehaviour>().Configure(ParseValveId(v.Id));
+                valve.AddComponent<ValveVisualIndicator>();
+
+                // 밸브는 몸을 막지 않는다 — 트리거로 둔다. 고체면 §10.2-1 배치 검증(태그 없는 콜라이더 = 벽)이
+                // 밸브 자리 셀을 막아 경로 끝점이 사라지고, 상호작용은 거리 판정이라 콜라이더가 필요 없다.
+                valve.GetComponent<Collider>().isTrigger = true;
             }
             Bump(counts, "밸브 마커", MapV2Layout.Valves.Length);
 
@@ -424,8 +493,13 @@ namespace Marco.EditorTools
             {
                 MapV2Layout.DrainPoint d = MapV2Layout.Drains[i];
                 // §6.5-2 "양쪽 모두 3.5m" — 배수구는 바닥에 있다.
-                MakeMarker(drains, $"Drain_{d.Id}_{d.Water}",
+                GameObject marker = MakeMarker(drains, $"Drain_{d.Id}_{d.Water}",
                     new Vector3(d.Position.x, -DepthAt(d.Position), d.Position.y));
+
+                // [블록 4] 배수구 로직 — DrainRegistry 자가 등록 + E 홀드 전달.
+                //   식별자는 MapV2Layout의 "1"/"2"를 DrainId(1 메인풀 / 2 유아풀)로 옮긴다.
+                marker.AddComponent<Marco.Presentation.Objectives.DrainPoint>()
+                    .Configure((Marco.Core.Objectives.DrainId)int.Parse(d.Id));
             }
             Bump(counts, "배수구 마커", MapV2Layout.Drains.Length);
 
@@ -433,7 +507,10 @@ namespace Marco.EditorTools
             for (int i = 0; i < MapV2Layout.Exits.Length; i++)
             {
                 (string name, Vector2 p) = MapV2Layout.Exits[i];
-                MakeMarker(exits, name, new Vector3(p.x, 1f, p.y));
+                GameObject exit = MakeMarker(exits, name, new Vector3(p.x, 1f, p.y));
+
+                // [블록 7] §10.5 출구 — 탈출 판정 + 종반 출구 파문 위치 등록(EscapePointRegistry).
+                exit.AddComponent<EscapePointTrigger>();
             }
             Bump(counts, "출구 마커", MapV2Layout.Exits.Length);
 
@@ -442,9 +519,100 @@ namespace Marco.EditorTools
             {
                 (string name, Vector2 p, bool upper) = MapV2Layout.ClickerSpawns[i];
                 float y = (upper ? MapV2Layout.UpperFloorY : 0f) + 0.5f;
-                MakeMarker(clickers, name, new Vector3(p.x, y, p.y));
+                GameObject marker = MakeMarker(clickers, name, new Vector3(p.x, y, p.y));
+
+                // [블록 6] §7 찰칵이 리스폰 지점 — 레지스트리 자가 등록 + E 줍기.
+                marker.AddComponent<Marco.Presentation.Objectives.ClickerSpawnPoint>().Configure(i);
             }
             Bump(counts, "찰칵이 리스폰", MapV2Layout.ClickerSpawns.Length);
+        }
+
+        /// <summary>밸브 큐브 한 변(m). 표시·상호작용 대상 크기 — 규칙 수치 아님(구 그레이박스와 같은 0.6).</summary>
+        private const float ValveCubeSize = 0.6f;
+
+        private static Marco.Core.Objectives.ValveId ParseValveId(string id) =>
+            (Marco.Core.Objectives.ValveId)System.Enum.Parse(typeof(Marco.Core.Objectives.ValveId), id);
+
+        /// <summary>
+        /// [블록 7] §12.4 로비 브리핑 평면도의 원천 — §10.1 구역 13개 + 수면 2개를 그대로 복사한다.
+        /// 런타임은 에디터 어셈블리(MapV2Layout)를 읽을 수 없어서다. 새 좌표는 없다.
+        /// </summary>
+        private static void AttachPlanData(GameObject root)
+        {
+            var areas = new List<MapPlanData.Area>();
+            for (int i = 0; i < MapV2Layout.Zones.Length; i++)
+            {
+                MapV2Layout.Zone z = MapV2Layout.Zones[i];
+                areas.Add(new MapPlanData.Area { Name = z.Name, Rect = z.Area, UpperFloor = z.IsUpperFloor, Water = false });
+            }
+
+            for (int i = 0; i < MapV2Layout.Waters.Length; i++)
+            {
+                MapV2Layout.WaterArea w = MapV2Layout.Waters[i];
+                areas.Add(new MapPlanData.Area { Name = w.Name, Rect = w.Area, UpperFloor = false, Water = true });
+            }
+
+            root.AddComponent<MapPlanData>().Configure(
+                new Rect(0f, 0f, MapV2Layout.MapWidth, MapV2Layout.MapDepth), areas.ToArray());
+        }
+
+        /// <summary>
+        /// [블록 7] 스폰 앵커를 맵 v2 좌표로 옮긴다. §10.1 "로비 (2,32)~(12,40) — 도망자 스폰" →
+        /// 로비 중심. 술래 격리 앵커는 기존 좌표(구 그레이박스 GAP-45 잠정)를 유지한다 — 맵 v2에서
+        /// 구역 사이 통로 위라 막히지 않는다(실기 확인 항목).
+        /// </summary>
+        private static void PlaceAnchors(StringBuilder log)
+        {
+            // §10.1 도망자 스폰 — 로비 중심, 남쪽(맵 안쪽)을 본다.
+            Vector2 spawn = MapV2Layout.RunnerSpawn;
+            PlaceAnchor<SpawnAnchor>("SpawnAnchor", new Vector3(spawn.x, 0.05f, spawn.y),
+                Quaternion.Euler(0f, 180f, 0f), "§10.1 도망자 스폰(로비 중심)", log);
+
+            // [커밋 전 수정 2 · GAP-101] 술래 격리 — 직원통로(기계실 바깥). 구 좌표 (12,17)은 v0.3 맵 기준이었다.
+            Vector2 iso = MapV2Layout.SeekerIsolation;
+            PlaceAnchor<SeekerIsolationAnchor>("SeekerIsolationAnchor", new Vector3(iso.x, 0.05f, iso.y),
+                Quaternion.identity, "§10.1 술래 격리(직원통로, 통로 문을 본다)", log);
+        }
+
+        /// <summary>
+        /// 앵커를 있으면 옮기고 없으면 만든다 — 파이프라인 순서(1b 생성 → 5 맵 정리)와 무관하게 맵 v2 좌표가 된다.
+        /// </summary>
+        private static void PlaceAnchor<T>(string name, Vector3 position, Quaternion rotation, string reason,
+            StringBuilder log) where T : Component
+        {
+            T anchor = Object.FindAnyObjectByType<T>(FindObjectsInactive.Include);
+            if (anchor == null)
+            {
+                var go = new GameObject(name);
+                Undo.RegisterCreatedObjectUndo(go, "Create " + name);
+                anchor = go.AddComponent<T>();
+            }
+            else
+            {
+                Undo.RecordObject(anchor.transform, "Place " + name + " (Map v2)");
+            }
+
+            anchor.transform.SetPositionAndRotation(position, rotation);
+            log.AppendLine($"{name} → {position} ({reason})");
+        }
+
+        /// <summary>
+        /// [블록 7] 구 그레이박스를 <b>끈다</b>(지우지 않는다 — 되돌릴 수 있게). 켜 두면 밸브 3개(식별자가
+        /// 전부 A)가 네트워크 셋업에 함께 잡혀 §6.1-0 활성 선택이 깨지고, 구 출구가 탈출을 받는다.
+        /// </summary>
+        private static void DisableLegacyMap(StringBuilder log)
+        {
+            string[] legacy = { "Graybox", "EscapePoint" };
+            for (int i = 0; i < legacy.Length; i++)
+            {
+                GameObject go = GameObject.Find(legacy[i]);
+                if (go == null)
+                    continue;
+
+                Undo.RecordObject(go, "Disable legacy map");
+                go.SetActive(false);
+                log.AppendLine($"구 맵 '{legacy[i]}' 비활성화(삭제 아님)");
+            }
         }
 
         /// <summary>이 (x, z) 지점의 수심. 침강부를 반영한다 — 없으면 0.</summary>
@@ -585,11 +753,12 @@ namespace Marco.EditorTools
             sound.tag = PhysicsOcclusionProbe.WallTag;
         }
 
-        private static void MakeMarker(GameObject parent, string name, Vector3 position)
+        private static GameObject MakeMarker(GameObject parent, string name, Vector3 position)
         {
             var go = new GameObject(name);
             go.transform.SetParent(parent.transform, worldPositionStays: false);
             go.transform.position = position;
+            return go;
         }
 
         private static void Bump(Dictionary<string, int> counts, string key, int delta)

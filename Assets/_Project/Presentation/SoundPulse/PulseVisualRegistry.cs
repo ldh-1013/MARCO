@@ -24,6 +24,13 @@ namespace Marco.Presentation.Sound
         public event Action<PulseVisualState> VisualUpdated;
         public event Action<int> VisualRemoved;
 
+        /// <summary>
+        /// <b>자연 만료</b>(지속시간 경과)로 사라지기 직전의 상태. <see cref="VisualRemoved"/>보다 먼저 온다.
+        /// 조기 소실(Disappeared)·일괄 정리(Clear)에는 오지 않는다 — §3.2-1 소나의 "소멸 후 3초 잔류"와
+        /// §16.4 잔상은 파문이 <i>끝까지 퍼진 뒤</i>의 일이기 때문이다(블록 6).
+        /// </summary>
+        public event Action<PulseVisualState> VisualExpired;
+
         public int ActiveVisualCount => _visuals.Count;
 
         public bool TryGet(int pulseId, out PulseVisualState state) => _visuals.TryGetValue(pulseId, out state);
@@ -88,6 +95,9 @@ namespace Marco.Presentation.Sound
 
             for (int i = 0; i < _expiredScratch.Count; i++)
             {
+                if (_visuals.TryGetValue(_expiredScratch[i], out PulseVisualState expired))
+                    VisualExpired?.Invoke(expired);
+
                 _visuals.Remove(_expiredScratch[i]);
                 VisualRemoved?.Invoke(_expiredScratch[i]);
             }

@@ -47,6 +47,19 @@ namespace Marco.Core.Sound
             if (listenerPlayerId == pulse.SourcePlayerId)
                 return null;
 
+            // §3.2-1 메아리 소나 — "맵 전체의 SoundPulse를 거리·차폐에 관계없이 관측".
+            //   **서버가 이 판정을 내리고 결과만 보낸다**(블록 6 결정). 클라이언트가 "메아리는 다 본다"를
+            //   근거로 스스로 그리게 하면 모든 파문의 원본 좌표가 모든 클라이언트에 있어야 하고, 그 순간
+            //   술래·도망자 클라이언트에도 좌표가 실린다(GAP-2 붕괴). 서버가 청취자별로 판정하는 기존
+            //   구조를 그대로 쓰면 메아리에게만 원본이 가고 나머지는 지금과 같다.
+            //   발생자 식별 불가: 전송 페이로드에 발생원 ID가 없다(PulseDelivery 구조 그대로).
+            //   표시 시간은 본래 지속 그대로(§3.2-1 "고정") — 역할 배율 1.0.
+            if (listenerRole == RoleType.Echo)
+            {
+                return new PerceivedPulse(pulse.Radius, pulse.Duration, pulse.Position,
+                    ComputeOctant(pulse.Position, listenerPosition), worldSpaceRingVisible: true);
+            }
+
             float straightDist = DistanceMetric.Perceived(pulse.Position, listenerPosition);
 
             // 1) 역할별 인지 배율 적용 (§5.7)

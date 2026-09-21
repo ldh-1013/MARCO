@@ -90,7 +90,7 @@ namespace Marco.Core.Tests
 
         // 5) GAP-9(a): E를 떼면 취소되고 §6.1대로 진행도가 0으로 리셋된다.
         [Test]
-        public void ReleasingKey_CancelsAndResetsProgress()
+        public void ReleasingKey_CancelsButKeepsProgressForDecay()
         {
             var controller = new ValveInteractionController();
             var valve = new Valve();
@@ -103,7 +103,9 @@ namespace Marco.Core.Tests
 
             Assert.AreEqual(ValveInteractionEvent.CancelledByRelease, result);
             Assert.AreEqual(ValveState.Closed, valve.State);
-            Assert.AreEqual(0f, valve.Progress01, 0.001f, "부분 진행 저장 없음(§6.1)");
+            // ★ v0.4에서 의미가 뒤집혔다 — §6.1은 이제 **부분 진행을 저장하고 감쇠**시킨다.
+            Assert.Greater(valve.Progress01, 0.5f, "중단은 리셋이 아니다(§6.1 [v0.4]).");
+            Assert.IsTrue(valve.HasPartialProgress);
         }
 
         // 6) GAP-9(b): 범위를 벗어나면 홀드 중이어도 취소된다.
@@ -120,7 +122,8 @@ namespace Marco.Core.Tests
 
             Assert.AreEqual(ValveInteractionEvent.CancelledByRangeExit, result);
             Assert.AreEqual(ValveState.Closed, valve.State);
-            Assert.AreEqual(0f, valve.Progress01, 0.001f);
+            // v0.4: 범위 이탈도 중단이므로 진행도는 감쇠 대상으로 남는다(§6.1).
+            Assert.Greater(valve.Progress01, 0f);
         }
 
         // 7) GAP-9 결정의 반대편: 범위 안에서의 이동은 취소하지 않는다.
@@ -196,7 +199,7 @@ namespace Marco.Core.Tests
 
         // 12) 취소 후 다시 홀드하면 처음부터 새로 시작된다(§6.1 부분 진행 저장 없음).
         [Test]
-        public void RestartAfterCancel_BeginsFromZero()
+        public void RestartAfterCancel_ResumesFromRemainingProgress()
         {
             var controller = new ValveInteractionController();
             var valve = new Valve();
@@ -208,7 +211,8 @@ namespace Marco.Core.Tests
             var result = controller.Tick(Input(valve, NearValve, held: true), 0.02f);
 
             Assert.AreEqual(ValveInteractionEvent.Started, result);
-            Assert.Less(valve.Progress01, 0.1f, "이어받기가 아니라 0부터 다시 시작");
+            // ★ v0.4에서 의미가 뒤집혔다 — §6.1 "다른 도망자가 즉시 이어받을 수 있다".
+            Assert.Greater(valve.Progress01, 0.1f, "취소 후 재시작은 남은 진행도에서 이어진다(§6.1 [v0.4]).");
         }
 
         // 13) 진행률이 홀드 시간에 비례해 올라간다(디버그 표시의 입력값).
@@ -260,11 +264,16 @@ namespace Marco.Core.Tests
                     opened++;
             }
 
+            // §6.3 [v0.4] 판정에서 밸브 개방 수가 빠졌다 — 게이트는 탈출의 전제 조건이고
+            // 판정식은 도망자 인구만 본다. 여기서는 세 밸브가 실제로 열렸다는 것과,
+            // 그 상태에서 요구 인원이 탈출하면 도망자 승리가 된다는 것을 따로 확인한다.
+            var census = new RunnerCensus(total: 3, taggedOut: 0, escaped: 2);
             RoundResult result = WinConditionEvaluator.Evaluate(
-                valvesOpened: opened, totalValves: valves.Length,
-                runnersEscaped: 2, taggedRunners: 0, timeRemainingSeconds: 600f);
+                census.Total, census.Escaped, census.Alive,
+                lastSurvivorEscaped: false, timeRemainingSeconds: 600f);
 
             Assert.AreEqual(3, opened);
+            Assert.AreEqual(2, census.EscapeRequirement, "도망자 3 → 요구 ⌈3/2⌉ = 2");
             Assert.AreEqual(RoundResult.RunnersWin, result);
         }
     }

@@ -55,6 +55,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Assets\_Project\Editor\NetworkPulseSetupTool.cs" />
+    <Compile Include="Assets\_Project\Editor\MarcoBuildTool.cs" />
     <Compile Include="Assets\_Project\Editor\MapV2GeneratorTool.cs" />
     <Compile Include="Assets\_Project\Editor\NetworkValveSetupTool.cs" />
     <Compile Include="Assets\_Project\Editor\NetworkRoundSetupTool.cs" />

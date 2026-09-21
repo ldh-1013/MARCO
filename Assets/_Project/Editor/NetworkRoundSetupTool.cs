@@ -73,6 +73,14 @@ namespace Marco.EditorTools
                 changed++;
             }
 
+            // [블록 6] §7 찰칵이 — 라운드 수명의 서버 권위 아이템. 같은 NetworkObject에 둔다.
+            if (go.GetComponent<Marco.Net.ClickerNetworkSync>() == null)
+            {
+                Undo.AddComponent<Marco.Net.ClickerNetworkSync>(go);
+                Debug.Log($"[NetworkRoundSetupTool] {go.name}에 ClickerNetworkSync 부착(§7 찰칵이)");
+                changed++;
+            }
+
             Undo.CollapseUndoOperations(group);
             EditorSceneManager.MarkSceneDirty(SceneManager.GetActiveScene());
 

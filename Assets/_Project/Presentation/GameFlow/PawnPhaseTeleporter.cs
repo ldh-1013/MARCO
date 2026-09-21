@@ -48,8 +48,31 @@ namespace Marco.Presentation.GameFlow
             _loggedAlive = true;
         }
 
+        /// <summary>
+        /// §10.1 격리 대기를 <b>라운드 시작</b>에 건다. 배치는 역할 배정 직후(RoleAssign)에 일어나는데
+        /// 그 뒤 §12.4 브리핑 30초가 끼므로, 배치 시점에 3초를 세면 브리핑 중에 격리가 끝나 버린다.
+        /// </summary>
+        private bool _isolationPending;
+
         private void Update()
         {
+            // §12.4 브리핑 동안 전원 이동 잠금(GAP-100). GAP-61: 매 프레임 재조회.
+            FirstPersonController local = LocalPlayerRegistry.Current;
+            if (local != null)
+            {
+                if (_round == null)
+                    _round = FindAnyObjectByType<RoundCoordinator>();
+                bool briefing = _round != null && _round.BriefingSecondsRemaining > 0f;
+                local.SetBriefingLocked(briefing);
+
+                if (_isolationPending && _round != null && _round.CurrentPhase == GameFlowState.InGame)
+                {
+                    _isolationPending = false;
+                    _isolation.Begin(local.Role);
+                    local.SetMovementLocked(_isolation.IsHolding);
+                }
+            }
+
             // §10.1 격리 대기는 배치 여부와 무관하게 매 프레임 흘러야 한다.
             TickIsolation();
 
@@ -102,10 +125,21 @@ namespace Marco.Presentation.GameFlow
             _placedForCurrentMap = true;
             _placedForRound = round;
 
+            // §3.1 새 라운드는 스태미나 만충으로 시작한다(더블체크 2).
+            player.ResetLocomotionForNewRound();
+
             // 격리 앵커가 없어도 대기 자체는 건다 — §10.1의 "3초 후 진입"은 위치가 아니라
             // 시간 규칙이고, 앵커 누락으로 규칙까지 사라지면 안 된다(GAP-45).
-            _isolation.Begin(player.Role);
-            player.SetMovementLocked(_isolation.IsHolding);
+            // 격리는 라운드 시작 시 건다(브리핑 30초 뒤) — 이미 InGame이면(로컬 경로) 즉시.
+            if (_round != null && _round.CurrentPhase == GameFlowState.InGame)
+            {
+                _isolation.Begin(player.Role);
+                player.SetMovementLocked(_isolation.IsHolding);
+            }
+            else
+            {
+                _isolationPending = true;
+            }
 
             if (isolate && !IsolationAnchorRegistry.HasAnchor)
             {

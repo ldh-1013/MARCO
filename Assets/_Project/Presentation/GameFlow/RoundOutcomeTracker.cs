@@ -84,13 +84,17 @@ namespace Marco.Presentation.GameFlow
         /// §6.3이 종료 조건을 <b>"태그 2명 도달"</b> 로 확정해 분모 자체가 사라졌으므로,
         /// 이제 <see cref="TaggedCount"/>를 그대로 넘긴다.
         /// </summary>
-        public bool Evaluate(int valvesOpened, int totalValves, int taggedRunners, float timeRemainingSeconds)
+        public bool Evaluate(int runnerCount, int taggedRunners, float timeRemainingSeconds)
         {
             if (IsDecided)
                 return false;
 
+            // §6.3 [v0.4] 판정 입력이 도망자 인구로 바뀌었다. 로컬 단독 경로에는 최후 생존자
+            // 페이즈가 없으므로 lastSurvivorEscaped는 항상 false다 — 서버 경로가 정본이며
+            // 이쪽은 스프린트 3~9 스모크 리그의 폴백이다.
+            var census = new RunnerCensus(runnerCount, taggedRunners, EscapedCount);
             RoundResult result = WinConditionEvaluator.Evaluate(
-                valvesOpened, totalValves, EscapedCount, taggedRunners, timeRemainingSeconds);
+                census.Total, census.Escaped, census.Alive, false, timeRemainingSeconds);
 
             if (result == RoundResult.InProgress)
                 return false;

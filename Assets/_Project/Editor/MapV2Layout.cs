@@ -199,6 +199,100 @@ namespace Marco.EditorTools
         /// 그 구간이라야 §6.1 밸브 E(진입 0.5초)가 성립한다.
         /// </para>
         /// </summary>
+        /// <summary>§10.1 "로비 (2,32)~(12,40) — 도망자 스폰" → 로비 중심 (7, 36).</summary>
+        public static Vector2 RunnerSpawn => FindZone("로비").Area.center;
+
+        /// <summary>
+        /// [커밋 전 수정 2 · GAP-101] 술래 격리 앵커 — <b>직원통로 중앙선 × 기계실로 이어지는 통로 문</b>.
+        ///
+        /// <para>
+        /// 구 좌표 (12,17)은 v0.3 단층 45×35 맵의 값이었다(도망자 스폰 (12,27)에서 z로 10m). 맵 v2에서도
+        /// 벽에 걸리지는 않았지만(최소 2.9m) 러너 스폰(로비)까지 경로가 25.8m뿐이었다. 새 지점은 새 좌표를
+        /// 만들지 않고 기존 레이아웃에서 유도한다 — y는 직원통로 (14,1)~(48,3.5)의 중앙선 2.25, x는 기계실 문
+        /// (45,5)에 가장 가까운 통로 문 (44,3.5)의 44. 벽 최소거리 1.15m(몸통 0.35), 로비까지 61.0m,
+        /// 밸브 A까지 6.8m(파이썬 다층 경로 시뮬레이터 실측 — 실기 확인 항목).
+        /// </para>
+        /// </summary>
+        public static Vector2 SeekerIsolation
+        {
+            get
+            {
+                Zone corridor = FindZone("직원통로");
+                Vector2 machineDoor = FindDoor("기계실", 0).Center;
+
+                float x = corridor.Area.center.x;
+                float best = float.MaxValue;
+                for (int i = 0; i < Doors.Length; i++)
+                {
+                    if (Doors[i].Zone != "직원통로")
+                        continue;
+                    float d = Mathf.Abs(Doors[i].Center.x - machineDoor.x);
+                    if (d < best)
+                    {
+                        best = d;
+                        x = Doors[i].Center.x;
+                    }
+                }
+
+                return new Vector2(x, corridor.Area.center.y);
+            }
+        }
+
+        private static Zone FindZone(string name)
+        {
+            for (int i = 0; i < Zones.Length; i++)
+            {
+                if (Zones[i].Name == name)
+                    return Zones[i];
+            }
+
+            throw new System.ArgumentException("§10.1 구역 없음: " + name);
+        }
+
+        private static Door FindDoor(string zone, int index)
+        {
+            int seen = 0;
+            for (int i = 0; i < Doors.Length; i++)
+            {
+                if (Doors[i].Zone != zone)
+                    continue;
+                if (seen == index)
+                    return Doors[i];
+                seen++;
+            }
+
+            throw new System.ArgumentException("§10.1 문 없음: " + zone);
+        }
+
+        /// <summary>
+        /// [블록 7 · GAP-90] 깊은 물에서 <b>몸이 떠 있는 높이</b>(수면 아래 발 높이). 기획서에 없다.
+        ///
+        /// <para>
+        /// 성립 구간은 DiveRules가 이미 유도했다 — 서면 머리가 수면 위(발 &gt; −1.62)이고, 잠수하면 머리가
+        /// 수면 아래(발 &lt; −0.5). <b>새 값을 만들지 않고 유아풀 본체 수심(GAP-75 잠정 0.9)을 그대로 쓴다</b> —
+        /// 두 풀에서 몸의 높이가 같아져 "유아풀에서 되는 것"과 "메인풀에서 되는 것"이 같아진다.
+        /// 메인풀 배수구(3.5m)는 이 높이에서 수직 2.6m 아래라 수면의 술래가 1.2m 태그로 닿지 않는다(§6.5-3).
+        /// </para>
+        /// </summary>
+        public static float SwimFloorDepth => Waters[1].Depth;
+
+        /// <summary>
+        /// [블록 7 · GAP-102] 풀 가장자리 경사로의 수평 길이. <b>풀 출입 지오메트리가 기획서에 없다.</b>
+        /// 발 높이 −0.9에서 덱(0)으로 올라올 방법이 없으면 물에 들어간 사람은 영영 못 나온다
+        /// (CharacterController 턱 한계 0.3m). 경사각을 새로 정하지 않고 <b>계단 중 완만한 쪽 경사</b>를
+        /// 그대로 쓴다 — 이미 검증된 등반 가능 각도다.
+        /// </summary>
+        public static float PoolRampRun
+        {
+            get
+            {
+                float slope = float.MaxValue;
+                for (int i = 0; i < Stairs.Length; i++)
+                    slope = Mathf.Min(slope, Stairs[i].SlopeDegrees);
+                return SwimFloorDepth / Mathf.Tan(slope * Mathf.Deg2Rad);
+            }
+        }
+
         public static readonly WaterArea[] Waters =
         {
             new WaterArea("메인풀", 21f, 17f, 35f, 25f, depth: 3.5f),

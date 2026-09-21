@@ -9,7 +9,7 @@ namespace Marco.Presentation.Objectives
     /// 판정 로직은 전부 Core에 있고 여기서는 인스턴스 소유와 위치 제공만 한다.
     ///
     /// §6.1: 회전 시간은 **밸브마다 다르다**(A 3.0 / B 2.0 / C 4.0초).
-    /// 상수는 <see cref="Valve.ValveARotationSeconds"/> 등에 있고, 어느 밸브인지는
+    /// 상수는 <see cref="ValveOccupancy.RotateSeconds"/>에 있고, 어느 밸브인지는
     /// 씬 인스펙터에서 지정한다 — 밸브 종류를 코드가 알 필요가 없기 때문이다.
     /// 6인 구간 보정(3.75초)도 같은 필드로 덮어쓸 수 있다.
     ///
@@ -22,18 +22,41 @@ namespace Marco.Presentation.Objectives
     /// </summary>
     public sealed class ValveBehaviour : MonoBehaviour, IValveHost
     {
-        [Tooltip("§6.1 밸브별 회전 시간 — A(기계실) 3.0 / B(수중) 2.0 / C(2층) 4.0초. " +
-                 "6인 구간 보정은 3.75초. 기본값은 A와 같다.")]
-        [SerializeField] private float _rotationSeconds = Valve.ValveARotationSeconds;
+        [Tooltip("§10.2 밸브 식별자. 회전 시간·소음 배율·구역 이름을 여기서 유도한다(§6.1).")]
+        [SerializeField] private ValveId _valveId = ValveId.A;
 
-        [Tooltip("§10.1 구역 이름(로그 식별용).")]
-        [SerializeField] private string _displayName = "Valve";
+        [Tooltip("§10.1 구역 이름(로그 식별용). 비워두면 §6.1 구역 이름을 쓴다.")]
+        [SerializeField] private string _displayName = string.Empty;
 
         private Valve _valve;
         private IValveNetworkBridge _bridge;
 
-        public Valve Valve => _valve ??= new Valve(_rotationSeconds);
-        public string DisplayName => _displayName;
+        /// <summary>
+        /// §10.2 이 밸브의 식별자. <b>회전 시간을 인스펙터에서 따로 받지 않는다</b> —
+        /// v0.4에서 총 점유가 8.0초로 균등해지면서 배분이 밸브별로 고정됐고(§6.1),
+        /// 인스펙터 값과 표가 갈라지면 균등 제약이 조용히 깨진다.
+        /// </summary>
+        public ValveId ValveId => _valveId;
+
+        /// <summary>맵 v2 생성기(에디터)가 마커에 붙이면서 §10.2 식별자를 지정한다.</summary>
+        public void Configure(ValveId id)
+        {
+            _valveId = id;
+            _valve = null; // 회전 시간이 식별자에서 유도되므로 다시 만든다
+        }
+
+        public Valve Valve => _valve ??= CreateValve();
+
+        public string DisplayName =>
+            string.IsNullOrEmpty(_displayName) ? ValveOccupancy.ZoneOf(_valveId) : _displayName;
+
+        /// <summary>§6.1 회전 시간은 §6.1 배분표에서 온다.</summary>
+        private Valve CreateValve()
+        {
+            var valve = new Valve(ValveOccupancy.RotateSeconds(_valveId));
+            valve.Configure(_valveId);
+            return valve;
+        }
 
         /// <summary>
         /// 네트워크가 활성이면 서버 확정 상태를, 아니면 로컬 상태를 읽는다.
@@ -49,6 +72,20 @@ namespace Marco.Presentation.Objectives
 
         /// <summary>표시용 현재 진행도(0~1). 네트워크면 서버 확정값, 아니면 로컬 값.</summary>
         public float Progress01 => NetworkActive ? _bridge.Progress01 : Valve.Progress01;
+
+        /// <summary>
+        /// §6.1 감쇠 중인가. <b>HUD가 색을 달리해야 하는 정보다</b>(§12.4) —
+        /// 회전 중과 구분되지 않으면 "지금 뺄까 더 돌릴까" 판단이 불가능해진다.
+        /// </summary>
+        public bool IsDecaying => NetworkActive ? _bridge.IsDecaying : Valve.IsDecaying;
+
+        /// <summary>§6.1-2 역류 잔여(초). 네트워크면 시작 시점 값(클라이언트가 카운트다운).</summary>
+        public float ReflowRemaining =>
+            NetworkActive ? _bridge.ReflowRemainingAtStart : Valve.ReflowRemaining;
+
+        /// <summary>§6.1-0 이번 라운드 활성인가. 비활성은 잠금 표시되고 상호작용이 거부된다.</summary>
+        public bool IsActiveThisRound =>
+            NetworkActive ? _bridge.IsActiveThisRound : Valve.IsActive;
 
         /// <summary>서버 권위 브릿지가 붙어 있고 네트워크가 시작됐는가.</summary>
         public bool NetworkActive => _bridge != null && _bridge.NetworkActive;
@@ -77,7 +114,10 @@ namespace Marco.Presentation.Objectives
         /// </summary>
         public void ResetValveForNewRound()
         {
-            _valve = new Valve(_rotationSeconds);
+            // ★ v0.4: 인스턴스를 **교체하지 않는다.** §6.1 [v0.4]가 Valve.ResetForNewRound를
+            //   제공하며, 교체하면 서버 구동기가 구독한 Opened/ReflowStarted/ReflowPulse/Closed
+            //   이벤트가 끊어져 감쇠·역류 전파가 조용히 사라진다.
+            Valve.ResetForNewRound();
         }
     }
 }

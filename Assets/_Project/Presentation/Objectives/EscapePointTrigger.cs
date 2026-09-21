@@ -35,6 +35,20 @@ namespace Marco.Presentation.Objectives
         private bool _bindLogged;
         private bool _bindFailureLogged;
 
+        /// <summary>
+        /// §6.2-1 종반 출구 파문이 위치를 알아야 하므로 Core 레지스트리에 스스로 등록한다 —
+        /// Net이 이 Presentation 타입을 찾으면 §15.2 경계가 깨진다.
+        /// </summary>
+        private void OnEnable()
+        {
+            Core.Objectives.EscapePointRegistry.Register(transform);
+        }
+
+        private void OnDisable()
+        {
+            Core.Objectives.EscapePointRegistry.Unregister(transform);
+        }
+
         private void Awake()
         {
             // 스프린트 18b: 맵이 애디티브로 로드되면 이 트리거(맵 소속)와 RoundCoordinator(시스템 씬)가

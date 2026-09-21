@@ -73,11 +73,12 @@ namespace Marco.Core.Tests
         [Test]
         public void TryGetPulseSpec_Valve_MatchesDesignDocTable()
         {
-            // §5.1 밸브 회전: 12m, "회전 내내"(4인 MVP 3초). §6.1 의도된 유인 장치.
+            // §5.1 [v0.4] 밸브 회전: 12m, 지속 "각 밸브 회전 시간(6.1)". 표 대표값은 공통 총 점유 8.0초.
+            // [블록 7 의미 변경] v0.3 "4인 MVP 3초"를 기대하던 테스트 — v0.4 표로 갱신.
             Assert.IsTrue(ServerPulseDriver.TryGetPulseSpec(SoundType.Valve, out float r, out float d));
             Assert.AreEqual(Valve.SoundRadiusMeters, r);
             Assert.AreEqual(12f, r);
-            Assert.AreEqual(Valve.DefaultRotationSeconds, d);
+            Assert.AreEqual(8f, d);
         }
 
         [Test]

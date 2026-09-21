@@ -158,23 +158,24 @@ namespace Marco.Core.Tests
             outcome.TryRegisterEscape(RunnerA, RoleType.Runner, gateOpen: true);
             outcome.TryRegisterEscape(RunnerB, RoleType.Runner, gateOpen: true);
 
-            bool decided = outcome.Evaluate(valvesOpened: 3, totalValves: 3,
-                taggedRunners: 0, timeRemainingSeconds: 500f);
+            bool decided = outcome.Evaluate(runnerCount: 3, taggedRunners: 0,
+                timeRemainingSeconds: 500f);
 
             Assert.IsTrue(decided);
             Assert.AreEqual(RoundResult.RunnersWin, outcome.Result);
             Assert.IsTrue(outcome.IsDecided);
         }
 
-        // 11-b) 탈출 1명으로는 결정되지 않는다(갱신 전에는 여기서 러너 승리였다).
+        // 11-b) 도망자 3명이면 §6.2 [v0.4] 탈출 요구가 ⌈3/2⌉ = 2명이라 1명으로는 부족하다.
+        //        (살아있는 도망자가 2명 남아 있으므로 술래 승리도 아니다.)
         [Test]
         public void AllValvesOpenButOnlyOneEscaped_StaysUndecided()
         {
             var outcome = new RoundOutcomeTracker();
             outcome.TryRegisterEscape(RunnerA, RoleType.Runner, gateOpen: true);
 
-            bool decided = outcome.Evaluate(valvesOpened: 3, totalValves: 3,
-                taggedRunners: 0, timeRemainingSeconds: 500f);
+            bool decided = outcome.Evaluate(runnerCount: 3, taggedRunners: 0,
+                timeRemainingSeconds: 500f);
 
             Assert.IsFalse(decided);
             Assert.AreEqual(RoundResult.InProgress, outcome.Result);
@@ -186,8 +187,8 @@ namespace Marco.Core.Tests
         {
             var outcome = new RoundOutcomeTracker();
 
-            bool decided = outcome.Evaluate(valvesOpened: 2, totalValves: 3,
-                taggedRunners: 0, timeRemainingSeconds: 0f);
+            bool decided = outcome.Evaluate(runnerCount: 3, taggedRunners: 0,
+                timeRemainingSeconds: 0f);
 
             Assert.IsTrue(decided);
             Assert.AreEqual(RoundResult.SeekerWin, outcome.Result);
@@ -199,8 +200,8 @@ namespace Marco.Core.Tests
         {
             var outcome = new RoundOutcomeTracker();
 
-            bool decided = outcome.Evaluate(valvesOpened: 1, totalValves: 3,
-                taggedRunners: 0, timeRemainingSeconds: 400f);
+            bool decided = outcome.Evaluate(runnerCount: 3, taggedRunners: 0,
+                timeRemainingSeconds: 400f);
 
             Assert.IsFalse(decided);
             Assert.AreEqual(RoundResult.InProgress, outcome.Result);
@@ -216,8 +217,8 @@ namespace Marco.Core.Tests
             outcome.TryRegisterEscape(RunnerA, RoleType.Runner, gateOpen: true);
             outcome.TryRegisterEscape(RunnerB, RoleType.Runner, gateOpen: true);
 
-            bool first = outcome.Evaluate(3, 3, 0, 500f);   // RunnersWin 확정
-            bool second = outcome.Evaluate(0, 3, 2, 0f);    // 술래 승리 조건으로 재평가 시도
+            bool first = outcome.Evaluate(3, 0, 500f);   // RunnersWin 확정(탈출 2/요구 2)
+            bool second = outcome.Evaluate(3, 3, 0f);    // 술래 승리 조건으로 재평가 시도
 
             Assert.IsTrue(first);
             Assert.IsFalse(second, "이미 결정된 라운드는 다시 결정되지 않는다");
@@ -229,7 +230,7 @@ namespace Marco.Core.Tests
         public void EscapeAfterRoundDecided_IsIgnored()
         {
             var outcome = new RoundOutcomeTracker();
-            outcome.Evaluate(0, 3, 0, 0f); // 시간 초과 → SeekerWin
+            outcome.Evaluate(3, 0, 0f); // 시간 초과 → SeekerWin
 
             bool escaped = outcome.TryRegisterEscape(RunnerA, RoleType.Runner, gateOpen: true);
 
@@ -246,8 +247,8 @@ namespace Marco.Core.Tests
             outcome.TryRegisterEscape(RunnerA, RoleType.Runner, gateOpen: true);
             outcome.TryRegisterEscape(RunnerB, RoleType.Runner, gateOpen: true);
 
-            outcome.Evaluate(valvesOpened: 3, totalValves: 3,
-                taggedRunners: 0, timeRemainingSeconds: 0f);
+            outcome.Evaluate(runnerCount: 3, taggedRunners: 0,
+                timeRemainingSeconds: 0f);
 
             Assert.AreEqual(RoundResult.RunnersWin, outcome.Result);
         }
@@ -260,8 +261,8 @@ namespace Marco.Core.Tests
             var outcome = new RoundOutcomeTracker();
             outcome.TryRegisterEscape(RunnerA, RoleType.Runner, gateOpen: true);
 
-            outcome.Evaluate(valvesOpened: 3, totalValves: 3,
-                taggedRunners: 0, timeRemainingSeconds: 0f);
+            outcome.Evaluate(runnerCount: 3, taggedRunners: 0,
+                timeRemainingSeconds: 0f);
 
             Assert.AreEqual(RoundResult.SeekerWin, outcome.Result);
         }
@@ -272,7 +273,7 @@ namespace Marco.Core.Tests
         {
             var timer = new RoundTimer();
             var outcome = new RoundOutcomeTracker();
-            timer.Expired += () => outcome.Evaluate(1, 3, 0, timer.RemainingSeconds);
+            timer.Expired += () => outcome.Evaluate(3, 0, timer.RemainingSeconds);
 
             timer.Start(5f);
             timer.Tick(2f);

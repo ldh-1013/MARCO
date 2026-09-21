@@ -70,6 +70,12 @@ namespace Marco.Core.GameFlow
         /// <summary>RoleAssign(카운트다운) 페이즈의 남은 초(§12.3 "3초 카운트다운").</summary>
         float CountdownRemaining { get; }
 
+        /// <summary>
+        /// §12.4 로비 브리핑(맵 평면도 30초) 남은 초. 0이면 브리핑 중이 아니다. RoleAssign 안의
+        /// 하위 구간이다(<see cref="BriefingConfig"/>). 이 동안 활성 밸브 조합이 이미 확정돼 있다.
+        /// </summary>
+        float BriefingSecondsRemaining { get; }
+
         /// <summary>리매치 유효 찬성 수(§12.5, 현재 접속자 기준).</summary>
         int RematchVotesFor { get; }
 
@@ -93,5 +99,35 @@ namespace Marco.Core.GameFlow
 
         /// <summary>§8 최고의 거짓말상 수상자(플레이어 id). -1이면 수상자 없음.</summary>
         int AwardBestLiar { get; }
+
+        // ── §6.5 최후 생존자 페이즈 · 배수구 [블록 4] ────────────────────
+
+        /// <summary>§6.5-1 최후 생존자 페이즈 중인가(양 진영 공통).</summary>
+        bool LastSurvivorPhaseActive { get; }
+
+        /// <summary>
+        /// §6.5-1 페이즈 유효 잔여(초) — 라운드 잔여와 90초 중 짧은 쪽. 양쪽 HUD가 표시한다.
+        /// 페이즈 밖이면 0.
+        /// </summary>
+        float LastSurvivorSecondsRemaining { get; }
+
+        /// <summary>
+        /// §6.5-2 활성 배수구(1 메인풀 / 2 유아풀). 0이면 없음 — 페이즈 밖이거나 게이트가
+        /// 이미 열려 배수구를 활성화하지 않았다. <b>양 진영에 공개다</b> — 술래가 모르면
+        /// 마지막 대치가 성립하지 않는다.
+        /// </summary>
+        int ActiveDrain { get; }
+
+        /// <summary>§6.5-2 배수구 진행도 0.0~1.0.</summary>
+        float DrainProgress01 { get; }
+
+        /// <summary>§6.5-2 배수구 감쇠 중인가(§12.4 HUD 색 구분).</summary>
+        bool DrainDecaying { get; }
+
+        /// <summary>
+        /// §6.5-2 배수구 작업 의사를 보낸다. <b>누르고 있다/뗐다만</b> 보낸다 —
+        /// 역할·위치·거리·활성 여부는 서버가 재검증한다(GAP-24).
+        /// </summary>
+        void SubmitDrainHold(bool held);
     }
 }

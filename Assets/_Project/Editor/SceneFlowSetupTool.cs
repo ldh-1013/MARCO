@@ -42,16 +42,22 @@ namespace Marco.EditorTools
         private const string LobbyScene = ScenesFolder + "/Lobby.unity";
         private const string MapScene = ScenesFolder + "/Game.unity";
 
-        /// <summary>플레이어 프리팹의 기존 스폰 좌표(§10.1 입구 로비) — 스폰 앵커를 여기에 만든다.</summary>
-        private static readonly Vector3 SpawnPosition = new Vector3(12f, 0.05f, 27f);
+        /// <summary>
+        /// §10.1 도망자 스폰 — 맵 v2 로비 중심. [커밋 전 수정 2] 구 좌표 (12, 0.05, 27)은 v0.3 단층 맵의 값이라
+        /// 맵 v2에서는 라커룸 안이었다. 좌표는 <see cref="MapV2Layout"/> 한 곳이 소유한다.
+        /// </summary>
+        private static Vector3 SpawnPosition => new Vector3(MapV2Layout.RunnerSpawn.x, 0.05f, MapV2Layout.RunnerSpawn.y);
         private static readonly Vector3 SpawnEuler = new Vector3(0f, 180f, 0f);
 
         /// <summary>
-        /// §10.1 술래 격리 공간(스프린트 24). 기획서에 위치·크기가 없어(GAP-45) 도망자 스폰
-        /// `(12, 0.05, 27)`에서 z축으로 10m 떨어뜨렸다 — 스폰 링 지름(8m)보다 멀어 라운드 시작
-        /// 즉시 조우하지 않으며, 맵 바닥 범위(x 0~45, z 0~35) 안이다.
+        /// §10.1 술래 격리 공간(GAP-45 · GAP-101). [커밋 전 수정 2] 구 좌표 (12, 0.05, 17)은 v0.3 단층 45×35 맵
+        /// 기준이었다. 맵 v2 직원통로로 옮겼다 — 근거는 <see cref="MapV2Layout.SeekerIsolation"/>.
         /// </summary>
-        private static readonly Vector3 IsolationPosition = new Vector3(12f, 0.05f, 17f);
+        private static Vector3 IsolationPosition =>
+            new Vector3(MapV2Layout.SeekerIsolation.x, 0.05f, MapV2Layout.SeekerIsolation.y);
+
+        /// <summary>격리 앵커의 방향 — 통로 문(북쪽)을 본다. 격리 3초 뒤 문으로 나간다.</summary>
+        private static readonly Vector3 IsolationEuler = Vector3.zero;
 
         // ── 드라이런 ──────────────────────────────────────────────────────
 
@@ -273,7 +279,7 @@ namespace Marco.EditorTools
             if (isolation == null)
             {
                 var go = new GameObject("SeekerIsolationAnchor");
-                go.transform.SetPositionAndRotation(IsolationPosition, Quaternion.Euler(SpawnEuler));
+                go.transform.SetPositionAndRotation(IsolationPosition, Quaternion.Euler(IsolationEuler));
                 go.AddComponent<SeekerIsolationAnchor>();
                 Debug.Log($"[SceneFlow] 맵 씬에 SeekerIsolationAnchor 생성 — {IsolationPosition} " +
                           "(§10.1 술래 격리 공간, 위치는 GAP-45라 조정 가능).");

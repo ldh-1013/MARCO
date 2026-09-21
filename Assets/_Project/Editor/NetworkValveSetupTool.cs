@@ -59,6 +59,25 @@ namespace Marco.EditorTools
             {
                 GameObject go = valve.gameObject;
 
+                // [블록 7] 꺼진 밸브(맵 v2 생성기가 비활성화한 구 그레이박스)는 네트워크에서 뺀다.
+                //   켜진 밸브만 §6.1-0 활성 선택의 후보여야 한다 — 구 밸브 3개는 식별자가 전부 A라
+                //   섞이면 조합이 깨진다. 컴포넌트만 떼고 오브젝트는 남긴다(되돌리려면 켜고 다시 실행).
+                if (!go.activeInHierarchy)
+                {
+                    var legacySync = go.GetComponent<ValveNetworkSync>();
+                    if (legacySync != null)
+                        Undo.DestroyObjectImmediate(legacySync);
+                    var legacyNob = go.GetComponent<NetworkObject>();
+                    if (legacyNob != null)
+                        Undo.DestroyObjectImmediate(legacyNob);
+                    if (legacySync != null || legacyNob != null)
+                    {
+                        Debug.Log($"[NetworkValveSetupTool] {go.name} — 비활성(구 맵) 밸브, 네트워크 컴포넌트 해제");
+                        changed++;
+                    }
+                    continue;
+                }
+
                 if (go.GetComponent<NetworkObject>() == null)
                 {
                     // NetworkObject를 먼저 붙여야 ValveNetworkSync(NetworkBehaviour)가 성립한다.

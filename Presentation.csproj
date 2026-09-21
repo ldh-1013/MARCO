@@ -63,8 +63,10 @@
     <Compile Include="Assets\_Project\Presentation\Tagging\TagDetector.cs" />
     <Compile Include="Assets\_Project\Presentation\UI\LobbyScreen.cs" />
     <Compile Include="Assets\_Project\Presentation\GameFlow\FallRecoveryDriver.cs" />
+    <Compile Include="Assets\_Project\Presentation\Objectives\ClickerSpawnPoint.cs" />
     <Compile Include="Assets\_Project\Presentation\GameFlow\RoundTimer.cs" />
     <Compile Include="Assets\_Project\Presentation\Echo\EchoKnockController.cs" />
+    <Compile Include="Assets\_Project\Presentation\GameFlow\MapPlanData.cs" />
     <Compile Include="Assets\_Project\Presentation\Player\FirstPersonController.cs" />
     <Compile Include="Assets\_Project\Presentation\Objectives\ValveVisualIndicator.cs" />
     <Compile Include="Assets\_Project\Presentation\Sound\ShoutInputController.cs" />
@@ -84,9 +86,11 @@
     <Compile Include="Assets\_Project\Presentation\UI\SettingsScreen.cs" />
     <Compile Include="Assets\_Project\Presentation\GameFlow\RoundOutcomeTracker.cs" />
     <Compile Include="Assets\_Project\Presentation\Objectives\ValveInteractionController.cs" />
+    <Compile Include="Assets\_Project\Presentation\SoundPulse\SonarAndAfterglow.cs" />
     <Compile Include="Assets\_Project\Presentation\SoundPulse\PulseVisualRenderer.cs" />
     <Compile Include="Assets\_Project\Presentation\Voice\MicrophoneCapture.cs" />
     <Compile Include="Assets\_Project\Presentation\GameFlow\LobbyEntry.cs" />
+    <Compile Include="Assets\_Project\Presentation\Objectives\DrainPoint.cs" />
     <Compile Include="Assets\_Project\Presentation\Player\LocalPlayerRegistry.cs" />
     <Compile Include="Assets\_Project\Presentation\GameFlow\RoundCoordinator.cs" />
     <Compile Include="Assets\_Project\Presentation\Settings\SettingsStore.cs" />

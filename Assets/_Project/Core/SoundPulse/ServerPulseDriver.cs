@@ -56,8 +56,11 @@ namespace Marco.Core.Sound
                     return true;
 
                 case SoundType.Valve:
-                    radius = Valve.SoundRadiusMeters;                // §5.1 12m
-                    duration = Valve.DefaultRotationSeconds;         // §5.1 "회전 내내"(4인 MVP 3초)
+                    // §5.1 [v0.4] 밸브 회전 — 12m, 지속 "각 밸브 회전 시간(6.1)". 실제 밸브 파문은 전부
+                    // 서버가 **밸브별로** 반경(A ×0.5)·지속을 넘긴다(ValveNetworkSync). 여기 값은 밸브를
+                    // 특정할 수 없을 때의 대표값 — 다섯 밸브 공통 총 점유 8.0초(§6.1). v0.3의 3초는 폐기.
+                    radius = Valve.SoundRadiusMeters;                     // §5.1 12m
+                    duration = ValveOccupancy.TotalSeconds(ValveId.A);    // §6.1 공통 8.0초
                     return true;
 
                 // §5.2 음성 파이프라인(스프린트 26b). 클라이언트는 **등급만** 주장하고,
@@ -97,6 +100,13 @@ namespace Marco.Core.Sound
                     duration = KnockConfig.DurationSeconds; // §3.2/§5.1 1.2s
                     return true;
 
+                // §5.1 호흡음(§3.6 캠핑 방지). 표의 반경은 "3m → 9m"라 여기서는 **시작값**을 내고,
+                // 증폭된 반경은 서버의 CampingMonitor가 AddPulse의 radiusOverride로 넘긴다.
+                case SoundType.Breath:
+                    radius = CampingConfig.FirstRadiusMeters; // §3.6 3m
+                    duration = CampingConfig.DurationSeconds; // §3.6 0.6s
+                    return true;
+
                 default:
                     radius = 0f;
                     duration = 0f;
@@ -116,14 +126,43 @@ namespace Marco.Core.Sound
         /// 이 클래스가 아니라 <c>LocomotionSimulator</c>의 이동거리 누적이 정한다.
         /// 물이면 파문 자체를 만들지 않는다(§5.9 "파문 발생 안 함").
         /// </param>
+        /// <param name="radiusOverride">
+        /// 0보다 크면 §5.1 표 반경 대신 이 값을 쓴다. <b>§3.6 호흡음 증폭(3→9m) 전용</b>이며,
+        /// 서버가 스스로 계산한 값만 넘긴다 — 클라이언트 경로(<c>ServerSubmitPulse</c>)는 넘기지 않는다.
+        /// </param>
         public int AddPulse(ulong sourcePlayerId, SoundType type, Vector3 serverPosition, float now,
-            FootstepMaterial material = FootstepMaterialRules.Default)
+            FootstepMaterial material = FootstepMaterialRules.Default, float radiusOverride = 0f,
+            float durationOverride = 0f)
         {
             if (!TryGetAppliedSpec(type, material, out float radius, out float duration))
                 return -1;
 
+            if (radiusOverride > 0f)
+                radius = radiusOverride;
+            if (durationOverride > 0f)
+                duration = durationOverride;
+
             return _tracker.AddPulse(new SoundPulse(sourcePlayerId, serverPosition, radius, duration, type, now));
         }
+
+        /// <summary>
+        /// 서버만 발생시키는 종류인가. 참이면 클라이언트의 <c>ServerSubmitPulse</c> 주장을 거부한다.
+        ///
+        /// <list type="bullet">
+        /// <item><b>Breath</b> — §3.6 "20초 정지"를 서버가 관측한 결과다.</item>
+        /// <item><b>Scream</b> — §3.5 외침 공포 판정의 결과로 서버가 만든다. 클라이언트가 보낼 수 있으면
+        ///   남이 아닌 <i>자기</i> 비명이라도 §8.1 최다 비명상 집계가 오염된다.</item>
+        /// <item><b>Knock</b> — §3.2 전용 경로(<c>ServerSubmitKnock</c> → <c>ServerKnockDriver</c>)가
+        ///   역할·5회·20초 잠금·쿨다운을 강제한다. 일반 파문 경로로 받으면 그 제약을 전부 우회한다.</item>
+        /// </list>
+        /// <para>
+        /// [블록 5] Breath를 추가하면서 기존 두 구멍(Scream·Knock)이 같은 유형임을 발견해 함께 닫았다.
+        /// 정당한 클라이언트 경로는 발소리(Walk·Sprint)·밸브(Valve)·음성(Whisper·Talk·Shout)뿐이다.
+        /// </para>
+        /// </summary>
+        public static bool IsServerOnly(SoundType type) =>
+            type == SoundType.Breath || type == SoundType.Scream || type == SoundType.Knock ||
+            type == SoundType.Valve; // [블록 7] 밸브 회전음은 서버가 홀드 수락 시점에 밸브별로 낸다
 
         /// <summary>
         /// **실제로 등록되는** 반경·지속을 낸다 — §5.1 표 값에 §5.9 재질 배율까지 적용한 결과다.

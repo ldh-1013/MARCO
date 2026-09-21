@@ -77,6 +77,17 @@ namespace Marco.Core.Net
         /// </para>
         /// </summary>
         void SubmitDiveIntent(bool held);
+
+        /// <summary>
+        /// §3.6 "설정 화면(F1) 등 메뉴 개방 중" 여부를 서버에 알린다. 상태가 바뀔 때만 보낸다.
+        ///
+        /// <para>
+        /// 캠핑 방지의 일시중단 조건 네 개 중 <b>서버가 스스로 관측할 수 없는 유일한 것</b>이라
+        /// 주장으로 받는다(잠수·밸브 조작·경직은 서버가 안다). 악용하면 메뉴를 연 채 서 있어
+        /// 호흡음을 피할 수 있지만, 그동안 화면이 가려져 조작도 시야도 없다 — GAP-95.
+        /// </para>
+        /// </summary>
+        void SubmitMenuIntent(bool open);
     }
 
     /// <summary>

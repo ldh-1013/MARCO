@@ -197,9 +197,25 @@ namespace Marco.Presentation.UI
             SettingsStore.Apply(settings);
         }
 
+        /// <summary>
+        /// §3.6 "설정 화면(F1) 등 메뉴 개방 중" — 캠핑 방지 일시중단 조건. 로컬 플레이어가
+        /// 서버에 주장으로 보낸다(<c>IPulseNetworkBridge.SubmitMenuIntent</c>, GAP-95).
+        /// </summary>
+        public static bool IsAnyOpen { get; private set; }
+
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        private static void ResetForNewSession() => IsAnyOpen = false;
+
+        private void OnDestroy()
+        {
+            if (_visible)
+                IsAnyOpen = false;
+        }
+
         private void SetVisible(bool visible)
         {
             _visible = visible;
+            IsAnyOpen = visible;
             if (_root != null)
                 _root.SetActive(visible);
 

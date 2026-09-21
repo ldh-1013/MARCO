@@ -70,12 +70,11 @@ namespace Marco.Presentation.Objectives
     public sealed class ValveInteractionController
     {
         /// <summary>
-        /// GAP-10 결정: 기획서에 밸브 상호작용 거리 수치가 없어 이 값을 둔다.
-        /// 근거 — §14.1 태그 판정 1.2m(접촉급)보다는 넉넉해야 밸브 앞에 서서 누를 수 있고,
-        /// 캐릭터 콜라이더 0.35m + 밸브 큐브 0.6m를 감안하면 2.5m면 "바로 옆"에 해당한다.
+        /// GAP-10 결정값. 배수구(§6.5-2)도 같은 값을 써야 하므로 [블록 4]에서 Core
+        /// <see cref="InteractionRules.RangeMeters"/>로 옮겼다(GAP-73) — 근거는 그쪽 문서.
         /// 플레이테스트 조정 대상이라 생성자로 주입 가능하게 열어 둔다.
         /// </summary>
-        public const float DefaultInteractionRange = 2.5f;
+        public const float DefaultInteractionRange = InteractionRules.RangeMeters;
 
         private readonly float _interactionRange;
         private Valve _activeValve;
@@ -87,6 +86,16 @@ namespace Marco.Presentation.Objectives
         }
 
         public Valve ActiveValve => _activeValve;
+
+        /// <summary>
+        /// [블록 7] 수중 밸브(B·E)는 <b>수평 거리</b>로 잰다(GAP-88 — <see cref="InteractionRules.DistanceTo"/>).
+        /// 잠수 모델에 수직 이동이 없어 3D로는 바닥의 밸브에 닿지 않는다. 지상 밸브는 종전 그대로 3D.
+        /// </summary>
+        private static float DistanceTo(Valve valve, Vector3 player, Vector3 valvePosition)
+        {
+            bool underwater = valve != null && valve.Id.HasValue && ValveOccupancy.IsUnderwater(valve.Id.Value);
+            return InteractionRules.DistanceTo(player, valvePosition, underwater);
+        }
 
         /// <summary>진행 중인 회전의 진행도(0~1). 없으면 0.</summary>
         public float Progress01 => _activeValve?.Progress01 ?? 0f;
@@ -105,9 +114,11 @@ namespace Marco.Presentation.Objectives
             if (!input.InteractHeld)
                 return Cancel(input.PlayerId, ValveInteractionEvent.CancelledByRelease);
 
-            if (Vector3.Distance(input.PlayerPosition, _activeValvePosition) > _interactionRange)
+            if (DistanceTo(_activeValve, input.PlayerPosition, _activeValvePosition) > _interactionRange)
                 return Cancel(input.PlayerId, ValveInteractionEvent.CancelledByRangeExit);
 
+            // v0.4: 로컬 경로에서도 상태와 무관하게 Tick한다 — 감쇠·역류가 돌아야 한다.
+            //   (네트워크 경로에서는 서버의 ValveNetworkSync.Update가 같은 역할을 한다.)
             _activeValve.Tick(deltaSeconds);
 
             if (_activeValve.State == ValveState.Open)
@@ -124,12 +135,15 @@ namespace Marco.Presentation.Objectives
             if (!input.InteractHeld || input.Candidate == null)
                 return ValveInteractionEvent.None;
 
-            if (Vector3.Distance(input.PlayerPosition, input.CandidatePosition) > _interactionRange)
+            if (DistanceTo(input.Candidate, input.PlayerPosition, input.CandidatePosition) > _interactionRange)
                 return ValveInteractionEvent.None;
 
-            // 이미 열렸거나 다른 플레이어가 돌리는 중이면 조용히 무시한다.
-            // (Rejected는 역할 제약 같은 "알려줄 가치가 있는 거부"에만 쓴다.)
-            if (input.Candidate.State != ValveState.Closed)
+            // ★ v0.4 enum 파급: **Reflowing에서도 시작할 수 있어야 한다**(§6.1-2
+            //   "역류 중 재상호작용해 회전 완료 → Open 복귀"). 이전 조건
+            //   `State != Closed`는 Reflowing을 조용히 막아 역류 복구가 영영 불가능했다.
+            //   Rotating은 §6.1 동시 작업으로 합류 가능하므로 Core Valve가 판정하게 맡긴다.
+            //   여기서 걸러야 하는 것은 **이미 열린 밸브**뿐이다.
+            if (input.Candidate.State == ValveState.Open)
                 return ValveInteractionEvent.None;
 
             if (input.Candidate.TryBeginRotation(input.PlayerId, input.Role))

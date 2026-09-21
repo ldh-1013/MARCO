@@ -35,6 +35,15 @@ namespace Marco.Core.Net
         /// <summary>서버가 확정한 현재 진행도(0~1).</summary>
         float Progress01 { get; }
 
+        /// <summary>§6.1 감쇠 중인가(§12.4 HUD 색 구분).</summary>
+        bool IsDecaying { get; }
+
+        /// <summary>§6.1-2 역류 시작 시점의 잔여 시간(초). 0이면 역류 중이 아니다.</summary>
+        float ReflowRemainingAtStart { get; }
+
+        /// <summary>§6.1-0 이번 라운드 활성 여부.</summary>
+        bool IsActiveThisRound { get; }
+
         /// <summary>
         /// 클라이언트가 이번 프레임의 홀드 의사를 서버에 전달한다.
         /// <paramref name="held"/>는 "E를 누르고 있고 상호작용 범위 안"일 때 true다

@@ -1,79 +1,159 @@
+using UnityEngine;
+
 namespace Marco.Core.Objectives
 {
     /// <summary>
-    /// §6.3 승패 판정. 기획서의 의사코드를 그대로 옮긴 순수 함수다.
+    /// §6.3 [v0.4 전면 개정] 승패 판정. 기획서 의사코드를 그대로 옮긴 순수 함수다.
     ///
     /// <code>
-    /// // §6.3 [라운드 종료 시점에 1회만 평가]
-    /// if (valvesOpened == totalValves &amp;&amp; escaped > (tagged + notEscaped))
-    ///     result = Result.RunnersWin;
+    /// int required = ceil(runnerCount / 2);              // §6.2 탈출 요구 인원
+    ///
+    /// if (escaped &gt;= required || lastSurvivorEscaped)
+    ///     result = RunnersWin;
     /// else
-    ///     result = Result.SeekerWin;
+    ///     result = SeekerWin;
     /// </code>
     ///
-    /// **왜 코드는 <c>escaped &gt; (tagged + notEscaped)</c>가 아니라 "탈출 ≥ 2"인가**:
-    /// §6.3이 직접 계산한 **3 Runner 전수검증(10/10)** 이 두 식의 일치를 증명한다.
-    /// 도망자 3명 고정(§1)에서 세 상태의 합은 항상 3이므로
-    /// <c>escaped &gt; 3 - escaped</c> ⟺ <c>2·escaped &gt; 3</c> ⟺ <c>escaped ≥ 2</c>다.
+    /// <para>
+    /// <b>v0.4에서 사라진 두 상수.</b>
+    /// </para>
     ///
-    /// 이렇게 옮긴 실질적 이유는 <b>"미탈출"이 라운드 도중에는 존재하지 않는 값</b>이기
-    /// 때문이다 — §6.3의 정의상 미탈출은 "시간 종료 시점에 살아 있으나 탈출하지 못함"이라
-    /// 종료 전에는 확정할 수 없다. 판정은 매 프레임 호출되므로, 도중에도 계산 가능한
-    /// 등가식으로 옮겨야 "탈출 2명이 나온 순간 즉시 도망자 승리"가 성립한다.
+    /// <para>
+    /// ① <b><c>TagWinThreshold = 2</c> 삭제.</b> §6.3이 *"태그 2명 도달 시 즉시 종료를
+    /// 삭제했다"* 고 명시한다 — 그 규칙은 마지막 생존자에게서 모든 승리 경로를 빼앗아
+    /// 도망자 2명이 잡힌 시점에 라운드가 기계적으로 끝나게 만들었다. v0.4에서 도망자가
+    /// 1명 남는 것은 <b>술래의 승리가 아니라 §6.5 최후 생존자 페이즈의 시작</b>이다.
+    /// 술래는 전원을 잡아야 이긴다.
+    /// </para>
     ///
-    /// **도망자 3명 전제**: §1이 "현재 버전의 모든 밸런스 수치와 승리조건은 도망자 3명
-    /// 기준으로 잠근다"고 못박았고, "도망자가 4~5명이 되면 승리 목표 인원을 별도로
-    /// 재계산해야 한다"고 경고한다. 그래서 두 임계값을 상수로 드러내 둔다 —
-    /// 인원이 늘면 <b>여기만 고치면 되고, 고쳐야 한다는 사실이 눈에 보인다.</b>
+    /// <para>
+    /// ② <b><c>EscapeWinThreshold = 2</c> 삭제.</b> §6.2 [v0.4]가 탈출 요구를
+    /// <c>⌈도망자 ÷ 2⌉</c>로 일반화했다. 2를 남기면 6인 게임(도망자 5 → 요구 3)에서 틀린다.
+    /// 값은 <see cref="ValveRoster.EscapeRequirement"/> 한 곳이 소유한다.
+    /// </para>
     ///
-    /// **판정 순서(§6.3 "동일 프레임 처리 우선순위" 1 → 2 → 3)**: 탈출 → 태그 → 시간 종료.
-    /// 도망자 승리 조건을 먼저 확인하므로 탈출과 태그·시간 초과가 같은 프레임에 겹쳐도
-    /// 탈출이 우선한다 — §6.3이 "탈출을 먼저 확정(도망자에게 유리하게 해석)"이라고 명시한다.
+    /// <para>
+    /// <b>게이트가 판정식에 없는 이유</b>(§6.3 원문): 탈출의 정의 자체가 *"출구 게이트 개방 후
+    /// 출구 접촉"* 이므로 게이트가 닫혀 있으면 <c>escaped</c>가 애초에 증가하지 않는다.
+    /// 게이트는 판정식의 항이 아니라 <b>탈출의 전제 조건</b>이며, 그 강제는 탈출을 접수하는
+    /// 지점(<c>RoundNetworkSync.ServerSubmitEscape</c>)이 한다. 구 <c>totalValves &gt; 0</c>
+    /// 방어의 의도("목표가 구성되지 않은 씬을 승리로 읽지 않는다")도 같은 이유로 그쪽으로 옮겨진다.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>★ <c>lastSurvivorEscaped</c>는 집계에서 유도할 수 없다.</b> §6.3 전수검증이
+    /// <b>52케이스 중 4건</b>이 최종 집계만으로 결정되지 않음을 보였다(도망자 3 E1T2N0 /
+    /// 4 E1T3N0 / 5 E1T4N0 / 5 E2T3N0). 같은 숫자에서 <i>마지막 이탈이 탈출인지 태그인지</i>에
+    /// 따라 승패가 갈린다. 그래서 이 값은 <b>페이즈 중 탈출이 발생한 순간에 세우는 사건 플래그</b>
+    /// 이며 절대 역산하지 않는다.
+    /// </para>
+    ///
+    /// <para>
+    /// <b><c>RoundResult</c>에 값을 추가하지 않는다</b>(§6.5-1 "마지막 생존자의 탈출 = 팀 승리").
+    /// 최후 생존자 탈출도 <c>RunnersWin</c>이며, 결과 화면 문구만 구분한다.
+    /// </para>
     /// </summary>
     public static class WinConditionEvaluator
     {
         /// <summary>
-        /// §6.3·§8 도망자 승리에 필요한 탈출 인원. 도망자 3명 기준에서
-        /// <c>escaped &gt; (tagged + notEscaped)</c>와 등가다(§6.3 전수검증 10/10).
-        /// §12.3 HUD의 "탈출 ●● / 태그 ●○" 두 칸이 이 값을 시각화한 것이다.
+        /// §6.2 [v0.4] 탈출 요구 인원 = <c>⌈도망자 수 ÷ 2⌉</c>.
+        /// <see cref="ValveRoster.EscapeRequirement"/>를 그대로 가리킨다 — 두 곳에 두지 않는다.
         /// </summary>
-        public const int EscapeWinThreshold = 2;
+        public static int EscapeRequirement(int runnerCount) =>
+            ValveRoster.EscapeRequirement(runnerCount);
 
         /// <summary>
-        /// §6.3 "태그 2명 도달 시 즉시 술래 승리 확정, 라운드 종료".
-        ///
-        /// **술래는 도망자 3명을 전부 태그할 필요가 없다.** 2명이면 남은 도망자는 1명뿐이라
-        /// 탈출이 최대 1 &lt; <see cref="EscapeWinThreshold"/>가 되어 도망자 승리가 산술적으로
-        /// 불가능해진다 — 그 시점에 결과가 이미 확정됐으므로 라운드를 더 끌지 않는다.
+        /// §6.3 판정. <b>판정 대상은 3개</b>이며 우선순위는 도망자 승리 → 술래 승리다
+        /// (§6.3 "탈출을 먼저 확정 — 도망자에게 유리하게 해석").
         /// </summary>
-        public const int TagWinThreshold = 2;
-
-        /// <param name="taggedRunners">
-        /// 태그당해 메아리가 된 도망자 수(§6.3 "태그"). 예전 <c>allRunnersTagged</c> 불리언을
-        /// 대체한다 — §6.3이 "전원 태그"가 아니라 <b>2명 도달</b>을 종료 조건으로 정했다.
+        /// <param name="runnerCount">이번 라운드 도망자 총수. 탈출 요구의 분모다.</param>
+        /// <param name="runnersEscaped">출구로 탈출을 확정한 도망자 수.</param>
+        /// <param name="aliveRunners">
+        /// <b>살아있는</b> 도망자 수 = 전체 − 태그 아웃 − 탈출 완료.
+        /// 이 셈은 <see cref="RunnerCensus"/> 한 곳이 소유하고 나머지는 조회만 한다.
         /// </param>
+        /// <param name="lastSurvivorEscaped">
+        /// §6.5 최후 생존자가 배수구(또는 열린 출구)로 탈출했는가. <b>사건 플래그</b>다.
+        /// </param>
+        /// <param name="timeRemainingSeconds">라운드 잔여 시간.</param>
         public static RoundResult Evaluate(
-            int valvesOpened,
-            int totalValves,
+            int runnerCount,
             int runnersEscaped,
-            int taggedRunners,
+            int aliveRunners,
+            bool lastSurvivorEscaped,
             float timeRemainingSeconds)
         {
-            // §6.3 우선순위 1 — 탈출. 기획서는 ==를 쓰지만, 초과 상태가 생기더라도 승리를
-            // 놓치지 않도록 >=로 둔다.
-            //
-            // totalValves <= 0 방어(이월 C1): 밸브 목표가 구성되지 않은 씬에서는 `0 >= 0`이
-            // 참이 되어 밸브 조건이 **공허하게 성립**한다. 목표가 없는 라운드를 "목표를 전부
-            // 달성했다"로 읽는 것은 §6.1("밸브 3개 개방 후 출구 접촉")의 뜻과 정반대다.
-            // 미구성은 승리가 아니라 **판정 불가**로 다룬다.
-            if (totalValves > 0 && valvesOpened >= totalValves && runnersEscaped >= EscapeWinThreshold)
+            // ①·② 도망자 승리 — 요구 인원 탈출, 또는 최후 생존자의 단독 탈출.
+            //     §6.3 "마지막 1인의 탈출은 게이트 개방 여부와 무관하게 팀 승리다."
+            if (lastSurvivorEscaped)
                 return RoundResult.RunnersWin;
 
-            // §6.3 우선순위 2·3 — 태그 2명 도달, 그리고 시간 종료.
-            if (taggedRunners >= TagWinThreshold || timeRemainingSeconds <= 0f)
+            if (runnerCount > 0 && runnersEscaped >= EscapeRequirement(runnerCount))
+                return RoundResult.RunnersWin;
+
+            // ③ 술래 승리 — 살아있는 도망자 0명, 또는 시간 종료.
+            //
+            //    **"살아있는 0명"은 "전원 태그"가 아니다.** 탈출자도 살아있는 수에서 빠지므로,
+            //    탈출이 요구치에 못 미친 채 나머지가 전부 잡히면 여기로 온다.
+            //    §6.3 "모든 도망자가 탈출 또는 태그로 확정 → 즉시 종료, 판정".
+            if (runnerCount > 0 && aliveRunners <= 0)
+                return RoundResult.SeekerWin;
+
+            if (timeRemainingSeconds <= 0f)
                 return RoundResult.SeekerWin;
 
             return RoundResult.InProgress;
         }
+
+        /// <summary>
+        /// §6.5-1 최후 생존자 페이즈 진입 조건 — <b>살아있는 도망자가 정확히 1명</b>.
+        ///
+        /// <para>
+        /// 0명은 페이즈가 아니라 <see cref="RoundResult.SeekerWin"/>이다 — 지킬 사람이 없다.
+        /// 2명 이상은 아직 일반 라운드다.
+        /// </para>
+        /// </summary>
+        public static bool ShouldEnterLastSurvivorPhase(int aliveRunners) => aliveRunners == 1;
+    }
+
+    /// <summary>
+    /// §6.3 "살아있는 도망자" 셈의 <b>단일 소유자</b>.
+    ///
+    /// <para>
+    /// 지시서가 *"이 셈을 여러 곳에서 하지 마라. 한 곳이 소유하고 나머지는 조회한다"* 고
+    /// 못박았다. 승리 판정·페이즈 진입·배수구 활성·HUD가 전부 이 값을 쓰는데, 각자 세면
+    /// "술래는 페이즈에 들어갔는데 판정기는 아직 2명으로 알고 있는" 상태가 생긴다.
+    /// </para>
+    /// </summary>
+    public readonly struct RunnerCensus
+    {
+        /// <summary>이번 라운드 도망자 총수.</summary>
+        public readonly int Total;
+
+        /// <summary>태그당해 메아리가 된 수.</summary>
+        public readonly int TaggedOut;
+
+        /// <summary>탈출을 확정한 수.</summary>
+        public readonly int Escaped;
+
+        public RunnerCensus(int total, int taggedOut, int escaped)
+        {
+            Total = total;
+            TaggedOut = taggedOut;
+            Escaped = escaped;
+        }
+
+        /// <summary>§6.3 살아있는 도망자 = 전체 − 태그 아웃 − 탈출 완료. 음수가 되지 않는다.</summary>
+        public int Alive => Mathf.Max(0, Total - TaggedOut - Escaped);
+
+        /// <summary>§6.2 [v0.4] 이번 라운드 탈출 요구 인원.</summary>
+        public int EscapeRequirement => ValveRoster.EscapeRequirement(Total);
+
+        /// <summary>§6.5-1 페이즈에 들어가야 하는가.</summary>
+        public bool ShouldEnterLastSurvivorPhase =>
+            WinConditionEvaluator.ShouldEnterLastSurvivorPhase(Alive);
+
+        public override string ToString() =>
+            $"도망자 {Total} (생존 {Alive} · 태그 {TaggedOut} · 탈출 {Escaped} / 요구 {EscapeRequirement})";
     }
 }

@@ -69,6 +69,107 @@ namespace Marco.Presentation.UI
         }
 
         /// <summary>
+        /// §6.5 최후 생존자 페이즈 한 줄. <b>양 진영이 같은 줄을 본다</b> — §6.5-2 "활성 배수구는
+        /// 양 진영에 즉시 공개". 페이즈 밖이면 빈 문자열.
+        ///
+        /// <para>
+        /// 활성 배수구가 0이면 게이트가 이미 열려 배수구를 쓰지 않는 경우다(§6.5-2 "기존 출구를
+        /// 쓰면 된다"). 진행도는 <b>내림</b> 백분율 — 99.6%를 100%로 올려 보이면 "다 됐다"로 읽힌다.
+        /// </para>
+        /// </summary>
+        public static string FormatLastSurvivorPhase(bool active, float secondsRemaining, int activeDrain, float drainProgress01)
+        {
+            if (!active)
+                return string.Empty;
+
+            string time = FormatRemainingTime(secondsRemaining);
+            if (activeDrain == 0)
+                return $"최후 생존자 {time} — 출구 개방";
+
+            if (drainProgress01 < 0f) drainProgress01 = 0f;
+            if (drainProgress01 > 1f) drainProgress01 = 1f;
+            int percent = (int)System.Math.Floor(drainProgress01 * 100f);
+            return $"최후 생존자 {time} — 배수구 {FormatDrainName(activeDrain)} {percent}%";
+        }
+
+        /// <summary>
+        /// §3.1 질주 스태미나 표시. 10칸 막대 + 소진 표기. 내림 — 0.99를 가득으로 보이면 안 된다.
+        /// </summary>
+        public static string FormatStamina(float stamina01, bool exhausted)
+        {
+            if (stamina01 < 0f) stamina01 = 0f;
+            if (stamina01 > 1f) stamina01 = 1f;
+
+            int filled = (int)System.Math.Floor(stamina01 * 10f);
+            string bar = new string('■', filled) + new string('□', 10 - filled);
+            return exhausted ? $"질주 {bar} 소진" : $"질주 {bar}";
+        }
+
+        /// <summary>
+        /// §12.4 승리조건 점수판 "탈출 ●● / 요구 ●●". 채운 칸 = 탈출 수, 전체 칸 = 탈출 요구(⌈n/2⌉).
+        /// 요구를 넘는 탈출도 표시한다(칸이 늘어난다) — 판정은 §6.3이 하고 여기는 보여주기만 한다.
+        /// </summary>
+        public static string FormatEscapeBoard(int escaped, int requirement)
+        {
+            if (escaped < 0) escaped = 0;
+            if (requirement < 0) requirement = 0;
+
+            int slots = System.Math.Max(escaped, requirement);
+            return "탈출 " + new string('●', escaped) + new string('○', slots - escaped) + $" / 요구 {requirement}";
+        }
+
+        /// <summary>§12.4 숨 게이지(12초). 10칸 막대 + 남은 초(소수 1자리, 내림).</summary>
+        public static string FormatBreath(float remainingSeconds)
+        {
+            float total = Marco.Core.Breath.BreathConfig.TotalSeconds;
+            if (remainingSeconds < 0f) remainingSeconds = 0f;
+            if (remainingSeconds > total) remainingSeconds = total;
+
+            int filled = (int)System.Math.Floor(remainingSeconds / total * 10f);
+            double shown = System.Math.Floor(remainingSeconds * 10.0) / 10.0;
+            return $"숨 {new string('■', filled)}{new string('□', 10 - filled)} {shown:0.0}초";
+        }
+
+        /// <summary>§12.4 첫 20초 오프닝 가이드 — "내 발소리 확인 → 첫 속삭임 유도".</summary>
+        public static string FormatOpeningGuide(int step)
+        {
+            switch (step)
+            {
+                case 0: return "걸어 보세요 (WASD) — 내 발소리가 파문이 됩니다";
+                case 1: return "작게 속삭여 보세요 — 목소리도 파문이 됩니다";
+                default: return "말해야 보입니다";
+            }
+        }
+
+        /// <summary>§12.4 브리핑 제목 — 활성 밸브 수 · 요구 수 · 남은 시간.</summary>
+        public static string FormatBriefingTitle(int activeValves, int requiredValves, float secondsRemaining) =>
+            $"브리핑 — 이번 라운드 활성 밸브 {activeValves}개 · 요구 {requiredValves}개 · {FormatRemainingTime(secondsRemaining)}";
+
+        /// <summary>
+        /// 카메라 기준 상대 방위(도, 시계방향, 0 = 정면)를 8방위 화살표로. §3.4 방위 스냅과 같은 45° 구간.
+        /// </summary>
+        public static string DirectionArrow(float relativeDegrees)
+        {
+            float a = relativeDegrees % 360f;
+            if (a < 0f) a += 360f;
+            int index = (int)System.Math.Round(a / 45f) % 8;
+            return Arrows[index];
+        }
+
+        private static readonly string[] Arrows = { "↑", "↗", "→", "↘", "↓", "↙", "←", "↖" };
+
+        /// <summary>§6.5-2 배수구 이름(§10.1 표기). 1 = 메인 풀, 2 = 유아풀.</summary>
+        public static string FormatDrainName(int drainId)
+        {
+            switch (drainId)
+            {
+                case (int)DrainId.MainPool: return "메인 풀";
+                case (int)DrainId.KiddiePool: return "유아풀";
+                default: return "?";
+            }
+        }
+
+        /// <summary>
         /// 라운드 결과 배너 문구(§6.3 · §12.5 "승패 배너"). 진행 중이면 빈 문자열이라
         /// 아무것도 그리지 않는다. 스프린트 17부터 결과 화면(<c>ResultScreen</c>)도 이 문구를 쓴다.
         /// </summary>
@@ -155,16 +256,29 @@ namespace Marco.Presentation.UI
             return $"{awardName}\n{winner}";
         }
 
-        public static string FormatResultReason(RoundResult result, float remainingSeconds)
+        /// <summary>
+        /// §6.3 결과 문구. <b><c>RoundResult</c>에 값을 추가하지 않고 문구만 구분한다</b>
+        /// (§6.5-1 "마지막 생존자의 탈출 = 팀 승리" — 그것도 <c>RunnersWin</c>이다).
+        /// </summary>
+        /// <param name="lastSurvivorEscaped">§6.5 최후 생존자가 단독 탈출했는가.</param>
+        /// <param name="escapeRequirement">§6.2 [v0.4] 이번 라운드 탈출 요구 인원.</param>
+        public static string FormatResultReason(RoundResult result, float remainingSeconds,
+            bool lastSurvivorEscaped = false, int escapeRequirement = 0)
         {
             switch (result)
             {
                 case RoundResult.RunnersWin:
-                    return $"밸브를 모두 열고 {WinConditionEvaluator.EscapeWinThreshold}명이 배수로로 탈출했다";
+                    return lastSurvivorEscaped
+                        ? "마지막 한 명이 배수구로 빠져나갔다"
+                        : escapeRequirement > 0
+                            ? $"게이트를 열고 {escapeRequirement}명이 탈출했다"
+                            : "게이트를 열고 요구 인원이 탈출했다";
+
                 case RoundResult.SeekerWin:
                     return remainingSeconds <= 0f
                         ? "제한시간이 끝났다"
-                        : $"도망자 {WinConditionEvaluator.TagWinThreshold}명이 붙잡혔다";
+                        : "도망자가 전원 붙잡혔다";
+
                 default:
                     return string.Empty;
             }

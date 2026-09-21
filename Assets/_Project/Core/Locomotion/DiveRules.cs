@@ -1,5 +1,7 @@
 using Marco.Core.Breath;
+using Marco.Core.Role;
 using Marco.Core.Water;
+using UnityEngine;
 
 namespace Marco.Core.Locomotion
 {
@@ -81,9 +83,48 @@ namespace Marco.Core.Locomotion
         /// §4.3 "잠수(Left Ctrl 홀드, 수면 위에서만)" + §5.9-1 "강제 부상".
         /// <c>LocomotionSimulator</c>와 서버가 같이 쓰는 <b>유일한</b> 잠수 판정.
         /// </summary>
-        public static bool IsDiving(bool diveHeld, bool bodyInWater, bool canSubmerge)
+        public static bool IsDiving(RoleType role, bool diveHeld, bool bodyInWater, bool canSubmerge)
         {
-            return diveHeld && bodyInWater && canSubmerge;
+            return CanDive(role) && diveHeld && bodyInWater && canSubmerge;
+        }
+
+        /// <summary>
+        /// §3.1 "특수 능력" 행 — 잠수는 <b>도망자</b>의 능력이다(술래는 외침, 메아리는 노크).
+        ///
+        /// <para>
+        /// <b>[블록 5에서 추가된 역할 조건.]</b> 이전 판정식에는 역할이 없어 술래도 물에서 Ctrl을 누르면
+        /// 잠수했다. 그러면 ① §3.6 "잠수 중 미발동"에 걸려 <b>물속 대기 술래의 캠핑 방지가 꺼지고</b>
+        /// ② §6.5-3 "술래에게 잠수를 주지 않는다"가 정면으로 깨진다 — 최후 생존자 페이즈가 술래의
+        /// 일방적 승리가 된다. 판정식이 한 곳이라 서버·클라이언트가 함께 막힌다.
+        /// </para>
+        /// </summary>
+        public static bool CanDive(RoleType role) => role == RoleType.Runner;
+
+        /// <summary>
+        /// §6.5-3 <b>잠수 중인 몸의 접촉 위치</b> — 태그 판정이 쓴다. 잠수 중이면 그 지점의 바닥,
+        /// 아니면 발 위치 그대로.
+        ///
+        /// <para>
+        /// <b>왜 필요한가.</b> 이 파일의 잠수 모델은 머리(카메라)만 내리고 발(<c>transform</c>)은
+        /// 수면 근처에 남긴다. 그런데 §6.5-3의 공정성 논거 전체가 <i>"수심 3.5m, 태그 반경
+        /// 1.2m이므로 술래는 수면에서 배수구에 닿을 수 없다 … 술래가 태그할 수 있는 순간은
+        /// (부상할) 그때뿐이다"</i> — 즉 <b>잠수자가 실제로 바닥에 있다</b>는 전제다. 발 위치로
+        /// 태그를 재면 술래가 수면에 선 채 바로 위에서 잠수자를 잡을 수 있어 그 절이 통째로 무너진다.
+        /// </para>
+        ///
+        /// <para>
+        /// <b>잠수 중 몸의 수직 위치는 기획서에 없다 — GAP-89.</b> 수중 작업(밸브 B·E, 배수구)이
+        /// 바닥에서 이뤄지고 기획서가 하강·상승을 진입·부상 시간으로 추상화했으므로(§6.1-1 ·
+        /// §6.5-2), "잠수 = 바닥에 있다"로 두는 것이 그 추상화와 맞는 잠정 해석이다.
+        /// 유아풀(얕음)에서는 서 있는 발이 이미 바닥이라 결과가 달라지지 않는다.
+        /// </para>
+        /// </summary>
+        public static Vector3 ContactPosition(Vector3 feet, in WaterSample water, bool submerged)
+        {
+            if (!submerged || !water.BodyInWater)
+                return feet;
+
+            return new Vector3(feet.x, Mathf.Min(feet.y, water.BedY), feet.z);
         }
 
         /// <summary>발 기준 머리 높이. 잠수 중이면 <see cref="SubmergedHeadHeight"/>.</summary>

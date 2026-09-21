@@ -40,15 +40,17 @@ namespace Marco.Core.Tests
             Assert.AreEqual(7.5f, tick.LocalVelocity.magnitude, 0.001f);
         }
 
-        // 3) §3.1 × §6.2 4인: 술래 5.4m/s.
+        // 3) §3.1 × §6.2 [v0.4]: 술래 기본 5.0 × 인원별 보정.
+        //    v0.3의 단일값 5.4(4인 ×1.08)에서 바뀌었다 — 5인 기준 5.0 × 1.06 = 5.30.
+        //    **5.30을 상수로 박지 않는다** — 유도값을 그대로 비교한다.
         [Test]
-        public void Seeker_MovesAtFivePointFour()
+        public void Seeker_MovesAtPerCountCorrectedSpeed()
         {
             var sim = new LocomotionSimulator(RoleType.Seeker);
 
             var tick = sim.Tick(Move(0, 1), 0.02f);
 
-            Assert.AreEqual(5.4f, tick.LocalVelocity.magnitude, 0.001f);
+            Assert.AreEqual(LocomotionConfig.SeekerSpeedFor(5), tick.LocalVelocity.magnitude, 0.001f);
         }
 
         // 4) §3.2: 메아리 8.0m/s.
@@ -63,7 +65,7 @@ namespace Marco.Core.Tests
         }
 
         // 5) §3.1: 질주는 도망자 전용 — 술래·메아리는 Shift를 눌러도 기본 속도.
-        [TestCase(RoleType.Seeker, 5.4f)]
+        [TestCase(RoleType.Seeker, 5.30f)]
         [TestCase(RoleType.Echo, 6.0f)]
         public void NonRunner_SprintInput_IsIgnored(RoleType role, float expectedSpeed)
         {
@@ -274,13 +276,14 @@ namespace Marco.Core.Tests
                 "등급 전환으로 걷기 누적이 지워지면 안 된다");
         }
 
-        // 19) §5.1 문자 그대로: 술래(5.4 > 5.0)는 이동만 해도 질주 등급(6m) 펄스.
+        // 19) §5.1 문자 그대로: 술래(5.30 > 5.0)는 이동만 해도 질주 등급(6m) 펄스.
+        //     §6.2 [v0.4] 보정 하한 +1%가 이것을 보장한다 — 0%가 되면 술래가 무음이 된다.
         [Test]
         public void Seeker_Movement_EmitsSprintTierPulse()
         {
             var sim = new LocomotionSimulator(RoleType.Seeker);
 
-            // 6.5m — 임계값 6m를 확실히 넘긴다(5.4m/s는 2진 부동소수로 정확히 표현되지 않아
+            // 6.5m — 임계값 6m를 확실히 넘긴다(5.30m/s는 2진 부동소수로 정확히 표현되지 않아
             // 정확히 6m를 노리면 마지막 자리에서 아슬아슬하게 미달할 수 있다).
             LocomotionTick tick = MoveMeters(sim, 6.5f, LocomotionConfig.SeekerSpeed);
 

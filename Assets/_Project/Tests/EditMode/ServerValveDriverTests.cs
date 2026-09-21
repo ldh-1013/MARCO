@@ -28,9 +28,9 @@ namespace Marco.Core.Tests
         {
             var driver = NewDriver();
 
-            bool accepted = driver.BeginHold(Runner, RoleType.Runner);
+            ValveInteractionRejection accepted = driver.BeginHold(Runner, RoleType.Runner);
 
-            Assert.IsTrue(accepted);
+            Assert.AreEqual(ValveInteractionRejection.None, accepted);
             Assert.AreEqual(ValveState.Rotating, driver.State);
             Assert.AreEqual(Runner, driver.HolderId);
         }
@@ -41,9 +41,10 @@ namespace Marco.Core.Tests
         {
             var driver = NewDriver();
 
-            bool accepted = driver.BeginHold(Runner, RoleType.Echo);
+            ValveInteractionRejection accepted = driver.BeginHold(Runner, RoleType.Echo);
 
-            Assert.IsFalse(accepted);
+            Assert.AreEqual(ValveInteractionRejection.EchoCannotInteract, accepted,
+                "GAP-5 메아리는 물리 상호작용 불가.");
             Assert.AreEqual(ValveState.Closed, driver.State);
             Assert.IsNull(driver.HolderId);
         }
@@ -77,7 +78,7 @@ namespace Marco.Core.Tests
             // 0.1초씩 넉넉히 진전(3초 + 여유). 완료 이후 Tick은 false여야 한다.
             for (int i = 0; i < 50; i++)
             {
-                if (driver.Tick(0.1f))
+                if (driver.Tick(0.1f).Opened)
                     openedSignals++;
             }
 
@@ -92,10 +93,11 @@ namespace Marco.Core.Tests
             var driver = NewDriver();
             driver.BeginHold(Runner, RoleType.Runner);
 
-            bool accepted = driver.BeginHold(OtherRunner, RoleType.Runner);
+            ValveInteractionRejection accepted = driver.BeginHold(OtherRunner, RoleType.Runner);
 
-            Assert.IsFalse(accepted);
-            Assert.AreEqual(Runner, driver.HolderId, "홀더는 최초 시작자 그대로");
+            // ★ v0.4에서 의미가 뒤집혔다 — §6.1 동시 작업(2인 ×1.6)이므로 합류한다.
+            Assert.AreEqual(ValveInteractionRejection.None, accepted);
+            Assert.AreEqual(2, driver.HolderCount, "§6.1 동시 작업 인원");
         }
 
         // 6) 프레임마다 오는 같은 홀더의 반복 요청은 회전을 리셋하지 않는다.
@@ -108,25 +110,29 @@ namespace Marco.Core.Tests
             float mid = driver.Progress01;
             Assert.Greater(mid, 0.4f);
 
-            bool stillHeld = driver.BeginHold(Runner, RoleType.Runner); // 같은 프레임 신호 재수신
+            ValveInteractionRejection stillHeld = driver.BeginHold(Runner, RoleType.Runner); // 같은 프레임 신호 재수신
 
-            Assert.IsTrue(stillHeld);
+            Assert.AreEqual(ValveInteractionRejection.None, stillHeld);
             Assert.AreEqual(mid, driver.Progress01, 0.0001f, "재요청이 진행도를 되돌리면 안 된다");
         }
 
         // 7) 홀더의 해제는 §6.1대로 진행도를 0으로 리셋한다.
         [Test]
-        public void EndHold_ByHolder_ResetsProgress()
+        public void EndHold_ByHolder_KeepsProgressForDecay()
         {
+            // ★ v0.4에서 의미가 뒤집혔다 — §6.1은 중단 시 진행도를 유지하고
+            //   3초 유예 뒤 -0.10/s로 감쇠시킨다. 리셋이 아니다.
             var driver = NewDriver();
             driver.BeginHold(Runner, RoleType.Runner);
             driver.Tick(2.0f);
-            Assert.Greater(driver.Progress01, 0.5f);
+            float before = driver.Progress01;
+            Assert.Greater(before, 0.5f);
 
             driver.EndHold(Runner);
 
             Assert.AreEqual(ValveState.Closed, driver.State);
-            Assert.AreEqual(0f, driver.Progress01, 0.0001f);
+            Assert.AreEqual(before, driver.Progress01, 0.0001f, "중단은 리셋이 아니다(§6.1 [v0.4]).");
+            Assert.IsFalse(driver.IsDecaying, "유예 3초 안에는 아직 깎이지 않는다.");
             Assert.IsNull(driver.HolderId);
         }
 
@@ -153,10 +159,11 @@ namespace Marco.Core.Tests
             driver.Tick(2.0f);
             driver.EndHold(Runner);
 
-            bool accepted = driver.BeginHold(Runner, RoleType.Runner);
+            ValveInteractionRejection accepted = driver.BeginHold(Runner, RoleType.Runner);
 
-            Assert.IsTrue(accepted);
-            Assert.Less(driver.Progress01, 0.05f, "이어받기가 아니라 0부터 다시 시작");
+            Assert.AreEqual(ValveInteractionRejection.None, accepted);
+            // ★ v0.4에서 의미가 뒤집혔다 — §6.1 "다른 도망자가 즉시 이어받을 수 있다".
+            Assert.Greater(driver.Progress01, 0.05f, "중단된 진행도에서 이어받는다(§6.1 [v0.4])");
         }
 
         // 10) 이미 열린 밸브는 재홀드를 거부한다.
@@ -169,9 +176,9 @@ namespace Marco.Core.Tests
                 driver.Tick(0.1f);
             Assert.AreEqual(ValveState.Open, driver.State);
 
-            bool accepted = driver.BeginHold(OtherRunner, RoleType.Runner);
+            ValveInteractionRejection accepted = driver.BeginHold(OtherRunner, RoleType.Runner);
 
-            Assert.IsFalse(accepted);
+            Assert.AreEqual(ValveInteractionRejection.AlreadyOpen, accepted);
             Assert.AreEqual(ValveState.Open, driver.State);
         }
 
@@ -181,7 +188,7 @@ namespace Marco.Core.Tests
         {
             var driver = NewDriver();
 
-            bool opened = driver.Tick(5f);
+            bool opened = driver.Tick(5f).Opened;
 
             Assert.IsFalse(opened);
             Assert.AreEqual(ValveState.Closed, driver.State);
@@ -194,9 +201,9 @@ namespace Marco.Core.Tests
         {
             var driver = NewDriver();
 
-            bool accepted = driver.BeginHold(Runner, RoleType.Seeker);
+            ValveInteractionRejection accepted = driver.BeginHold(Runner, RoleType.Seeker);
 
-            Assert.IsTrue(accepted);
+            Assert.AreEqual(ValveInteractionRejection.None, accepted);
             Assert.AreEqual(ValveState.Rotating, driver.State);
         }
     }

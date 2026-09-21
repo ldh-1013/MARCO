@@ -85,6 +85,9 @@ namespace Marco.Presentation.GameFlow
         /// <summary>§12.3 시작 카운트다운 남은 초(RoleAssign 페이즈에서만 의미).</summary>
         public float CountdownRemaining => IsNetworkActive ? _bridge.CountdownRemaining : 0f;
 
+        /// <summary>§12.4 로비 브리핑 남은 초(0이면 브리핑 아님). 로컬 단독 실행에는 브리핑이 없다.</summary>
+        public float BriefingSecondsRemaining => IsNetworkActive ? _bridge.BriefingSecondsRemaining : 0f;
+
         /// <summary>§12.5 리매치 유효 찬성 수.</summary>
         public int RematchVotesFor => IsNetworkActive ? _bridge.RematchVotesFor : 0;
 
@@ -104,6 +107,32 @@ namespace Marco.Presentation.GameFlow
         public int AwardLoudestScream => IsNetworkActive ? _bridge.AwardLoudestScream : -1;
         public int AwardSilentSurvivor => IsNetworkActive ? _bridge.AwardSilentSurvivor : -1;
         public int AwardBestLiar => IsNetworkActive ? _bridge.AwardBestLiar : -1;
+
+        // ── §6.5 최후 생존자 페이즈 · 배수구 [블록 4] ────────────────────
+        // 로컬 단독 실행에는 페이즈가 없다(1인 라운드는 진입 조건 "살아있는 도망자 1명"을
+        // 시작부터 만족해 의미가 없고, 판정 권위도 서버에만 있다) — 전부 비활성 값을 돌려준다.
+
+        /// <summary>§6.5-1 최후 생존자 페이즈 중인가.</summary>
+        public bool LastSurvivorPhaseActive => IsNetworkActive && _bridge.LastSurvivorPhaseActive;
+
+        /// <summary>§6.5-1 페이즈 유효 잔여(초) — 라운드 잔여와 90초 중 짧은 쪽.</summary>
+        public float LastSurvivorSecondsRemaining => IsNetworkActive ? _bridge.LastSurvivorSecondsRemaining : 0f;
+
+        /// <summary>§6.5-2 활성 배수구(1 메인 풀 / 2 유아풀). 0이면 없음.</summary>
+        public int ActiveDrain => IsNetworkActive ? _bridge.ActiveDrain : 0;
+
+        /// <summary>§6.5-2 배수구 진행도 0~1.</summary>
+        public float DrainProgress01 => IsNetworkActive ? _bridge.DrainProgress01 : 0f;
+
+        /// <summary>§6.5-2 배수구 감쇠 중(§12.4 색 구분).</summary>
+        public bool DrainDecaying => IsNetworkActive && _bridge.DrainDecaying;
+
+        /// <summary>§6.5-2 배수구 작업 의사(누르고 있다/뗐다). 판정은 전부 서버가 한다.</summary>
+        public void SubmitDrainHold(bool held)
+        {
+            if (IsNetworkActive)
+                _bridge.SubmitDrainHold(held);
+        }
 
         private void Awake()
         {
@@ -344,23 +373,24 @@ namespace Marco.Presentation.GameFlow
 
         private void EvaluateRound()
         {
-            int opened = _valveTracker != null ? _valveTracker.OpenedCount : 0;
-            int total = _valveTracker != null ? _valveTracker.TotalValves : 0;
-            // §6.3은 "태그 2명 도달"이 종료 조건이라 전체 러너 수(분모)가 필요 없다 —
-            // 강제 옵션도 임계값을 그대로 넘기는 것으로 충분하다.
-            int tagged = _forceSeekerTagWin
-                ? WinConditionEvaluator.TagWinThreshold
-                : _outcome.TaggedCount;
+            // §6.3 [v0.4] 판정 입력이 도망자 인구로 바뀌었다 — "살아있는 도망자 0명"이
+            // 술래 승리 조건이므로, 강제 옵션은 **전원 태그**로 표현한다.
+            // (v0.3의 "태그 2명 도달"은 §6.3 [v0.4]에서 삭제됐다.)
+            int runnerCount = _totalRunners > 0 ? _totalRunners : 3;
+            int tagged = _forceSeekerTagWin ? runnerCount : _outcome.TaggedCount;
 
-            if (!_outcome.Evaluate(opened, total, tagged, _timer.RemainingSeconds))
+            if (!_outcome.Evaluate(runnerCount, tagged, _timer.RemainingSeconds))
                 return;
 
             _timer.Stop();
             _gameFlow.TryTransition(GameFlowState.RoundEnd);
 
+            int opened = _valveTracker != null ? _valveTracker.OpenedCount : 0;
+            int required = _valveTracker != null ? _valveTracker.RequiredOpenCount : 0;
             Debug.Log($"[Round] 라운드 종료 — 판정: {_outcome.Result} " +
-                      $"(밸브 {opened}/{total}, 탈출 {_outcome.EscapedCount}명, " +
-                      $"태그 {_outcome.TaggedCount}/{_totalRunners}, " +
+                      $"(동시 개방 {opened}/{required}, 탈출 {_outcome.EscapedCount}/" +
+                      $"{Core.Objectives.ValveRoster.EscapeRequirement(runnerCount)}명, " +
+                      $"태그 {_outcome.TaggedCount}/{runnerCount}, " +
                       $"남은 시간 {_timer.RemainingSeconds:0.0}초) → 상태 {_gameFlow.CurrentState}");
         }
 

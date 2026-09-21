@@ -54,6 +54,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Assets\_Project\Tests\EditMode\PlayerIdentityTests.cs" />
+    <Compile Include="Assets\_Project\Tests\EditMode\SeekerSpeedAndTagAftermathTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\HudFormatterTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\ServerKnockDriverTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\TagTargetRegistryTests.cs" />
@@ -65,16 +66,20 @@
     <Compile Include="Assets\_Project\Tests\EditMode\EchoVisibilityTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\ServerRoundDriverTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\ActivePulseTrackerTests.cs" />
+    <Compile Include="Assets\_Project\Tests\EditMode\ValveRosterTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\VoiceClassifierTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\WinConditionEvaluatorTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\ServerLobbyDriverTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\ValveInteractionControllerTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\ValveTests.cs" />
+    <Compile Include="Assets\_Project\Tests\EditMode\UnderwaterWorkSessionTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\SoundPulseResolverTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\BreathGaugeTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\RoleAssignerTests.cs" />
+    <Compile Include="Assets\_Project\Tests\EditMode\PrototypeScenarioTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\SpawnAnchorRegistryTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\RoundFlowTests.cs" />
+    <Compile Include="Assets\_Project\Tests\EditMode\LastSurvivorDrainTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\GameFlowManagerTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\WaterVolumeTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\ServerValveDriverTests.cs" />
@@ -82,9 +87,12 @@
     <Compile Include="Assets\_Project\Tests\EditMode\VoicePipelineStage3Tests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\FootstepMaterialTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\SeekerRotationTests.cs" />
+    <Compile Include="Assets\_Project\Tests\EditMode\SonarAfterglowClickerTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\PulseVisualRegistryTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\LocomotionSimulatorTests.cs" />
+    <Compile Include="Assets\_Project\Tests\EditMode\SprintStealthCampingTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\FallRecoveryTests.cs" />
+    <Compile Include="Assets\_Project\Tests\EditMode\ValveDecayReflowTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\TaggingTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\LocalPulsePipelineTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\GhostFlightTests.cs" />

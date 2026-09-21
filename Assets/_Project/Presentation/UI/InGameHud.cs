@@ -1,5 +1,8 @@
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
+using Marco.Core.GameFlow;
+using Marco.Core.Net;
 using Marco.Core.Objectives;
 using Marco.Core.Role;
 using Marco.Presentation.GameFlow;
@@ -66,13 +69,58 @@ namespace Marco.Presentation.UI
         private Text _valveText;
         private Text _roleText;
         private Text _gateHintText;
+        private Text _phaseText;             // §6.5 최후 생존자 페이즈 · 배수구 [블록 4]
+        private Text _itemText;              // §12.4 아이템 슬롯(우하단) — 찰칵이 [블록 6]
+        private Text _staminaText;           // §3.1 질주 스태미나(기능 표시) [블록 5·7]
+        private Text[] _compassTexts;        // §3.2-2 메아리 8방위 [블록 6]
+        private Text _scoreText;             // §12.4 승리조건 점수판(탈출 ●○ / 요구) [블록 7]
+        private Text _breathText;            // §12.4 숨 게이지(잠수 중, 12초) [블록 7]
+        private Text _guideText;             // §12.4 첫 20초 오프닝 가이드 [블록 7]
+        private Image _overlay;              // 연출.md §4.2 태그 플래시·암전 [블록 7]
+
+        // §12.4 로비 브리핑 평면도 [블록 7]
+        private RectTransform _briefingRoot;
+        private RectTransform _briefingPlan;
+        private Text _briefingTitle;
+        private MapPlanData _plan;
+        private bool _briefingBuilt;
+        private readonly List<Image> _briefingDots = new List<Image>();
+        private readonly List<Text> _briefingDotLabels = new List<Text>();
+        private Font _font;
+
+        // 연출.md §4.2 태그 타임라인
+        private float _tagFxStart = -1f;
+        private bool _tagFxSelf;
+        private const float TagFxSeekerPeak = 0.15f;   // 연출.md §4.2 "0.15 플래시 최대"
+        private const float TagFxSeekerEnd = 0.5f;     // "0.50 플래시 소멸"
+        private const float TagFxRunnerDark = 0.5f;    // "0.50 완전 암전"
+        private const float SeekerFlashAlpha = 0.6f;   // 표시값(규칙 수치 아님) — 화면 전체를 덮되 시야는 남긴다
+        private static readonly Color TagFlashRed = new Color(0xEF / 255f, 0x6A / 255f, 0x4C / 255f, 1f); // §16.1 #EF6A4C
+
+        // §12.4 오프닝 가이드
+        private GameFlowState _lastPhase = GameFlowState.Boot;
+        private float _roundStartedAt = -1f;
+        private int _guideStep;
+        private float _guideDoneAt = -1f;
+
+        private static readonly string[] CompassLabels = { "N", "NE", "E", "SE", "S", "SW", "W", "NW" };
+
+        /// <summary>
+        /// §3.2-2 "아주 흐린 8방위". 투명도는 표시값이다(규칙 수치 아님) — 화면 가장자리에서
+        /// 방향만 읽히고 시야를 가리지 않는 정도.
+        /// </summary>
+        private const float CompassAlpha = 0.18f;
         private Text _resultText;
         private Text _voiceText;              // 스프린트 26a 음성 등급(개발용 표시)
         private Voice.LocalVoicePipeline _voice; // 지연 탐색 — 씬에 없으면 표시하지 않는다
         private Image[] _valvePips;
 
-        /// <summary>§6.2상 맵당 밸브는 최대 3개다. 맵이 오갈 때를 대비해 이만큼 미리 만들어 둔다.</summary>
-        private const int MaxValvePips = 3;
+        /// <summary>
+        /// 핍 개수 = §6.1-0 <b>배치</b> 수(5). v0.3의 "맵당 최대 3개"였던 상수가 남아 있어
+        /// 밸브 D·E가 HUD에 영영 안 그려졌다(블록 2의 enum 파급 누락 — 블록 4에서 발견).
+        /// 활성 3~4개만이 아니라 잠금 밸브도 그려야 "어느 것이 잠겼나"가 보인다.
+        /// </summary>
+        private static int MaxValvePips => ValveRoster.PlacedCount;
 
         private bool Colorblind =>
             _colorblindSource != null ? _colorblindSource.ColorblindMode : _colorblindFallback;
@@ -126,6 +174,28 @@ namespace Marco.Presentation.UI
             _timerText = CreateText(font, "timer", TextAnchor.UpperCenter, new Vector2(0.5f, 1f),
                 new Vector2(0f, -_screenMargin.y));
 
+            // §12.4 "아이템 슬롯 — 우하단, 1슬롯, 상시 — 찰칵이 보유 시 아이콘 노출".
+            _itemText = CreateText(font, "item", TextAnchor.LowerRight, new Vector2(1f, 0f),
+                new Vector2(-_screenMargin.x, _screenMargin.y));
+
+            // §3.1 스태미나 — 도망자 전용 기능 표시(하단 중앙 숨 게이지 자리 바로 위, GAP-26 배치).
+            _staminaText = CreateText(font, "stamina", TextAnchor.LowerCenter, new Vector2(0.5f, 0f),
+                new Vector2(0f, _screenMargin.y + _fontSize * 1.4f));
+
+            // §3.2-2 메아리 8방위 — 화면 가장자리 원주. 위치는 매 프레임 카메라 yaw로 돌린다.
+            _compassTexts = new Text[CompassLabels.Length];
+            for (int i = 0; i < CompassLabels.Length; i++)
+            {
+                _compassTexts[i] = CreateText(font, "compass" + CompassLabels[i], TextAnchor.MiddleCenter,
+                    new Vector2(0.5f, 0.5f), Vector2.zero);
+                _compassTexts[i].text = CompassLabels[i];
+                _compassTexts[i].enabled = false;
+            }
+
+            // §6.5 페이즈 줄 — 타이머 바로 아래. 페이즈 밖에서는 빈 문자열이라 자리만 차지하지 않는다.
+            _phaseText = CreateText(font, "phase", TextAnchor.UpperCenter, new Vector2(0.5f, 1f),
+                new Vector2(0f, -_screenMargin.y - _fontSize * 1.4f));
+
             // 결과 배너: 정식 결과 화면(§12.5)은 다음 단계라, 화면 중앙에 최소 문구만.
             _resultText = CreateText(font, "result", TextAnchor.MiddleCenter, new Vector2(0.5f, 0.5f), Vector2.zero);
             _resultText.fontSize = _fontSize * 2;
@@ -134,7 +204,183 @@ namespace Marco.Presentation.UI
             // 네트워크 연결 여부와 무관하게 항상 갱신한다 — 에디터 단독 Play로 마이크를 확인하려는 것이다.
             _voiceText = CreateText(font, "voice", TextAnchor.LowerLeft, new Vector2(0f, 0f),
                 new Vector2(_screenMargin.x, _screenMargin.y));
+
+            // ── [블록 7] ─────────────────────────────────────────────────
+            _font = font;
+
+            // §12.4 승리조건 점수판 — 게이트 안내 아래.
+            _scoreText = CreateText(font, "score", TextAnchor.UpperLeft, new Vector2(0f, 1f),
+                new Vector2(_screenMargin.x, -_screenMargin.y - _fontSize * 4.2f));
+
+            // §12.4 "숨 게이지 — 하단 중앙".
+            _breathText = CreateText(font, "breath", TextAnchor.LowerCenter, new Vector2(0.5f, 0f),
+                new Vector2(0f, _screenMargin.y));
+
+            // §12.4 오프닝 가이드 — 화면 중앙 조금 아래(시야 중앙을 가리지 않게).
+            _guideText = CreateText(font, "guide", TextAnchor.MiddleCenter, new Vector2(0.5f, 0.3f), Vector2.zero);
+
+            // 연출.md §4.2 태그 오버레이 — 마지막에 만들어 모든 HUD 위에 그린다.
+            var overlayGo = new GameObject("HUD_tagOverlay");
+            overlayGo.transform.SetParent(_canvas.transform, worldPositionStays: false);
+            var overlayRect = overlayGo.AddComponent<RectTransform>();
+            overlayRect.anchorMin = Vector2.zero;
+            overlayRect.anchorMax = Vector2.one;
+            overlayRect.offsetMin = Vector2.zero;
+            overlayRect.offsetMax = Vector2.zero;
+            _overlay = overlayGo.AddComponent<Image>();
+            _overlay.raycastTarget = false;
+            _overlay.color = Color.clear;
+            _overlay.enabled = false;
         }
+
+        private void OnEnable()
+        {
+            TagTargetRegistry.TargetTagged += OnTargetTagged;
+            SelfPulseFeed.Emitted += OnSelfPulse;
+        }
+
+        private void OnDisable()
+        {
+            TagTargetRegistry.TargetTagged -= OnTargetTagged;
+            SelfPulseFeed.Emitted -= OnSelfPulse;
+        }
+
+        /// <summary>
+        /// 연출.md §4.2 — 태그가 확정됐다(각 피어에서 한 번). 내가 잡혔으면 백색 플래시 → 암전(3초),
+        /// 내가 술래면 적색 플래시 + FOV −5° punch + §3.1-1 경직 1.0초(이동 — GAP-85).
+        /// "다른 생존자"는 태그 파문(서버)만 받는다 — 여기서 아무것도 하지 않는다.
+        /// </summary>
+        private void OnTargetTagged(ITagTarget target)
+        {
+            FirstPersonController local = LocalPlayerRegistry.Current;
+            if (local == null || target == null || !local.IsLocallyControlled)
+                return;
+
+            if (target.PlayerId == local.PlayerId)
+            {
+                _tagFxStart = Time.time;
+                _tagFxSelf = true;
+                return;
+            }
+
+            if (local.Role == RoleType.Seeker)
+            {
+                _tagFxStart = Time.time;
+                _tagFxSelf = false;
+                local.PunchFov(-5f, 1f);                                 // 연출.md §4.2 "FOV −5° punch-in", 1.00 복귀
+                local.StunFor(Core.Tagging.TagAftermath.SeekerStunSeconds); // §3.1-1 1.0초
+            }
+        }
+
+        private void UpdateTagOverlay()
+        {
+            if (_overlay == null)
+                return;
+
+            if (_tagFxStart < 0f)
+            {
+                _overlay.enabled = false;
+                return;
+            }
+
+            float t = Time.time - _tagFxStart;
+            Color c;
+            if (_tagFxSelf)
+            {
+                // 0 백색 플래시 → 0.15 암전 시작 → 0.50 완전 암전 → 3.00 소나 시야 복귀(§3.1-1 암전 3.0초).
+                float blackout = Core.Tagging.TagAftermath.RunnerBlackoutSeconds;
+                if (t >= blackout)
+                {
+                    _tagFxStart = -1f;
+                    _overlay.enabled = false;
+                    return;
+                }
+
+                if (t < TagFxSeekerPeak)
+                    c = Color.white;
+                else if (t < TagFxRunnerDark)
+                    c = Color.Lerp(Color.white, Color.black, (t - TagFxSeekerPeak) / (TagFxRunnerDark - TagFxSeekerPeak));
+                else
+                    c = Color.black;
+                c.a = 1f;
+            }
+            else
+            {
+                if (t >= TagFxSeekerEnd)
+                {
+                    _tagFxStart = -1f;
+                    _overlay.enabled = false;
+                    return;
+                }
+
+                c = TagFlashRed;
+                c.a = t < TagFxSeekerPeak
+                    ? SeekerFlashAlpha * (t / TagFxSeekerPeak)
+                    : SeekerFlashAlpha * (1f - (t - TagFxSeekerPeak) / (TagFxSeekerEnd - TagFxSeekerPeak));
+            }
+
+            _overlay.enabled = true;
+            _overlay.color = c;
+        }
+
+        /// <summary>§12.4 오프닝 가이드 단계 진행 — 자기 발소리 → 자기 목소리.</summary>
+        private void OnSelfPulse(Core.Sound.SoundType type, float radius, float duration, Vector3 position)
+        {
+            if (_roundStartedAt < 0f)
+                return;
+
+            bool footstep = type == Core.Sound.SoundType.Walk || type == Core.Sound.SoundType.Sprint;
+            bool voice = type == Core.Sound.SoundType.Whisper || type == Core.Sound.SoundType.Talk ||
+                         type == Core.Sound.SoundType.Shout;
+
+            if (_guideStep == 0 && footstep)
+                _guideStep = 1;
+            else if (_guideStep == 1 && voice)
+            {
+                _guideStep = 2;
+                _guideDoneAt = Time.time;
+            }
+        }
+
+        private void UpdateGuide()
+        {
+            if (_guideText == null || _round == null)
+                return;
+
+            GameFlowState phase = _round.CurrentPhase;
+            if (phase != _lastPhase)
+            {
+                if (phase == GameFlowState.InGame)
+                {
+                    _roundStartedAt = Time.time;
+                    _guideStep = 0;
+                    _guideDoneAt = -1f;
+                }
+                else
+                {
+                    _roundStartedAt = -1f;
+                }
+
+                _lastPhase = phase;
+            }
+
+            FirstPersonController player = LocalPlayerRegistry.Current;
+            bool eligible = player != null && player.Role != RoleType.Echo;
+            float elapsed = _roundStartedAt >= 0f ? Time.time - _roundStartedAt : float.MaxValue;
+            bool doneShown = _guideDoneAt >= 0f && Time.time - _guideDoneAt > GuideDoneHoldSeconds;
+
+            if (!eligible || elapsed > BriefingConfig.OpeningGuideSeconds || doneShown)
+            {
+                _guideText.text = string.Empty;
+                return;
+            }
+
+            _guideText.text = HudFormatter.FormatOpeningGuide(_guideStep);
+            _guideText.color = PulseColor();
+        }
+
+        /// <summary>가이드 마지막 문구 유지 시간(표시값).</summary>
+        private const float GuideDoneHoldSeconds = 2f;
 
         /// <summary>
         /// 빌트인 폰트를 단계적으로 시도한다. Unity 2022.2+에서 Arial이 LegacyRuntime으로 바뀌었고
@@ -226,6 +472,15 @@ namespace Marco.Presentation.UI
         private void Update()
         {
             UpdateTimer();
+            UpdatePhase();
+            UpdateItem();
+            UpdateStamina();
+            UpdateCompass();
+            UpdateScore();
+            UpdateBreath();
+            UpdateGuide();
+            UpdateBriefing();
+            UpdateTagOverlay();
             UpdateValves();
             UpdateRole();
             UpdateGateHint();
@@ -287,6 +542,332 @@ namespace Marco.Presentation.UI
             _timerText.color = PulseColor(); // 암전 배경 위 기본 발광색(§16.1)
         }
 
+        /// <summary>
+        /// §6.5 페이즈 줄. ★ 배수구 진행도는 밸브와 같은 규칙이므로(§6.5-2) <b>작업 중과 감쇠 중을
+        /// 다른 색으로</b> 그린다 — 밸브 핍과 같은 색 두 개를 쓴다(§12.4).
+        /// </summary>
+        private void UpdatePhase()
+        {
+            if (_phaseText == null)
+                return;
+
+            if (_round == null || !_round.LastSurvivorPhaseActive)
+            {
+                _phaseText.text = string.Empty;
+                return;
+            }
+
+            _phaseText.text = HudFormatter.FormatLastSurvivorPhase(
+                true, _round.LastSurvivorSecondsRemaining, _round.ActiveDrain, _round.DrainProgress01);
+
+            // §12.4 "마지막 한 명 + 활성 배수구 방향"(양 진영 공통) — 카메라 기준 8방위 화살표.
+            FirstPersonController viewer = LocalPlayerRegistry.Current;
+            Camera cam = viewer != null ? viewer.GetComponentInChildren<Camera>() : null;
+            if (_round.ActiveDrain != 0 && cam != null &&
+                DrainRegistry.TryGetPosition((DrainId)_round.ActiveDrain, out Vector3 drainPos))
+            {
+                Vector3 d = drainPos - cam.transform.position;
+                float bearing = Mathf.Atan2(d.x, d.z) * Mathf.Rad2Deg;
+                _phaseText.text += " " + HudFormatter.DirectionArrow(bearing - cam.transform.eulerAngles.y);
+            }
+            _phaseText.color = _round.DrainDecaying ? DecayColor : InteractableColor();
+        }
+
+        /// <summary><paramref name="index"/>번째 활성 밸브(없으면 null). 배열 순서를 유지한다.</summary>
+        private static ValveBehaviour ActiveValveAt(ValveBehaviour[] valves, int index)
+        {
+            int seen = 0;
+            for (int i = 0; i < valves.Length; i++)
+            {
+                ValveBehaviour v = valves[i];
+                if (v == null || !v.IsActiveThisRound)
+                    continue;
+                if (seen == index)
+                    return v;
+                seen++;
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// §12.4 승리조건 점수판 — "탈출 ●● / 요구 ●●". 칸 수는 §6.2 표에서 유도한다(상수 금지).
+        /// 도망자 수 = 총원 − 술래(§6.2). 인원을 모르면(로컬) 표시하지 않는다.
+        /// </summary>
+        private void UpdateScore()
+        {
+            if (_scoreText == null || _round == null)
+                return;
+
+            int total = RoundStateRegistry.TotalPlayers;
+            if (total <= 0 || _round.CurrentPhase != GameFlowState.InGame)
+            {
+                _scoreText.text = string.Empty;
+                return;
+            }
+
+            int runners = Core.Role.RoleAssigner.RunnersFor(total);
+            _scoreText.text = HudFormatter.FormatEscapeBoard(_round.EscapedCount, ValveRoster.EscapeRequirement(runners));
+            _scoreText.color = RunnerColor();
+        }
+
+        /// <summary>
+        /// §12.4 숨 게이지 — 도망자, 잠수 중이거나 덜 찼을 때만. 값은 서버가 소유자에게 보낸 것이다(GAP-76 해소).
+        /// </summary>
+        private void UpdateBreath()
+        {
+            if (_breathText == null)
+                return;
+
+            FirstPersonController player = LocalPlayerRegistry.Current;
+            bool show = player != null && player.Role == RoleType.Runner &&
+                        (Core.Breath.BreathClientState.Submerged ||
+                         Core.Breath.BreathClientState.Remaining < Core.Breath.BreathConfig.TotalSeconds);
+            if (!show)
+            {
+                _breathText.text = string.Empty;
+                return;
+            }
+
+            _breathText.text = HudFormatter.FormatBreath(Core.Breath.BreathClientState.Remaining);
+            _breathText.color = Core.Breath.BreathClientState.Remaining < Core.Breath.BreathConfig.SuppressionCost
+                ? DecayColor   // §3.5 비명 억제(-4.5) 불가 구간 — 색으로 알린다
+                : PulseColor();
+        }
+
+        // ── §12.4 로비 브리핑 평면도 ───────────────────────────────────
+
+        /// <summary>
+        /// §12.4 "라운드 시작 전 맵 평면도를 30초간 표시한다. 라운드 시작 시 사라진다." 평면도 한 장 +
+        /// 활성 밸브 점(잠긴 밸브는 ✕) — 사용자 지시 범위. <b>술래와 도망자가 같은 화면을 본다.</b>
+        /// 인게임 중에는 어떤 지도도 보이지 않는다(브리핑 잔여 0이면 숨김).
+        /// </summary>
+        private void UpdateBriefing()
+        {
+            float remaining = _round != null ? _round.BriefingSecondsRemaining : 0f;
+            if (remaining <= 0f)
+            {
+                if (_briefingRoot != null)
+                    _briefingRoot.gameObject.SetActive(false);
+                return;
+            }
+
+            if (_plan == null)
+                _plan = FindAnyObjectByType<MapPlanData>();
+
+            if (!_briefingBuilt)
+                BuildBriefing();
+
+            if (_briefingRoot == null)
+                return;
+
+            _briefingRoot.gameObject.SetActive(true);
+
+            ValveBehaviour[] valves = _valves != null ? _valves.Valves : System.Array.Empty<ValveBehaviour>();
+            int active = 0;
+            for (int i = 0; i < valves.Length; i++)
+            {
+                if (valves[i] != null && valves[i].IsActiveThisRound)
+                    active++;
+            }
+
+            int required = _valves != null ? _valves.RequiredOpenCount : 0;
+            _briefingTitle.text = HudFormatter.FormatBriefingTitle(active, required, remaining);
+
+            // 밸브 점 — 씬의 실제 밸브 위치(도면 좌표 x, z).
+            EnsureDots(valves.Length);
+            Rect bounds = _plan != null ? _plan.Bounds : new Rect(0f, 0f, 50f, 42f);
+            for (int i = 0; i < _briefingDots.Count; i++)
+            {
+                bool has = i < valves.Length && valves[i] != null;
+                _briefingDots[i].enabled = has;
+                _briefingDotLabels[i].enabled = has;
+                if (!has)
+                    continue;
+
+                ValveBehaviour v = valves[i];
+                Vector3 p = v.transform.position;
+                Vector2 n = MapPlanData.Normalize(bounds, new Vector2(p.x, p.z));
+                Vector2 pos = PlanPoint(n);
+                _briefingDots[i].rectTransform.anchoredPosition = pos;
+                _briefingDotLabels[i].rectTransform.anchoredPosition = pos + new Vector2(0f, 18f);
+
+                bool on = v.IsActiveThisRound;
+                _briefingDots[i].color = on ? InteractableColor() : new Color(0.35f, 0.35f, 0.35f, 0.9f);
+                _briefingDotLabels[i].text = on ? v.ValveId.ToString() : v.ValveId + " ✕";
+                _briefingDotLabels[i].color = _briefingDots[i].color;
+            }
+        }
+
+        private const float PlanWidth = 1000f;
+        private const float PlanHeight = 840f;
+
+        private Vector2 PlanPoint(Vector2 normalized)
+        {
+            Rect bounds = _plan != null ? _plan.Bounds : new Rect(0f, 0f, 50f, 42f);
+            float scale = Mathf.Min(PlanWidth / Mathf.Max(1f, bounds.width), PlanHeight / Mathf.Max(1f, bounds.height));
+            return new Vector2((normalized.x - 0.5f) * bounds.width * scale, (normalized.y - 0.5f) * bounds.height * scale);
+        }
+
+        private void BuildBriefing()
+        {
+            _briefingBuilt = true;
+
+            var rootGo = new GameObject("HUD_briefing");
+            rootGo.transform.SetParent(_canvas.transform, worldPositionStays: false);
+            _briefingRoot = rootGo.AddComponent<RectTransform>();
+            _briefingRoot.anchorMin = Vector2.zero;
+            _briefingRoot.anchorMax = Vector2.one;
+            _briefingRoot.offsetMin = Vector2.zero;
+            _briefingRoot.offsetMax = Vector2.zero;
+            var dim = rootGo.AddComponent<Image>();
+            dim.raycastTarget = false;
+            dim.color = new Color(0f, 0f, 0f, 0.92f);
+
+            var planGo = new GameObject("Plan");
+            planGo.transform.SetParent(_briefingRoot, worldPositionStays: false);
+            _briefingPlan = planGo.AddComponent<RectTransform>();
+            _briefingPlan.anchorMin = new Vector2(0.5f, 0.5f);
+            _briefingPlan.anchorMax = new Vector2(0.5f, 0.5f);
+            _briefingPlan.sizeDelta = new Vector2(PlanWidth, PlanHeight);
+            _briefingPlan.anchoredPosition = new Vector2(0f, -30f);
+
+            _briefingTitle = CreateText(_font, "briefingTitle", TextAnchor.UpperCenter, new Vector2(0.5f, 1f),
+                new Vector2(0f, -_screenMargin.y));
+            _briefingTitle.transform.SetParent(_briefingRoot, worldPositionStays: true);
+            _briefingTitle.color = PulseColor();
+
+            if (_plan == null)
+                return; // 맵 v2가 아니면 구역 없이 밸브 점만 그린다
+
+            Rect bounds = _plan.Bounds;
+            float scale = Mathf.Min(PlanWidth / Mathf.Max(1f, bounds.width), PlanHeight / Mathf.Max(1f, bounds.height));
+            Color env = PulseColor();
+
+            MapPlanData.Area[] areas = _plan.Areas;
+            for (int i = 0; i < areas.Length; i++)
+            {
+                MapPlanData.Area a = areas[i];
+                var go = new GameObject("Area_" + a.Name);
+                go.transform.SetParent(_briefingPlan, worldPositionStays: false);
+                var rect = go.AddComponent<RectTransform>();
+                Vector2 center = PlanPoint(MapPlanData.Normalize(bounds, a.Rect.center));
+                rect.anchoredPosition = center;
+                rect.sizeDelta = new Vector2(a.Rect.width * scale, a.Rect.height * scale);
+                var img = go.AddComponent<Image>();
+                img.raycastTarget = false;
+                Color c = env;
+                c.a = a.Water ? 0.06f : a.UpperFloor ? 0.2f : 0.12f; // 표시값 — 물은 옅게, 2층은 진하게
+                img.color = c;
+
+                Text label = CreateText(_font, "AreaLabel_" + a.Name, TextAnchor.MiddleCenter, new Vector2(0.5f, 0.5f), Vector2.zero);
+                label.transform.SetParent(_briefingPlan, worldPositionStays: false);
+                label.rectTransform.anchoredPosition = center;
+                label.fontSize = Mathf.Max(10, _fontSize - 8);
+                label.text = a.UpperFloor ? a.Name + " (2층)" : a.Name;
+                Color lc = env;
+                lc.a = 0.55f;
+                label.color = lc;
+            }
+        }
+
+        private void EnsureDots(int count)
+        {
+            while (_briefingDots.Count < count && _briefingPlan != null)
+            {
+                var go = new GameObject("ValveDot");
+                go.transform.SetParent(_briefingPlan, worldPositionStays: false);
+                var rect = go.AddComponent<RectTransform>();
+                rect.sizeDelta = new Vector2(18f, 18f);
+                var img = go.AddComponent<Image>();
+                img.raycastTarget = false;
+                _briefingDots.Add(img);
+
+                Text label = CreateText(_font, "ValveDotLabel", TextAnchor.MiddleCenter, new Vector2(0.5f, 0.5f), Vector2.zero);
+                label.transform.SetParent(_briefingPlan, worldPositionStays: false);
+                _briefingDotLabels.Add(label);
+            }
+        }
+
+        /// <summary>§12.4 아이템 슬롯 — 찰칵이 보유 시만. 1회용 · 소지 1개(§7).</summary>
+        private void UpdateItem()
+        {
+            if (_itemText == null)
+                return;
+
+            FirstPersonController player = LocalPlayerRegistry.Current;
+            bool show = player != null && player.Role == RoleType.Runner && Core.Items.ClickerClientEvents.LocalHolding;
+            _itemText.text = show ? "▮ 찰칵이  [Q / 우클릭]" : string.Empty;
+            _itemText.color = InteractableColor();
+        }
+
+        /// <summary>§3.1 질주 스태미나 — 도망자만. 소진 페널티 중에는 감쇠 색으로 구분한다.</summary>
+        private void UpdateStamina()
+        {
+            if (_staminaText == null)
+                return;
+
+            FirstPersonController player = LocalPlayerRegistry.Current;
+            if (player == null || player.Role != RoleType.Runner)
+            {
+                _staminaText.text = string.Empty;
+                return;
+            }
+
+            float s = Mathf.Clamp01(player.Stamina01);
+            if (s >= 1f && !player.IsStaminaExhausted)
+            {
+                _staminaText.text = string.Empty; // 가득 차 있으면 표시하지 않는다(기능 위주 — 필요할 때만)
+                return;
+            }
+
+            _staminaText.text = HudFormatter.FormatStamina(s, player.IsStaminaExhausted);
+            _staminaText.color = player.IsStaminaExhausted ? DecayColor : RunnerColor();
+        }
+
+        /// <summary>
+        /// §3.2-2 메아리 8방위 — <b>바라보는 방향만</b>. 위치·지형·러너는 알려주지 않는다.
+        /// 메아리가 아니면 숨긴다.
+        /// </summary>
+        private void UpdateCompass()
+        {
+            if (_compassTexts == null)
+                return;
+
+            FirstPersonController player = LocalPlayerRegistry.Current;
+            Camera cam = player != null ? player.GetComponentInChildren<Camera>() : null;
+            bool show = player != null && player.Role == RoleType.Echo && cam != null;
+
+            float yaw = show ? cam.transform.eulerAngles.y : 0f;
+            RectTransform canvasRect = _canvas != null ? _canvas.transform as RectTransform : null;
+            float rx = canvasRect != null ? canvasRect.rect.width * 0.46f : 880f;
+            float ry = canvasRect != null ? canvasRect.rect.height * 0.44f : 470f;
+
+            for (int i = 0; i < _compassTexts.Length; i++)
+            {
+                Text t = _compassTexts[i];
+                if (t == null)
+                    continue;
+
+                t.enabled = show;
+                if (!show)
+                    continue;
+
+                // 월드 기준 방위(N=+z, 시계방향) → 카메라 기준 상대각(§3.4 방위 인디케이터와 같은 계산).
+                float rel = (i * 45f - yaw) * Mathf.Deg2Rad;
+                t.rectTransform.anchoredPosition = new Vector2(Mathf.Sin(rel) * rx, Mathf.Cos(rel) * ry);
+                Color c = PulseColor();
+                c.a = CompassAlpha;
+                t.color = c;
+            }
+        }
+
+        /// <summary>§12.4 감쇠 색. 밸브 핍과 배수구 줄이 같은 값을 쓴다.</summary>
+        private static readonly Color DecayColor = new Color(1f, 0.45f, 0.1f, 0.95f);
+
+        private Color InteractableColor() =>
+            _palette != null ? _palette.GetInteractable(Colorblind) : new Color(1f, 0.72f, 0.3f);
+
         private void UpdateValves()
         {
             if (!_showValves || _valves == null)
@@ -299,7 +880,10 @@ namespace Marco.Presentation.UI
 
             if (_valveText != null)
             {
-                _valveText.text = HudFormatter.FormatValveCount(_valves.OpenedCount, _valves.TotalValves);
+                // ★ §12.4 "동시 개방 수 / 요구 수" — 분모가 활성 수가 아니라 **요구 수**다.
+                //   역류·감쇠로 분자가 **줄어들 수 있다**(증가만 하는 값이 아니다).
+                _valveText.text = HudFormatter.FormatValveCount(
+                    _valves.OpenedCount, _valves.RequiredOpenCount);
                 _valveText.color = PulseColor();
             }
 
@@ -316,8 +900,17 @@ namespace Marco.Presentation.UI
             if (_valvePips == null)
                 return;
 
-            Color accent = _palette != null ? _palette.GetInteractable(Colorblind) : new Color(1f, 0.72f, 0.3f);
+            Color accent = InteractableColor();
             var closed = new Color(0.25f, 0.25f, 0.25f, 0.85f);
+
+            // ★ §12.4 감쇠 색은 회전 색(accent)과 반드시 달라야 한다.
+            Color decay = DecayColor;
+
+            // §6.1-2 역류 경고 색(§16.2 팔레트의 술래 적색).
+            var warn = new Color(0.94f, 0.42f, 0.30f, 1f);
+
+            // §6.1-0 비활성(잠금) 색.
+            var locked = new Color(0.16f, 0.16f, 0.2f, 0.7f);
 
             for (int i = 0; i < _valvePips.Length; i++)
             {
@@ -328,8 +921,10 @@ namespace Marco.Presentation.UI
                 // 스프린트 18b: 밸브 목록은 맵 로드·언로드에 따라 바뀌므로 매 프레임 집계기에서
                 // 최신 배열을 읽는다(집계기가 씬 이벤트로 재스캔한다). 맵이 없으면 길이 0이라
                 // 모든 핍이 숨는다.
+                // §12.4 "밸브 상태 슬롯 — 활성 개수만큼(3~4칸)". 잠긴 밸브는 슬롯을 차지하지 않는다
+                // (잠금은 §12.4 브리핑 평면도가 보여준다).
                 ValveBehaviour[] valves = _valves.Valves;
-                ValveBehaviour valve = i < valves.Length ? valves[i] : null;
+                ValveBehaviour valve = ActiveValveAt(valves, i);
                 if (valve == null)
                 {
                     pip.enabled = false;
@@ -338,16 +933,43 @@ namespace Marco.Presentation.UI
 
                 pip.enabled = true;
 
+                // §6.1-0 비활성 밸브는 잠금 표시 — 상호작용이 거부되므로 진행도를 안 보인다.
+                if (!valve.IsActiveThisRound)
+                {
+                    pip.color = locked;
+                    continue;
+                }
+
                 switch (valve.State)
                 {
                     case ValveState.Open:
                         pip.color = accent;
                         break;
+
                     case ValveState.Rotating:
                         pip.color = Color.Lerp(closed, accent, Mathf.Clamp01(valve.Progress01));
                         break;
+
+                    case ValveState.Reflowing:
+                        // §6.1-2 "HUD 밸브 아이콘 점멸 — 역류 시작 시점부터 30초간"
+                        pip.color = Mathf.Repeat(Time.time, 1f) < 0.5f ? warn : accent;
+                        break;
+
                     default:
-                        pip.color = closed;
+                        // ★ §12.4 감쇠 중에는 **회전 중과 다른 색**으로 같은 진행도를 그린다.
+                        //   이건 연출이 아니라 정보다 — 구분이 안 되면 "지금 뺄까, 1초 더
+                        //   돌릴까" 판단 자체가 불가능해진다(v0.4의 핵심).
+                        if (valve.Progress01 > 0f)
+                        {
+                            pip.color = Color.Lerp(closed,
+                                valve.IsDecaying ? decay : accent,
+                                Mathf.Clamp01(valve.Progress01));
+                        }
+                        else
+                        {
+                            pip.color = closed;
+                        }
+
                         break;
                 }
             }

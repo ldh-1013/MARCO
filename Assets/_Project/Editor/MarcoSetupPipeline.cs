@@ -129,6 +129,18 @@ namespace Marco.EditorTools
 
             SaveOpenScenes(log);
 
+            // ── 1b. [블록 7] 맵 v2 생성 — 네트워크 셋업 **전에** ──────────────
+            // 전에는 맨 끝(10단계)에서 생성해, 4단계 Setup Network Valves가 구 그레이박스 밸브(식별자 전부 A)에
+            // 네트워크를 붙이고 맵 v2 밸브는 NetworkObject 없이 남았다. 생성기가 구 맵을 끄므로
+            // 이후 단계는 맵 v2만 본다.
+            if (!ActivateScene(log, "Game"))
+                return false;
+
+            if (!Step(log, "맵 v2 생성 (§10.1) — 구 그레이박스 비활성화", () => MapV2GeneratorTool.Generate()))
+                return false;
+
+            SaveOpenScenes(log);
+
             // ── 2. 접속 컴포넌트 분리 ────────────────────────────────────
             // FishNet이 접속 전 NetworkObject를 비활성화하므로 ConnectionService가 그 위에 있으면
             // 접속 자체가 불가능하다(스프린트 18b 실기에서 확정).
@@ -207,17 +219,11 @@ namespace Marco.EditorTools
 
             SaveOpenScenes(log);
 
-            // ── 10. 맵 v2 생성 + §10.2-1 배치 검증 ──────────────────────
-            // 8단계가 이미 맵 씬을 Single로 열어 뒀으므로 활성 씬이 맵이다 —
-            // 생성기는 활성 씬에 루트를 만들기 때문에 이 순서가 중요하다.
+            // ── 10. §10.2-1 배치 검증 ─────────────────────────────────────
+            // [블록 7] 생성은 1b단계로 옮겼다(네트워크 셋업보다 먼저여야 한다). 여기서는 검증만.
             if (!Require(log, IsSceneLoaded("Game"),
-                    "맵 v2를 생성하려면 Game 씬이 활성이어야 합니다 — 8단계가 Single로 열었는지 확인하세요."))
+                    "배치 검증에는 Game 씬이 열려 있어야 합니다 — 8단계가 Single로 열었는지 확인하세요."))
                 return false;
-
-            if (!Step(log, "맵 v2 생성 (§10.1)", () => MapV2GeneratorTool.Generate()))
-                return false;
-
-            SaveOpenScenes(log);
 
             // 검증 실패는 **파이프라인을 멈추지 않는다.** 배치가 어긋난 것은 좌표 문제이지
             // 배선 문제가 아니라, 여기서 중단하면 이후 단계(저장·에셋)를 건너뛰어

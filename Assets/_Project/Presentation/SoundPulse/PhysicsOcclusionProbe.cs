@@ -84,8 +84,10 @@ namespace Marco.Presentation.Sound
             if (distance <= Mathf.Epsilon)
                 return new OcclusionResult(false, 0);
 
+            // [블록 7] 트리거도 센다 — §5.6 수면 차폐판은 **트리거**다(GAP-90). 고체였을 때는 플레이어가
+            // 물 위를 걸어 잠수가 아예 성립하지 않았다. SoundBlocking 레이어의 트리거는 수면판뿐이다.
             int hitCount = Physics.RaycastNonAlloc(
-                new Ray(from, delta / distance), HitBuffer, distance, _layerMask, QueryTriggerInteraction.Ignore);
+                new Ray(from, delta / distance), HitBuffer, distance, _layerMask, QueryTriggerInteraction.Collide);
 
             // 버퍼가 꽉 찼다 = 잘렸을 수 있다. RaycastNonAlloc은 잘렸는지 알려주지 않으므로
             // "정확히 상한과 같다"가 우리가 가진 유일한 신호다. 여기서 놓치면 벽 수가

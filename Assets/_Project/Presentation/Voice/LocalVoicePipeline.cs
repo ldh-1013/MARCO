@@ -164,8 +164,19 @@ namespace Marco.Presentation.Voice
             if (!TryGetBridge(out Marco.Core.Net.IPulseNetworkBridge bridge))
                 return;
 
+            // §3.2 메아리의 음성은 생존자에게 들리지 않는다 — 파문을 만들지 않는다
+            // (서버도 같은 규칙으로 거부한다. 여기서는 RPC 낭비와 자기 화면 오표시만 막는다).
+            // GAP-61: 로컬 플레이어는 매번 재조회한다.
+            Player.FirstPersonController player = Player.LocalPlayerRegistry.Current;
+            if (player != null && player.Role == Marco.Core.Role.RoleType.Echo)
+                return;
+
             SoundType type = ToSoundType(grade);
             bridge.SubmitPulse(type);
+
+            // [블록 6] 자기 목소리 파문을 자기 화면에(GAP-1 로컬 0ms 경로). 반경·지속은 §5.1 표 그대로.
+            if (player != null)
+                Sound.SelfPulseFeed.RaiseFromTable(type, player.transform.position);
 
             if (_logGradeChanges)
                 Debug.Log($"[Voice:Net] 발화 파문 전송 — {grade}(§5.1 {type}). 반경·위치·차폐는 서버가 확정합니다.");
