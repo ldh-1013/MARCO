@@ -70,6 +70,7 @@
     <Compile Include="Assets\_Project\Tests\EditMode\VoiceClassifierTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\WinConditionEvaluatorTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\ServerLobbyDriverTests.cs" />
+    <Compile Include="Assets\_Project\Tests\EditMode\RoundStartSequencerTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\ValveInteractionControllerTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\ValveTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\UnderwaterWorkSessionTests.cs" />

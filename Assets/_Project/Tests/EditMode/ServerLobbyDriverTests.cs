@@ -58,6 +58,7 @@ namespace Marco.Core.Tests
             Assert.IsFalse(d.CountdownActive, "시작 신호 후 카운트다운은 종료 상태여야 한다");
 
             // 시작 신호는 1회만 — 다음 틱은 (전원 준비면) 새 카운트다운 시작으로 취급된다.
+            // 그래서 StartRound 뒤로는 틱하지 않아야 한다(RoundStartSequencer 가드 — 로비 카운트다운 무한 루프).
             Assert.AreEqual(LobbyTickResult.CountdownStarted, d.Tick(2, 2, 0.1f));
         }
 

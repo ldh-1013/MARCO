@@ -15,7 +15,10 @@ namespace Marco.Core.GameFlow
         /// <summary>카운트다운 중 조건이 깨져(이탈/준비 해제) 로비로 되돌아감(GAP-29).</summary>
         Aborted,
 
-        /// <summary>카운트다운 완료 — 라운드를 시작하라(1회만 반환).</summary>
+        /// <summary>
+        /// 카운트다운 완료 — 라운드를 시작하라(카운트다운 1회당 1회). <b>이후에도 전원 준비 상태로 계속 틱하면
+        /// 새 카운트다운이 시작된다</b> — 호출자는 StartRound 뒤로 틱을 멈춰야 한다(<see cref="RoundStartSequencer"/>).
+        /// </summary>
         StartRound
     }
 

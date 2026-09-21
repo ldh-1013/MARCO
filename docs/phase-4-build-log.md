@@ -3282,3 +3282,91 @@ FishNet RPC 위빙은 Unity 안에서만 일어나므로 `ClickerNetworkSync`의
 | 97 | ✅ 해소 — 서술 오류로 판정, §10.2 수정 |
 | 101 | ✅ 해소 — (44, 2.25), 유도값 |
 | 88 | 🟡 보류 유지 — 결과로 "물 밖에서 수중 밸브 작업 시 숨 소모 0"이 남는다 |
+
+---
+
+## 긴급 수정 — 로비 카운트다운 무한 루프 (`RoundNetworkSync.TickCountdown`)
+
+### 증상 · 원인
+
+RoleAssign 페이즈의 서버 틱이 맵 대기·브리핑 중에도 매 틱 `ServerLobbyDriver.Tick`을 불렀다. 드라이버는 StartRound를 낸 뒤
+`CountdownActive = false`가 되고, 다음 틱에 전원 준비 상태를 **새 카운트다운**으로 받는다(`ServerLobbyDriverTests.Countdown_CompletesAfterThreeSeconds_ReturnsStartRoundOnce`가
+고정하던 계약 그대로). 그래서 **3초 + 1틱마다** StartRound → 라운드 번호 증가 · 역할 재배정 · 맵 로드 재요청 · 브리핑 재시작(30초로 리셋 · 활성 밸브 재선택)이
+반복됐고, 브리핑이 0에 닿지 못해 라운드가 끝내 시작되지 않았다. 블록 7 이전(브리핑 없음)에도 맵 로드가 3초를 넘으면 같은 반복이 났을 경로다.
+
+**실기 로그로 확인** — `%LOCALAPPDATA%Low/DefaultCompany/시작/Player.log`(9/22 00:33, 2인):
+`역할 배정 완료` 16회 · `로비 브리핑 30초` 16회 · `라운드 시작 — 서버 권위` **0회**. 로테이션 표기가 1세트 1/3판 → 6세트 1/3판으로
+전진(= 라운드 번호 0 → 15), 2인이라 술래가 반복마다 OwnerId 0 ↔ 1로 교대했다. 로그에 시각이 없어 간격 3초는 직접 보이지 않는다 — 코드 경로로
+재현(아래 테스트: 주기 정확히 193틱 = 3초 + 1틱).
+
+### 수정
+
+- **`Core/GameFlow/RoundStartSequencer`**(신규) — RoleAssign 순서기: 카운트다운 → 맵 대기 → 브리핑 → 라운드 시작. **가드는 여기 한 곳**:
+  `WaitingForMap || Briefing`이면 로비 드라이버를 틱하지 않는다. 결과는 `[Flags] RoundStartEvents`(Aborted / StartRound / BriefingStarted / BeginRound).
+  Net을 EditMode에서 돌릴 수 없어 순서 판정을 Core로 옮겼다 — 테스트가 제품 코드를 직접 친다.
+- `RoundNetworkSync` — `_waitingForMap` · `_briefing` · `_briefingServerRemaining` 삭제, `TickCountdown`은 이벤트별 부수 효과만(기존 Aborted / StartRound 본문 그대로).
+  `ServerResetWorld`는 시퀀서를 초기화한다(부결 경로의 `_waitingForMap = false`도 여기로 흡수).
+- `ServerLobbyDriver` — 코드 무변경. `StartRound` 문서에 "이후 계속 틱하면 재무장된다 — 호출자가 멈춰야 한다"를 명시.
+
+### ⚠ 지시 밖 수정 1건 — 루프가 가리던 결함: 첫 브리핑의 "밸브 0개"
+
+같은 로그 첫 반복: `맵 로드 요청` → `밸브가 0개 — 활성 선택을 건너뜁니다` → `로비 브리핑 30초` → `[Valve] 동시 개방 0/3 (활성 5)`.
+`MapReadyForRound()`가 Unity의 "씬 로드됨"만 봤는데, 그 틱에는 FishNet이 맵 씬의 NetworkObject를 아직 스폰하지 않았다
+(`ValveNetworkSync.Spawned`는 `OnStartNetwork`에서 채워진다). 루프 중에는 두 번째 반복부터 밸브가 잡혀 가려졌지만, **가드만 넣으면 브리핑이 그 1회뿐이라
+밸브 5개 전부 활성인 채 라운드가 돈다**(§6.2 "활성 = 요구 + 1" 붕괴 · 평면도도 틀림). 그래서 맵 준비 = **씬 로드 + 밸브 스폰 1개 이상**으로 좁혔다
+(씬 오브젝트는 한 번에 스폰된다). 스폰이 끝내 안 오면 조용히 멈추지 않게 "밸브 스폰 대기" 로그를 1회 남긴다. 이 부분은 Net이라 EditMode 테스트가 없다 — 실기 확인 항목(수동검증 §31-1).
+
+### Aborted(GAP-29) 재검토 → GAP-104
+
+- 기획서 확인: §12.3(준비 버튼 "전원 Ready 시 3초 카운트다운 후 역할 추첨 연출로 전환") · §12.4(브리핑 "라운드 시작 전 30초, 라운드 시작 시 사라진다") ·
+  §15.4(RoleAssign 종료 조건 "연출 종료" → InGame) — **"브리핑 시작하면 취소 불가"도, "브리핑 중 취소"도 없다.** §15.4 표에는 RoleAssign → Lobby 전이 자체가 없다(GAP-29가 만든 확장).
+- 판단: 카운트다운(3초) 동안만 GAP-29 중단을 유지하고, **카운트다운이 끝난 뒤(맵 대기 · 브리핑)는 중단하지 않는다.** 근거 — 그 시점엔 라운드 번호 · 역할 배정 · 맵 로드 ·
+  활성 밸브가 이미 확정돼 되돌릴 규칙이 없고, 이탈·합류는 InGame과 같은 규칙으로 처리된다(합류자 = 라운드 시작 후 러너, 술래 이탈 시 재추첨 없음 — 기존 `AssignLateJoinersAsRunners`).
+- 확인한 사실: 준비 토글은 원래 **Lobby 페이즈에서만** 받는다(`ReadyNetworkSync.ServerSetReady`). 즉 RoleAssign에서 "준비 해제"는 수정 전에도 불가능했고,
+  GAP-29 중단은 카운트다운 중 이탈 · 미준비 신규 접속자로만 걸린다.
+
+### 계산 검증표 (틱 = 1/64초, 이진수 정확)
+
+| 항목 | 값 | 테스트 |
+|---|---|---|
+| 카운트다운 | 3초 = 192틱 | `Briefing_OneTickLeft_…` |
+| 수정 전 반복 주기 | 3초 + 1틱 = 193틱(재무장 틱은 차감 없음) | `BugReproduction_PreFixOrder_…` |
+| 수정 전 120초 | StartRound 틱 192 + 193k ≤ 7680 → **39회**, 라운드 번호 0 → 38, 라운드 시작 0회 | 〃 |
+| 수정 전 브리핑 | 3.016초마다 30초로 리셋 → 0 도달 불가 | 〃 |
+| 수정 후 | 로비 1틱 + 3 + 맵 5 + 브리핑 30 → InGame **38.0초**, StartRound 1회 | `FullSequence_…` |
+| 브리핑 경계 | 잔여 1틱(0.015625)은 RoleAssign, 다음 틱 BeginRound | `Briefing_OneTickLeft_…` |
+| 맵 로드 50초 지연 | StartRound 1회 유지 | `MapWait_LongerThanCountdown_…` |
+
+### 더블체크 10항목
+
+| # | 항목 | 결과 |
+|---|---|---|
+| 1 | 호출부 존재 | OK — `_start.Tick`(Update → RoleAssign → `TickCountdown`) · `_start.Reset`(`ServerResetWorld` ← 리매치 가결·부결) · 생성(`OnStartServer`) |
+| 2 | 라운드 전이 초기화 | OK — 리매치 경계에서 맵 대기·브리핑 초기화. Aborted는 카운트다운 단계에서만 나므로 지울 맵 대기·브리핑이 없다(수정 전에는 Aborted가 `_waitingForMap`을 남길 수 있었다) |
+| 3 | 경계값 | OK — 브리핑 잔여 1틱 · 카운트다운 192틱 · 맵 준비 5초 |
+| 4 | 기존 테스트 의미 변화 | **0건** — `TickCountdown`을 직접 치는 기존 테스트는 없었다(Net). `ServerLobbyDriverTests` 13건은 드라이버 무변경이라 그대로이며, 재무장 계약 테스트에 주석만 추가 |
+| 5 | 서버 권위 | OK — 순서·타이머·맵 준비 판정 모두 서버 |
+| 6 | 캐시 금지 | OK — 밸브 목록은 매 호출 조회 |
+| 7 | 계층 경계 | OK — 순서기는 Core(Unity·FishNet 무참조), Net은 부수 효과만 |
+| 8 | 상수 중복 | OK — `ServerLobbyDriver.CountdownSeconds` · `BriefingConfig.Seconds` 재사용, 새 상수 없음 |
+| 9 | enum 파급 | 새 `RoundStartEvents`(순서기 · `RoundNetworkSync`만 사용). `LobbyTickResult` · `GameFlowState` 무변경 |
+| 10 | 문서 정합 | 충돌 없음 — 기획서 공백은 GAP-104(🟡)로 기록 |
+
+### 테스트 · 재검증
+
+- 신규 `RoundStartSequencerTests`(11).
+  - **커밋 스냅샷(이번 커밋만 · 4건 제외)**: 인덱스를 따로 내보내 빌드 — 5개 어셈블리 오류 0, **49 클래스 / 980 통과 / 0 실패**(969 → 980).
+  - 작업 트리(미커밋 「커밋 전 수정 4건」 포함): 50 클래스 / 995 통과 / 0 실패(984 → 995).
+- 변이 확인: 가드를 지우면 신규 5건이 실패한다(StartRound 39회 · 50초 맵 대기 중 16회 · 브리핑 타이머 리셋 등).
+- dotnet: Core / Net / Presentation / Marco.Editor / Core.Tests 오류 0 · 경고 0.
+- **Unity 실제 컴파일(FishNet ILPP) 미확인** — 에디터가 열려 있고 창 포커스 전환이 이번에는 OS에서 거부됐다. 바뀐 Net 코드에 RPC·SyncVar 추가는 없다.
+
+### GAP
+
+| # | 내용 | 처리 |
+|---|---|---|
+| **104** | 카운트다운(3초)이 끝난 뒤 — **맵 대기 · 브리핑 중의 이탈 · 합류** | 🟡 §12.3 · §12.4 · §15.4에 취소 규칙 없음. **취소하지 않는다**(역할 · 번호 · 맵 · 활성 밸브가 확정된 뒤라 되돌릴 규칙이 없다). 이탈 · 합류는 InGame 규칙. 남는 위험: 브리핑 중 이탈로 2인 미만이 돼도 라운드가 시작된다(InGame 중 이탈과 같은 결과) |
+
+### 범위 밖
+
+- 「커밋 전 수정 4건」은 여전히 ⛔ 보류(§6.5-2 0개 개방 충돌 결정 대기) — 이번 커밋에 넣지 않았다.

@@ -78,8 +78,6 @@ namespace Marco.Net
         /// </summary>
         private readonly SyncVar<float> _briefingStartValue = new();
         private float _briefingReceivedAt;
-        private float _briefingServerRemaining;
-        private bool _briefing;
         private readonly SyncVar<int> _votesFor = new();         // §12.5 리매치 찬성 수
         private readonly SyncVar<int> _votesNeeded = new();      // §12.5 과반 기준
         private readonly SyncVar<float> _voteRemaining = new();  // §12.5 15초 창
@@ -150,8 +148,9 @@ namespace Marco.Net
 
         private ServerRoundDriver _driver;      // InGame 동안만 존재(서버 전용)
         private ServerLobbyDriver _lobby;       // 서버 전용
+        private RoundStartSequencer _start;     // RoleAssign: 카운트다운 → 맵 대기(18b) → 브리핑 → 라운드(서버 전용)
+        private bool _valveSpawnWaitLogged;     // 맵 씬은 올라왔는데 밸브 스폰 대기 — 진단 로그 1회(서버 전용)
         private RematchVoteDriver _vote;        // RoundEnd 동안만 존재(서버 전용)
-        private bool _waitingForMap;            // 스프린트 18b: 맵 로드 완료를 기다리는 중(서버 전용)
 
         /// <summary>
         /// 이번 판의 술래 순번(§2.3 로테이션). 라운드 배정 시점에 **한 번만** 확정하고 그 뒤로는
@@ -247,6 +246,7 @@ namespace Marco.Net
             base.OnStartServer();
 
             _lobby = new ServerLobbyDriver(_minPlayers);
+            _start = new RoundStartSequencer(_lobby);
             _driver = null; // 라운드는 로비 게이트를 통과해야만 생성된다.
             _vote = null;
 
@@ -307,57 +307,54 @@ namespace Marco.Net
             }
         }
 
+        /// <summary>
+        /// RoleAssign 페이즈 서버 틱. 순서 판정은 <see cref="RoundStartSequencer"/>가 하고 여기서는 부수 효과만 낸다.
+        /// <b>[긴급 수정]</b> 로비 드라이버는 카운트다운 단계에서만 틱한다 — 맵 대기·브리핑 중에 틱하면
+        /// 3초마다 StartRound가 다시 나와 라운드 번호·역할·브리핑이 무한 반복됐다(가드는 시퀀서 안, GAP-104).
+        /// </summary>
         private void TickCountdown(float dt)
         {
             CountReadyPlayers(out int players, out int ready);
-            LobbyTickResult result = _lobby.Tick(players, ready, dt);
+            RoundStartEvents events = _start.Tick(players, ready, MapReadyForRound(), dt);
             _countdown.Value = _lobby.CountdownRemaining;
 
-            switch (result)
+            if ((events & RoundStartEvents.Aborted) != 0)
             {
-                case LobbyTickResult.Aborted:
-                    // GAP-29: 준비 해제·이탈 시 즉시 로비로. (리매치 경로에서는 준비가 라운드 내내
-                    // 잠겨 있으므로, 여기 도달하는 건 이탈 또는 신규 접속자 미준비뿐이다.)
-                    SetPhase(GameFlowState.Lobby);
-                    _briefing = false;
-                    _briefingStartValue.Value = 0f;
-                    Debug.Log("[RoundNet:Server] 카운트다운 중단 — 준비 해제/이탈, 로비로 복귀(GAP-29)");
-                    break;
-
-                case LobbyTickResult.StartRound:
-                    // §2.3 술래 로테이션: 배정 **전에** 라운드 번호를 확정한다 — 이 번호가 이번 판의
-                    // 술래 순번을 정하고, 라운드 중 늦게 들어온 플레이어의 재배정에도 같은 값이 쓰인다.
-                    _roundNumber.Value++;
-
-                    // §15.4 RoleAssign: "3초 연출, 역할 배정" — 배정을 카운트다운 완료 시점에
-                    // 1회 수행한다(중단 시 되돌릴 배정이 없도록 끝에서 확정).
-                    // 이 호출만이 술래 순번을 정한다(_fixedSeekerOrder 확정).
-                    EnsureRolesAssigned(roundStart: true);
-
-                    // 스프린트 18b: §15.4 "InGame: **맵 로드**" — 맵이 올라온 뒤에 라운드를 시작한다.
-                    // 맵 없이 시작하면 밸브가 0개라 §6.1 배수로 게이트가 영구히 닫혀 라운드가 성립하지 않는다.
-                    _waitingForMap = true;
-                    SceneFlowController.Instance?.ServerLoadMap();
-                    break;
+                // GAP-29: 카운트다운(3초) 중 이탈·신규 접속자 미준비 시 즉시 로비로. 준비 토글은 Lobby
+                // 페이즈에서만 받으므로 RoleAssign에서 "준비 해제"는 일어나지 않는다. 카운트다운이 끝난 뒤
+                // (맵 대기·브리핑)에는 중단하지 않는다(GAP-104).
+                SetPhase(GameFlowState.Lobby);
+                _briefingStartValue.Value = 0f;
+                Debug.Log("[RoundNet:Server] 카운트다운 중단 — 준비 해제/이탈, 로비로 복귀(GAP-29)");
+                return;
             }
 
-            // 맵 로드 대기 중이면 완료되는 프레임에 브리핑을 시작한다(페이즈는 RoleAssign 유지 — GAP-30).
-            if (_waitingForMap && MapReadyForRound())
+            if ((events & RoundStartEvents.StartRound) != 0)
             {
-                _waitingForMap = false;
+                // §2.3 술래 로테이션: 배정 **전에** 라운드 번호를 확정한다 — 이 번호가 이번 판의
+                // 술래 순번을 정하고, 라운드 중 늦게 들어온 플레이어의 재배정에도 같은 값이 쓰인다.
+                _roundNumber.Value++;
+
+                // §15.4 RoleAssign: "3초 연출, 역할 배정" — 배정을 카운트다운 완료 시점에
+                // 1회 수행한다(중단 시 되돌릴 배정이 없도록 끝에서 확정).
+                // 이 호출만이 술래 순번을 정한다(_fixedSeekerOrder 확정).
+                EnsureRolesAssigned(roundStart: true);
+
+                // 스프린트 18b: §15.4 "InGame: **맵 로드**" — 맵이 올라온 뒤에 라운드를 시작한다.
+                // 맵 없이 시작하면 밸브가 0개라 §6.1 배수로 게이트가 영구히 닫혀 라운드가 성립하지 않는다.
+                // 로드는 비동기라 이 틱의 맵 준비 판정(위 Tick 인자)을 바꾸지 않는다 — 이미 올라와 있으면 무동작.
+                SceneFlowController.Instance?.ServerLoadMap();
+            }
+
+            // 맵이 준비된 틱에 브리핑 시작(페이즈는 RoleAssign 유지 — GAP-30).
+            if ((events & RoundStartEvents.BriefingStarted) != 0)
                 BeginBriefing();
-            }
 
             // §12.4 로비 브리핑 30초 — 끝나면 라운드 시작("라운드 시작 시 사라진다").
-            if (_briefing)
+            if ((events & RoundStartEvents.BeginRound) != 0)
             {
-                _briefingServerRemaining -= dt;
-                if (_briefingServerRemaining <= 0f)
-                {
-                    _briefing = false;
-                    _briefingStartValue.Value = 0f;
-                    BeginRound();
-                }
+                _briefingStartValue.Value = 0f;
+                BeginRound();
             }
         }
 
@@ -370,9 +367,7 @@ namespace Marco.Net
         private void BeginBriefing()
         {
             ServerSelectActiveValves();
-            _briefing = true;
-            _briefingServerRemaining = BriefingConfig.Seconds;
-            _briefingStartValue.Value = BriefingConfig.Seconds;
+            _briefingStartValue.Value = BriefingConfig.Seconds; // 서버 타이머는 RoundStartSequencer가 센다
             _countdown.Value = 0f;
             Debug.Log($"[RoundNet:Server] §12.4 로비 브리핑 {BriefingConfig.Seconds:0}초 — 평면도 + 이번 라운드 활성 밸브 공개. " +
                       "끝나면 라운드 시작");
@@ -383,11 +378,38 @@ namespace Marco.Net
         ///
         /// 씬 흐름 컨트롤러가 없는 구성(맵과 시스템이 한 씬에 있는 스프린트 18 이전 배치)에서는
         /// 항상 true다 — 씬 분리 전/후 어느 배치에서도 동작하게 하려는 것이다(마이그레이션 안전장치).
+        ///
+        /// <para>
+        /// <b>[긴급 수정] 씬 로드 완료만으로는 부족하다 — 맵의 밸브가 스폰돼 있어야 한다.</b> Unity가 씬을
+        /// "로드됨"으로 보고하는 틱에는 FishNet이 그 씬의 NetworkObject를 아직 스폰하지 않았다
+        /// (<see cref="ValveNetworkSync.Spawned"/>는 <c>OnStartNetwork</c>에서 채워진다). 그 틱에 브리핑을
+        /// 시작하면 <see cref="ServerSelectActiveValves"/>가 "밸브 0개"로 건너뛰어 <b>밸브 5개가 전부 활성</b>인 채
+        /// 라운드가 돈다(§6.2 "활성 = 요구 + 1" 붕괴 — 실기 로그 첫 브리핑에서 확인). 무한 루프 동안에는 두 번째
+        /// 반복부터 밸브가 잡혀 가려져 있었다. 씬 오브젝트는 한 번에 스폰되므로 밸브 1개 이상 = 스폰 완료.
+        /// </para>
         /// </summary>
-        private static bool MapReadyForRound()
+        private bool MapReadyForRound()
         {
             SceneFlowController flow = SceneFlowController.Instance;
-            return flow == null || flow.MapLoaded;
+            if (flow == null)
+                return true;
+            if (!flow.MapLoaded)
+                return false;
+            if (ValveNetworkSync.Spawned.Count > 0)
+            {
+                _valveSpawnWaitLogged = false;
+                return true;
+            }
+
+            // 예전에는 여기서 "밸브 0개" 경고와 함께 라운드가 시작됐다. 이제는 기다리므로, 스폰이 끝내 안 오면
+            // 조용히 멈추지 않게 한 번 남긴다(정상 로드에서는 1~2틱 뒤 바로 브리핑 로그가 따라온다).
+            if (!_valveSpawnWaitLogged)
+            {
+                _valveSpawnWaitLogged = true;
+                Debug.Log("[RoundNet:Server] 맵 씬 로드됨 — 밸브 NetworkObject 스폰 대기(FishNet). " +
+                          "이 줄 뒤로 브리핑 로그가 오지 않으면 맵 씬의 밸브 네트워크 배선을 확인하라(§6.1-0).");
+            }
+            return false;
         }
 
         private void TickRound(float dt)
@@ -450,7 +472,7 @@ namespace Marco.Net
 
                     // 스프린트 18b: 로비로 돌아가면 맵을 내린다(§15.4상 맵은 InGame의 것이다).
                     // 다음 라운드에서 새로 로드되므로 밸브·탈출 지점도 깨끗한 상태로 다시 온다.
-                    _waitingForMap = false;
+                    // (맵 대기 상태는 위 ServerResetWorld의 시퀀서 초기화가 지운다.)
                     SceneFlowController.Instance?.ServerUnloadMap();
 
                     SetPhase(GameFlowState.Lobby);
@@ -963,8 +985,8 @@ namespace Marco.Net
         /// </summary>
         private void ServerResetWorld()
         {
-            // §12.4 진행 중이던 브리핑도 끝낸다(부결·리매치 경계).
-            _briefing = false;
+            // §12.4 진행 중이던 브리핑·맵 대기도 끝낸다(부결·리매치 경계).
+            _start?.Reset();
             _briefingStartValue.Value = 0f;
 
             // ① 태그 해제(먼저) — 역할 재배정의 전제.
