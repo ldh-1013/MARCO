@@ -54,6 +54,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Assets\_Project\Presentation\Objectives\ValveInteractor.cs" />
+    <Compile Include="Assets\_Project\Presentation\Water\WaterVolumeBehaviour.cs" />
     <Compile Include="Assets\_Project\Presentation\Palette\ColorPalette.cs" />
     <Compile Include="Assets\_Project\Presentation\UI\HudFormatter.cs" />
     <Compile Include="Assets\_Project\Presentation\Objectives\ValveObjectiveTracker.cs" />
@@ -66,17 +67,17 @@
     <Compile Include="Assets\_Project\Presentation\Echo\EchoKnockController.cs" />
     <Compile Include="Assets\_Project\Presentation\Player\FirstPersonController.cs" />
     <Compile Include="Assets\_Project\Presentation\Objectives\ValveVisualIndicator.cs" />
+    <Compile Include="Assets\_Project\Presentation\Sound\ShoutInputController.cs" />
     <Compile Include="Assets\_Project\Presentation\UI\InGameHud.cs" />
     <Compile Include="Assets\_Project\Presentation\SoundPulse\LocalPulsePipeline.cs" />
     <Compile Include="Assets\_Project\Presentation\UI\MainMenuScreen.cs" />
     <Compile Include="Assets\_Project\Presentation\GameFlow\LobbyPlaceholderFloor.cs" />
     <Compile Include="Assets\_Project\Presentation\GameFlow\BootFlow.cs" />
+    <Compile Include="Assets\_Project\Presentation\SoundPulse\PhysicsFootstepMaterialProbe.cs" />
     <Compile Include="Assets\_Project\Presentation\SoundPulse\LocalPulsePipelineBehaviour.cs" />
     <Compile Include="Assets\_Project\Presentation\Tagging\TaggableRunner.cs" />
     <Compile Include="Assets\_Project\Presentation\GameFlow\PawnPhaseTeleporter.cs" />
     <Compile Include="Assets\_Project\Presentation\SoundPulse\PhysicsOcclusionProbe.cs" />
-    <Compile Include="Assets\_Project\Presentation\Sound\ShoutInputController.cs" />
-    <Compile Include="Assets\_Project\Presentation\SoundPulse\PhysicsFootstepMaterialProbe.cs" />
     <Compile Include="Assets\_Project\Presentation\Objectives\ValveBehaviour.cs" />
     <Compile Include="Assets\_Project\Presentation\GameFlow\SpawnAnchor.cs" />
     <Compile Include="Assets\_Project\Presentation\Voice\LocalVoicePipeline.cs" />

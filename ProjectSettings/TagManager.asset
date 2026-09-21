@@ -6,6 +6,7 @@ TagManager:
   tags:
   - Wall
   - HardBlocker
+  - FloorSlab
   - FloorConcrete
   - FloorWood
   - FloorMetalGrating

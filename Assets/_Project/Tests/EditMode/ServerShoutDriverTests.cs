@@ -297,9 +297,9 @@ namespace Marco.Core.Tests
         }
 
         [Test]
-        public void Suppress_BelowThree_FailsAndScreams()
+        public void Suppress_BelowCost_FailsAndScreams()
         {
-            // §3.5 "게이지 3초 미만 — 억제 불가. 비명 강제 발생" + 게이지가 음수로 안 간다.
+            // §3.5 [v0.4] "게이지 4.5초 미만 — 억제 불가. 비명 강제 발생" + 게이지가 음수로 안 간다.
             var d = new ServerShoutDriver();
             d.TryRequest(Seeker, RoleType.Seeker, Origin, 0f);
             d.NotifySuppressAttempt(RunnerA, 0.5f);
@@ -307,8 +307,8 @@ namespace Marco.Core.Tests
             d.Tick(firedAt);
 
             var gauge = new BreathGauge();
-            for (int i = 0; i < 300; i++)
-                gauge.Tick(BreathZone.Submerged, 0.02f); // 6초 잠수 → 잔여 2
+            for (int i = 0; i < 400; i++)
+                gauge.Tick(BreathZone.Submerged, 0.02f); // 8초 잠수(수중 밸브 1회) → 잔여 4.0 < 4.5
 
             float before = gauge.Current;
             List<ScreamReaction> reactions = d.ResolveFear(Origin, new List<ShoutTarget> { Runner(RunnerA, 5f, gauge) }, firedAt);
@@ -349,7 +349,7 @@ namespace Marco.Core.Tests
 
             var gauge = new BreathGauge();
             for (int i = 0; i < 100; i++)
-                gauge.Tick(BreathZone.Submerged, 0.02f); // 2초 잠수 → 6
+                gauge.Tick(BreathZone.Submerged, 0.02f); // 2초 잠수 → 10
             float before = gauge.Current;
 
             List<ScreamReaction> reactions = d.ResolveFear(
@@ -397,8 +397,10 @@ namespace Marco.Core.Tests
             Assert.AreEqual(2, reactions.Count);
             Assert.AreEqual(ScreamOutcome.SuppressedByHeldBreath, reactions[0].Outcome);
             Assert.AreEqual(ScreamOutcome.Screamed, reactions[1].Outcome);
-            Assert.AreEqual(5f, gaugeA.Current, 0.0001f);
-            Assert.AreEqual(8f, gaugeB.Current, 0.0001f);
+            Assert.AreEqual(BreathConfig.TotalSeconds - BreathConfig.SuppressionCost,
+                gaugeA.Current, 0.0001f, "A는 억제했으므로 12 - 4.5 = 7.5.");
+            Assert.AreEqual(BreathConfig.TotalSeconds, gaugeB.Current, 0.0001f,
+                "B는 22m 밖이라 비명도 억제도 없다 — 만충 그대로.");
         }
 
         // ── §3.5 정보 비대칭 (거리별 반응표) ────────────────────────────

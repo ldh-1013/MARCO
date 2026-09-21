@@ -4,8 +4,10 @@ using FishNet.Connection;
 using FishNet.Object;
 using Marco.Core.Net;
 using Marco.Core.Breath;
+using Marco.Core.Locomotion;
 using Marco.Core.Role;
 using Marco.Core.Sound;
+using Marco.Core.Water;
 using UnityEngine;
 
 namespace Marco.Net
@@ -68,6 +70,15 @@ namespace Marco.Net
         /// 잠수 소모도 비명 억제 비용도 여기서 빠진다. 클라이언트 표시는 파생값이다.
         /// </summary>
         private readonly Dictionary<ulong, BreathGauge> _breath = new Dictionary<ulong, BreathGauge>();
+
+        /// <summary>
+        /// §4.3 잠수 키를 누르고 있다고 <b>주장한</b> 플레이어. 서버 전용.
+        ///
+        /// 이 딕셔너리에 담긴 것은 주장일 뿐이며, 실제 잠수 성립은
+        /// <c>DiveRules.IsDiving</c>이 서버 측 물속 여부·게이지와 함께 판정한다.
+        /// 값이 false인 항목은 지우지 않고 남긴다 — "뗐다"는 사실도 상태다.
+        /// </summary>
+        private readonly Dictionary<ulong, bool> _diveIntent = new Dictionary<ulong, bool>();
 
         /// <summary>
         /// §3.5 "선딜레이 중 이동하면 취소"를 판정하기 위한 직전 프레임 위치(서버 관측값).
@@ -144,6 +155,14 @@ namespace Marco.Net
             ServerSubmitHoldBreath();
         }
 
+        public void SubmitDiveIntent(bool held)
+        {
+            if (!NetworkActive)
+                return;
+
+            ServerSubmitDiveIntent(held);
+        }
+
         // ── 서버: 수집 ────────────────────────────────────────────────────
 
         public override void OnStartServer()
@@ -160,6 +179,7 @@ namespace Marco.Net
             _knockDriver = new ServerKnockDriver();
             _shoutDriver = new ServerShoutDriver();
             _breath.Clear();
+            _diveIntent.Clear();
             _shoutAnchor.Clear();
             Debug.Log("[PulseNet:Server] 서버 권위 파문 판정 시작 — 청취자별 개별 전송(§14.3)");
         }
@@ -244,7 +264,7 @@ namespace Marco.Net
 
         /// <summary>
         /// §3.5 "숨 참기(선딜레이 1초 안에 입력)". 의사표시만 기록하며 **게이지는 여기서 깎지 않는다** —
-        /// 실제 -3은 외침이 발동해 공포 반경 안에 있다고 판정될 때 일어난다.
+        /// 실제 -4.5(§5.9-1 [v0.4])는 외침이 발동해 공포 반경 안에 있다고 판정될 때 일어난다.
         /// </summary>
         [ServerRpc(RequireOwnership = false)]
         private void ServerSubmitHoldBreath(NetworkConnection caller = null)
@@ -378,7 +398,7 @@ namespace Marco.Net
                     continue;
                 }
 
-                float dist = Vector3.Distance(sourcePos, listener.Position);
+                float dist = Core.Spatial.DistanceMetric.Perceived(sourcePos, listener.Position);
                 float baseRadius = radius * SoundPulseResolver.RoleRadiusMultiplier(listener.Role);
                 _judgeLog.Append($"거리={dist:0.00}m 역할배율후반경={baseRadius:0.00}m ");
 
@@ -485,6 +505,7 @@ namespace Marco.Net
                     _knockDriver.Reset();
                     _shoutDriver?.Reset();      // §3.5 쿨다운·선딜레이도 라운드 경계에서 비운다.
                     _shoutAnchor.Clear();
+                    _diveIntent.Clear();        // §4.3 지난 라운드의 홀드 주장이 살아남으면 안 된다.
                     foreach (BreathGauge gauge in _breath.Values)
                         gauge.Reset();          // §5.9-1 새 라운드는 만충으로 시작한다.
                     Debug.Log($"[KnockNet:Server] 라운드 시작 — 노크 상태 초기화(§3.2 라운드당 {KnockConfig.MaxUsesPerRound}회 재충전).");
@@ -562,17 +583,48 @@ namespace Marco.Net
         }
 
         /// <summary>
-        /// §5.9-1 이 플레이어의 숨 상태.
-        ///
-        /// **현재는 항상 <see cref="BreathZone.OutOfWater"/>다** — 물 볼륨(수면 존) 감지가 아직
-        /// 없어서 서버가 잠수/수면을 관측할 방법이 없기 때문이다. <c>FirstPersonController</c>도
-        /// 같은 이유로 <c>isOnWaterSurface: false</c>를 하드코딩하고 있다(§5.9 후속 태스크).
-        /// 물 볼륨이 들어오면 <b>이 메서드 한 곳만</b> 고치면 된다 —
-        /// 규칙 자체는 <see cref="BreathConfig.ZoneOf"/>가 이미 전부 들고 있다.
+        /// §4.3 잠수 키 홀드 주장을 접수한다. <b>페이로드는 bool 하나</b>이고, 상태가 바뀔 때만
+        /// 온다. 역할·위치·물속 여부·게이지는 서버가 스스로 재계산한다(GAP-24).
         /// </summary>
-        private static BreathZone ZoneOf(RoleNetworkSync player)
+        [ServerRpc(RequireOwnership = false)]
+        private void ServerSubmitDiveIntent(bool held, NetworkConnection caller = null)
         {
-            return BreathZone.OutOfWater;
+            if (!RoleNetworkSync.TryGetCallerIdentity(caller, out RoleType _, out ulong playerId))
+                return;
+
+            _diveIntent[playerId] = held;
+        }
+
+        /// <summary>
+        /// §5.9-1 이 플레이어의 숨 상태. <b>서버가 지오메트리로 재계산한다.</b>
+        ///
+        /// <para>
+        /// 클라이언트가 주장한 것은 "잠수 키를 누르고 있다" 하나뿐이고, 나머지는 여기서
+        /// 서버가 얻는다 — 물속 여부는 §10.1 수면 영역(<see cref="WaterVolumeRegistry"/>)에
+        /// 동기화된 위치를 대서, 잠수 가능 여부는 서버가 소유한 게이지에서.
+        /// 판정식은 <see cref="DiveRules"/> 한 곳이며 <c>LocomotionSimulator</c>도 같은 것을 쓴다.
+        /// </para>
+        ///
+        /// <para>
+        /// <b>정적 메서드가 아니게 됐다</b> — 잠수 주장과 게이지가 인스턴스 상태이기 때문이다.
+        /// </para>
+        /// </summary>
+        private BreathZone ZoneOf(RoleNetworkSync player)
+        {
+            if (player == null || player.OrderKey < 0)
+                return BreathZone.OutOfWater;
+
+            ulong playerId = (ulong)player.OrderKey;
+            Vector3 feet = player.transform.position;
+
+            WaterSample water = WaterVolumeRegistry.Sample(feet);
+            if (!water.BodyInWater)
+                return BreathZone.OutOfWater;
+
+            _diveIntent.TryGetValue(playerId, out bool held);
+            bool diving = DiveRules.IsDiving(held, water.BodyInWater, BreathOf(playerId).CanSubmerge);
+
+            return DiveRules.ZoneOf(water, feet.y, diving);
         }
 
         /// <summary>이 플레이어의 숨 게이지(없으면 만충으로 새로 만든다). 서버 전용.</summary>

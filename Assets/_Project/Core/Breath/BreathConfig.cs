@@ -29,14 +29,22 @@ namespace Marco.Core.Breath
     /// </summary>
     public static class BreathConfig
     {
-        /// <summary>§5.9-1 "총량 8초".</summary>
-        public const float TotalSeconds = 8f;
+        /// <summary>§5.9-1 [v0.4] "총량 <b>12초</b>." (v0.3은 8초였다.)</summary>
+        public const float TotalSeconds = 12f;
 
         /// <summary>§5.9-1 소모 표 "잠수 유지 — 초당 -1(연속)".</summary>
         public const float DivePerSecond = 1f;
 
-        /// <summary>§5.9-1 소모 표 "비명 억제 — -3(즉시, 1회성)". §3.5 "숨 참기 | 숨 게이지 3초".</summary>
-        public const float SuppressionCost = 3f;
+        /// <summary>
+        /// §5.9-1 [v0.4] 소모 표 "비명 억제 — <b>-4.5</b>(즉시, 1회성)".
+        /// §3.5 "숨 참기(선딜레이 1초 안에 입력) | 숨 게이지 <b>4.5초</b>".
+        ///
+        /// **총량과 함께 움직인 값이다.** §5.9-1 원문: *"게이지만 12초로 늘리면 억제 가능
+        /// 횟수가 2.67회에서 4회로 늘어 3.5절 외침의 위력이 약해진다. 12 ÷ 4.5 = 2.67회로
+        /// 비율을 고정해 3.5절 밸런스를 그대로 보존한다."*
+        /// 즉 8→12 갱신 시 3을 그대로 두면 안 된다 — 그것이 문서가 명시적으로 막은 결과다.
+        /// </summary>
+        public const float SuppressionCost = 4.5f;
 
         /// <summary>§5.9-1 회복 "상태 = 수면 → 초당 +2".</summary>
         public const float SurfaceRecoveryPerSecond = 2f;
@@ -60,10 +68,12 @@ namespace Marco.Core.Breath
         public const float ChokeSpeedMultiplier = 0.8f;
 
         /// <summary>
-        /// §5.9-1 "연속 억제 최대 2회 — 게이지 8초 ÷ 억제 3초".
+        /// §5.9-1 [v0.4] "연속 억제 최대 2회 — 게이지 12초 ÷ 억제 4.5초 = 2.67".
         ///
-        /// **상수로 저장하지 않고 나눗셈으로 유도한다.** 8이나 3이 바뀌면 이 값도 따라
-        /// 바뀌어야 하는데, 따로 적어 두면 셋이 어긋난 채 남는다. 8 ÷ 3 = 2.67 → 2회.
+        /// **상수로 저장하지 않고 나눗셈으로 유도한다.** 12나 4.5가 바뀌면 이 값도 따라
+        /// 바뀌어야 하는데, 따로 적어 두면 셋이 어긋난 채 남는다. 12 ÷ 4.5 = 2.67 → 2회.
+        /// **v0.4에서 총량이 8→12로 늘었지만 이 값은 2회로 그대로다** — 비용도 3→4.5로
+        /// 함께 올랐기 때문이며, 그것이 §5.9-1이 비율을 고정한 목적이다.
         /// </summary>
         public static int MaxConsecutiveSuppressions => (int)(TotalSeconds / SuppressionCost);
 

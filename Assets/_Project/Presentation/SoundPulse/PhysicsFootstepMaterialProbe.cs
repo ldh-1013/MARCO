@@ -36,6 +36,21 @@ namespace Marco.Presentation.Sound
         /// <summary>레이 길이(m). 지면에 서 있는 캐릭터의 발밑을 넉넉히 덮되 아래층까지 뚫지 않는 값.</summary>
         private const float RayLength = 2f;
 
+        /// <summary>
+        /// 재질 레이가 훑는 레이어. <b>SoundBlocking을 제외한다.</b>
+        ///
+        /// 맵 v2에서 2층 바닥은 콜라이더가 <b>두 장</b>이다 — 밟는 면(Default, §5.9 재질 태그)과
+        /// 차폐면(SoundBlocking, §5.6 <c>FloorSlab</c> 태그). 태그는 콜라이더당 하나뿐이라
+        /// 겸할 수 없다. 두 장이 같은 높이에 겹쳐 있어 <c>~0</c>으로 쏘면 어느 쪽이 먼저
+        /// 잡히는지 정해지지 않고, 차폐면이 먼저 잡히는 프레임에는 재질이 조용히
+        /// 콘크리트(×1.0)로 떨어진다 — 2층 카펫 ×0.7이 사라진다.
+        ///
+        /// §5.6도 같은 것을 요구한다: *"SoundBlocking 레이어는 (…) 다른 물리 연산과
+        /// 섞이지 않게 한다."* 재질 판정이 바로 그 "다른 물리 연산"이다.
+        /// </summary>
+        private int _groundMask = ~0;
+        private bool _maskResolved;
+
         public FootstepMaterial Sample(Vector3 worldPosition)
         {
             Vector3 origin = worldPosition + Vector3.up * RayStartHeight;
@@ -43,10 +58,26 @@ namespace Marco.Presentation.Sound
             // 발소리는 초당 1~3회 나는 저빈도 경로라 단일 Raycast로 충분하다
             // (차폐 재판정처럼 초당 수십 회 도는 경로가 아니다).
             if (!Physics.Raycast(origin, Vector3.down, out RaycastHit hit, RayLength,
-                    ~0, QueryTriggerInteraction.Ignore))
+                    GroundMask(), QueryTriggerInteraction.Ignore))
                 return FootstepMaterialRules.Default;
 
             return Classify(hit.collider);
+        }
+
+        /// <summary>
+        /// <c>LayerMask.GetMask</c>는 매 호출마다 문자열을 훑으므로 한 번만 계산해 둔다.
+        /// 레이어가 없는 프로젝트에서는 0이 나오는데, 그때는 제외하지 않고 전 레이어를
+        /// 훑는다(차폐 레이어가 없으면 겹침 자체가 없다).
+        /// </summary>
+        private int GroundMask()
+        {
+            if (_maskResolved)
+                return _groundMask;
+
+            _maskResolved = true;
+            int soundBlocking = LayerMask.GetMask(PhysicsOcclusionProbe.SoundBlockingLayerName);
+            _groundMask = soundBlocking == 0 ? ~0 : ~soundBlocking;
+            return _groundMask;
         }
 
         /// <summary>

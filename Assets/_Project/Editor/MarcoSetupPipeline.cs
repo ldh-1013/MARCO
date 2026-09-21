@@ -67,7 +67,8 @@ namespace Marco.EditorTools
                     "  4. Setup Network Valves / Round / Pulse\n" +
                     "  5. Scene Flow — 맵 정리(스폰 앵커)\n" +
                     "  6. Scene Flow — Boot·MainMenu + 빌드 설정\n" +
-                    "  7. 진단(Lobby + Game 함께)\n\n" +
+                    "  7. 진단(Lobby + Game 함께)\n" +
+                    "  8. 맵 v2 생성(§10.1) + 배치 검증(§10.2-1 · §6.5-3)\n\n" +
                     "⚠ 여러 씬 자산과 프리팹을 수정하며 일부는 Undo로 되돌아가지 않습니다.\n" +
                     "실행 전 Assets/Scenes 폴더 백업을 강력히 권장합니다.\n\n계속하시겠습니까?",
                     "실행", "취소"))
@@ -205,6 +206,31 @@ namespace Marco.EditorTools
                 return false;
 
             SaveOpenScenes(log);
+
+            // ── 10. 맵 v2 생성 + §10.2-1 배치 검증 ──────────────────────
+            // 8단계가 이미 맵 씬을 Single로 열어 뒀으므로 활성 씬이 맵이다 —
+            // 생성기는 활성 씬에 루트를 만들기 때문에 이 순서가 중요하다.
+            if (!Require(log, IsSceneLoaded("Game"),
+                    "맵 v2를 생성하려면 Game 씬이 활성이어야 합니다 — 8단계가 Single로 열었는지 확인하세요."))
+                return false;
+
+            if (!Step(log, "맵 v2 생성 (§10.1)", () => MapV2GeneratorTool.Generate()))
+                return false;
+
+            SaveOpenScenes(log);
+
+            // 검증 실패는 **파이프라인을 멈추지 않는다.** 배치가 어긋난 것은 좌표 문제이지
+            // 배선 문제가 아니라, 여기서 중단하면 이후 단계(저장·에셋)를 건너뛰어
+            // 오히려 씬이 어중간한 상태로 남는다. 대신 Console에 불합격 표를 남긴다.
+            if (!MapV2ValidationTool.RunAndReport())
+            {
+                log.AppendLine("  ⚠ 맵 v2 배치 검증 불합격 — Console의 조정 순서를 확인하세요. " +
+                               "(파이프라인은 계속 진행합니다)");
+            }
+            else
+            {
+                log.AppendLine("  ✔ 맵 v2 배치 검증 (§10.2-1 · §6.5-3)");
+            }
 
             AssetDatabase.SaveAssets();
             return true;

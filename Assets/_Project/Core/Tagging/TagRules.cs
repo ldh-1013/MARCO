@@ -33,6 +33,10 @@ namespace Marco.Core.Tagging
         /// </summary>
         public static bool IsWithinTagRange(Vector3 seekerPosition, Vector3 targetPosition)
         {
+            // **DistanceMetric(GAP-71)에 위임하지 않는다.** §6.5-3의 공정성 논거
+            // *"수심 3.5m > 태그 반경 1.2m이므로 술래는 수면에서 배수구에 닿을 수 없다"* 가
+            // 수직 성분에 전적으로 걸려 있다. 소리 인지 척도가 언젠가 2D로 바뀌어도
+            // 이 판정은 3D여야 하므로, 공유하지 않는 것이 규칙이다.
             return Vector3.Distance(seekerPosition, targetPosition) <= TagRadiusMeters;
         }
 

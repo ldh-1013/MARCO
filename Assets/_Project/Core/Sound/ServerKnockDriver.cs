@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using Marco.Core.Role;
+using Marco.Core.Spatial;
 using UnityEngine;
 
 namespace Marco.Core.Sound
@@ -322,7 +323,7 @@ namespace Marco.Core.Sound
                     continue;
                 }
 
-                float distance = Vector3.Distance(seekerPosition, w.Point);
+                float distance = DistanceMetric.Perceived(seekerPosition, w.Point);
 
                 if (!w.Evaluated)
                 {
@@ -402,7 +403,7 @@ namespace Marco.Core.Sound
                 chosen = _seekerHistory[i];
             }
 
-            return Vector3.Distance(chosen.Position, point);
+            return DistanceMetric.Perceived(chosen.Position, point);
         }
 
         /// <summary>

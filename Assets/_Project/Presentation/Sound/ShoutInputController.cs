@@ -99,7 +99,7 @@ namespace Marco.Presentation.Sound
 
             bridge.SubmitHoldBreath();
             Debug.Log($"[Shout] 숨 참기 입력 — 외침 선딜레이 안이고 공포 반경 {SeekerShoutConfig.FearRadiusMeters:0}m " +
-                      $"안이면 비명이 억제된다(숨 게이지 -{Core.Breath.BreathConfig.SuppressionCost:0}, §3.5/§5.9-1).");
+                      $"안이면 비명이 억제된다(숨 게이지 -{Core.Breath.BreathConfig.SuppressionCost:0.#}, §3.5/§5.9-1).");
         }
 
         /// <summary>

@@ -5,6 +5,7 @@ using Marco.Core.Locomotion;
 using Marco.Core.Net;
 using Marco.Core.Role;
 using Marco.Core.Sound;
+using Marco.Core.Water;
 
 namespace Marco.Presentation.Player
 {
@@ -23,8 +24,10 @@ namespace Marco.Presentation.Player
     /// 씬 YAML을 수작업으로 배선하는 현 단계에서 InputActionReference 직렬화
     /// 의존을 만들지 않기 위함. §12.6 키 리바인딩(M4)에서 액션 에셋으로 전환한다.
     ///
-    /// 네트워크는 붙이지 않는다(로컬 전용). 후속 태스크에서 FishNet
-    /// NetworkTransform(§14.2 10~20Hz)을 덧붙일 때 이 클래스는 수정하지 않는 구조.
+    /// 이동·시점은 네트워크를 모른다(로컬 전용). <b>단 하나의 예외가 §4.3 잠수 키다</b> —
+    /// §5.9-1 숨 게이지가 서버 권위이고, "버튼을 누르고 있다"는 서버가 재계산할 수 없는
+    /// 유일한 입력이라서 <see cref="IPulseNetworkBridge.SubmitDiveIntent"/>로 상태가
+    /// 바뀔 때만 알린다(위치·물속 여부·게이지는 전부 서버가 스스로 구한다).
     /// </summary>
     [RequireComponent(typeof(CharacterController))]
     public sealed class FirstPersonController : MonoBehaviour, ILocalControlGate, IPlayerIdentity, IRoleState
@@ -55,6 +58,16 @@ namespace Marco.Presentation.Player
         private LocomotionSimulator _simulator;
         private float _pitch;
         private float _verticalVelocity;
+
+        /// <summary>§4.3 잠수 홀드 주장을 서버로 보내는 통로. 없으면(로컬 전용) 보내지 않는다.</summary>
+        private IPulseNetworkBridge _pulseBridge;
+
+        /// <summary>
+        /// 마지막으로 서버에 알린 잠수 홀드 상태. <b>바뀔 때만 보내려고</b> 들고 있다 —
+        /// 매 프레임 bool 하나를 보내면 §14.2 대역 예산을 입력 하나가 먹는다.
+        /// 초기값이 false라 첫 입력이 반드시 전송된다.
+        /// </summary>
+        private bool _lastSentDiveHeld;
 
         private const float Gravity = -9.81f;
         private const float GroundedStick = -2f;
@@ -376,13 +389,27 @@ namespace Marco.Presentation.Player
             if (keyboard.dKey.isPressed) moveAxis.x += 1f;
             if (keyboard.aKey.isPressed) moveAxis.x -= 1f;
 
+            // §10.1 수면 영역을 **좌표로** 조회한다(하드코딩 false였던 자리).
+            // 트리거 진입/이탈을 세지 않으므로 리스폰·텔레포트로 상태가 어긋날 수 없다.
+            //
+            // canSubmerge는 넘기지 않는다(기본값 true) — §5.9-1 숨 게이지는 서버 전용이고
+            // 아직 소유자에게 내려오지 않는다. 즉 클라이언트의 잠수는 **예측**이고
+            // 강제 부상의 권위는 서버에 있다. 소유자 게이지 전송은 블록 7(HUD) 범위다 — GAP-76.
+            WaterSample water = WaterVolumeRegistry.Sample(transform.position);
+
+            bool diveHeld = keyboard.leftCtrlKey.isPressed;
+            SubmitDiveIntentIfChanged(diveHeld);
+
             var input = new LocomotionInput(
                 moveAxis,
                 sprintHeld: keyboard.leftShiftKey.isPressed,
-                diveHeld: keyboard.leftCtrlKey.isPressed,
-                isOnWaterSurface: false); // 수면 존 감지는 후속 태스크(§5.9) — 현재 잠수 진입 불가
+                diveHeld: diveHeld,
+                isOnWaterSurface: water.BodyInWater);
 
             LocomotionTick tick = _simulator.Tick(input, Time.deltaTime);
+
+            // §5.9-1은 잠수를 "카메라(머리)가 수면 아래"로 정의한다 — 그 카메라를 내리는 곳.
+            ApplyHeadHeight(tick.State);
 
             // §3.2 메아리: 자유 비행(충돌 없음·중력 없음). 시뮬레이터는 그대로 돌려 둔다 —
             // 상태 전이와 "메아리는 발소리 없음"(§5.1) 판정이 거기 있기 때문이다.
@@ -407,6 +434,73 @@ namespace Marco.Presentation.Player
                 FootstepPulse pulse = tick.Pulse.Value;
                 FootstepPulseEmitted?.Invoke(pulse.Type, pulse.Radius, pulse.Duration, transform.position);
             }
+        }
+
+        /// <summary>
+        /// §4.3 잠수 홀드 상태가 바뀌었을 때만 서버에 알린다.
+        ///
+        /// <para>
+        /// 브릿지는 씬의 <c>PulseSystem</c>에 있어 <c>GetComponent</c>로는 안 잡힌다 —
+        /// <c>ShoutInputController</c>·<c>EchoKnockController</c>와 같은 방식으로 씬에서 찾고,
+        /// 찾은 뒤에는 그 컴포넌트 참조만 들고 있는다(GAP-61은 <c>LocalPlayerRegistry.Current</c>를
+        /// 굳히지 말라는 규칙이고, 브릿지는 씬 수명 내내 같은 오브젝트라 대상이 아니다).
+        /// </para>
+        ///
+        /// <para>
+        /// 네트워크가 없으면(로컬 스모크 리그) 아무것도 보내지 않는다 —
+        /// 그때는 시뮬레이터의 로컬 판정만으로 잠수가 돌아간다.
+        /// </para>
+        /// </summary>
+        private void SubmitDiveIntentIfChanged(bool diveHeld)
+        {
+            if (diveHeld == _lastSentDiveHeld)
+                return;
+
+            if (_pulseBridge == null)
+            {
+                foreach (MonoBehaviour candidate in FindObjectsByType<MonoBehaviour>(FindObjectsInactive.Exclude))
+                {
+                    if (candidate is IPulseNetworkBridge found)
+                    {
+                        _pulseBridge = found;
+                        break;
+                    }
+                }
+            }
+
+            if (_pulseBridge == null || !_pulseBridge.NetworkActive)
+                return; // 로컬 전용 — 다음 프레임에 다시 시도한다(_lastSentDiveHeld를 갱신하지 않는다)
+
+            _pulseBridge.SubmitDiveIntent(diveHeld);
+            _lastSentDiveHeld = diveHeld;
+        }
+
+        /// <summary>
+        /// §5.9-1 잠수 정의 *"카메라(머리)가 수면 아래"* 를 실제로 성립시킨다.
+        ///
+        /// <para>
+        /// 발(캡슐)은 움직이지 않는다 — 부력·수중 이동·풀 바닥 콜라이더를 전부 끌고 오게 되고,
+        /// 얕은 물에서는 바닥에 막혀 잠수가 <b>조용히 실패</b>한다. 높이 규칙과 근거는
+        /// <see cref="DiveRules"/>가 소유하며 여기서는 카메라를 그 높이에 놓기만 한다.
+        /// </para>
+        ///
+        /// <para>
+        /// 서버는 이 카메라를 보지 않는다 — 같은 <see cref="DiveRules.HeadHeight"/>를
+        /// 자기 쪽에서 계산한다. 그래서 둘이 어긋날 수 없다.
+        /// </para>
+        /// </summary>
+        private void ApplyHeadHeight(MovementState state)
+        {
+            if (_cameraTransform == null)
+                return;
+
+            float target = DiveRules.HeadHeight(state == MovementState.Diving);
+            Vector3 local = _cameraTransform.localPosition;
+            if (Mathf.Approximately(local.y, target))
+                return;
+
+            local.y = target;
+            _cameraTransform.localPosition = local;
         }
 
         /// <summary>

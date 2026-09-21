@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using UnityEngine;
 using Marco.Core.Role;
+using Marco.Core.Spatial;
 
 namespace Marco.Core.Sound
 {
@@ -147,7 +148,7 @@ namespace Marco.Core.Sound
                         tracked.Pulse.Type,
                         listener.Role,
                         tracked.Pulse.Radius,
-                        Vector3.Distance(tracked.Pulse.Position, listener.Position));
+                        DistanceMetric.Perceived(tracked.Pulse.Position, listener.Position));
 
                     tracked.LastResults.TryGetValue(listener.PlayerId, out PerceivedPulse? previous);
 

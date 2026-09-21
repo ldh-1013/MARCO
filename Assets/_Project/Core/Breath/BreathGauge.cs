@@ -3,7 +3,7 @@ namespace Marco.Core.Breath
     /// <summary>§3.5 비명 억제 시도의 결과.</summary>
     public enum SuppressionResult
     {
-        /// <summary>§3.5 "숨 참기 — 숨 게이지 3초 → 비명 발생 안 함". 게이지에서 3이 빠졌다.</summary>
+        /// <summary>§3.5 [v0.4] "숨 참기 — 숨 게이지 4.5초 → 비명 발생 안 함". 게이지에서 4.5가 빠졌다.</summary>
         Suppressed,
 
         /// <summary>
@@ -12,7 +12,7 @@ namespace Marco.Core.Breath
         /// </summary>
         SuppressedByDive,
 
-        /// <summary>§3.5 "게이지 3초 미만 — 억제 불가. 비명 강제 발생".</summary>
+        /// <summary>§3.5 [v0.4] "게이지 4.5초 미만 — 억제 불가. 비명 강제 발생".</summary>
         NotEnoughBreath
     }
 
@@ -39,11 +39,11 @@ namespace Marco.Core.Breath
     ///
     /// **§5.9-1 계산 검증표를 그대로 재현한다**(테스트로 고정):
     /// <code>
-    /// | 상황                  | 소모 | 대기  | 회복    | 총    |
-    /// | 육상 비명 억제 1회     | -3  | 2초  | 0.75초 | 2.75초 |
-    /// | 수면에서 비명 억제 1회 | -3  | 2초  | 1.5초  | 3.5초  |
-    /// | 7초 잠수 후 물 밖      | -7  | 2초  | 1.75초 | 3.75초 |
-    /// | 전체 고갈(8초) 후 물 밖 | -8  | 2초  | 2.0초  | 4.0초  |
+    /// | 상황                        | 소모  | 대기  | 회복     | 총      |
+    /// | 육상 비명 억제 1회           | -4.5 | 2초  | 1.125초 | 3.125초 |
+    /// | 수면에서 비명 억제 1회        | -4.5 | 2초  | 2.25초  | 4.25초  |
+    /// | 수중 밸브 1회(8초) 후 물 밖   | -8   | 2초  | 2.0초   | 4.0초   |
+    /// | 전체 고갈(12초) 후 물 밖      | -12  | 2초  | 3.0초   | 5.0초   |
     /// </code>
     /// </summary>
     public sealed class BreathGauge
@@ -85,7 +85,7 @@ namespace Marco.Core.Breath
         /// </summary>
         public bool CanSubmerge => _current > 0f;
 
-        /// <summary>§3.5 억제를 시도할 수 있는가(§3.5 "게이지 3초 미만 — 억제 불가").</summary>
+        /// <summary>§3.5 억제를 시도할 수 있는가(§3.5 [v0.4] "게이지 4.5초 미만 — 억제 불가").</summary>
         public bool CanSuppress => _current >= BreathConfig.SuppressionCost;
 
         /// <summary>
@@ -142,7 +142,7 @@ namespace Marco.Core.Breath
 
             _current += BreathConfig.RecoveryPerSecond(zone) * deltaSeconds;
             if (_current > BreathConfig.TotalSeconds)
-                _current = BreathConfig.TotalSeconds; // §5.9-1 "최대 8초에서 상한"
+                _current = BreathConfig.TotalSeconds; // §5.9-1 "최대 12초에서 상한"
         }
 
         /// <summary>

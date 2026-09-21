@@ -1,5 +1,6 @@
 using UnityEngine;
 using Marco.Core.Role;
+using Marco.Core.Spatial;
 
 namespace Marco.Core.Sound
 {
@@ -46,7 +47,7 @@ namespace Marco.Core.Sound
             if (listenerPlayerId == pulse.SourcePlayerId)
                 return null;
 
-            float straightDist = Vector3.Distance(pulse.Position, listenerPosition);
+            float straightDist = DistanceMetric.Perceived(pulse.Position, listenerPosition);
 
             // 1) 역할별 인지 배율 적용 (§5.7)
             float baseRadius = pulse.Radius * RoleRadiusMultiplier(listenerRole);

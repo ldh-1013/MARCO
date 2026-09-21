@@ -126,7 +126,10 @@ namespace Marco.Core.Locomotion
         {
             // §4.3: 잠수는 수면 위에서만 진입 가능. 홀드 방식.
             // §5.9-1: 숨이 0이면 "강제 부상" — 홀드 중이어도 잠수로 들어가지 않는다.
-            if (input.DiveHeld && input.IsOnWaterSurface && input.CanSubmerge)
+            //
+            // 조건식 자체는 DiveRules가 소유한다 — 서버도 같은 판정을 해야 하는데
+            // (§5.9-1 숨 게이지가 서버 권위), 여기 인라인으로 두면 두 곳이 어긋난다.
+            if (DiveRules.IsDiving(input.DiveHeld, input.IsOnWaterSurface, input.CanSubmerge))
             {
                 CurrentState = MovementState.Diving;
                 ResetPulseDistance();

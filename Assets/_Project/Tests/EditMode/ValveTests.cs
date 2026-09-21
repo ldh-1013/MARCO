@@ -274,14 +274,23 @@ namespace Marco.Core.Tests
         }
 
         [Test]
-        public void ValveB_FitsWithinBreathGaugeBudget()
+        public void ValveB_FitsWithinBreathGaugeBudget_LegacyV03()
         {
-            // §6.1-1: 진입 1.0 + 회전 2.0 + 부상 1.0 = 4.0초, 숨 게이지 8초의 정확히 50%.
-            const float descend = 1f, ascend = 1f, gauge = 8f;
+            // ★ 이 테스트는 **v0.3 수치**를 검사한다 — 진입 1.0 / 회전 2.0 / 부상 1.0 = 4.0초와
+            //   숨 게이지 8초. v0.4에서 둘 다 바뀌었다:
+            //     · §6.1 [v0.4] 밸브 B = 진입 1.5 / 회전 5.0 / 부상 1.5 = **총 8.0초**
+            //     · §5.9-1 [v0.4] 숨 게이지 = **12초**  (BreathConfig.TotalSeconds)
+            //   즉 "게이지의 정확히 50%"라는 논거는 v0.3의 것이고, v0.4에서는 8.0 / 12 = 67%다.
+            //   **밸브 수치의 소유자는 블록 2**이므로 여기서는 고치지 않는다. 블록 2가
+            //   ValveB 배분을 갱신할 때 이 테스트를 v0.4 기준으로 다시 써야 한다.
+            //   그래서 게이지 값을 BreathConfig에서 읽지 않고 v0.3 리터럴로 묶어 둔다 —
+            //   읽게 만들면 지금 당장 실패해 블록 1의 범위를 넘게 된다.
+            const float descend = 1f, ascend = 1f, gaugeV03 = 8f;
             float total = descend + Valve.ValveBRotationSeconds + ascend;
 
             Assert.AreEqual(4f, total, 0.001f);
-            Assert.AreEqual(gauge / 2f, total, 0.001f, "밸브 B가 한 숨에 끝나지 않으면 §6.1-1 타임라인이 무너진다.");
+            Assert.AreEqual(gaugeV03 / 2f, total, 0.001f,
+                "v0.3 §6.1-1 타임라인. v0.4 갱신은 블록 2 범위다.");
         }
 
         [TestCase(3f)]  // A

@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using Marco.Core.Breath;
 using Marco.Core.Role;
+using Marco.Core.Spatial;
 using UnityEngine;
 
 namespace Marco.Core.Sound
@@ -27,13 +28,13 @@ namespace Marco.Core.Sound
         /// <summary>§3.5 "아무것도 안 함 → 비명 발생(9m / 1.0초)". 억제 실패도 여기로 온다.</summary>
         Screamed,
 
-        /// <summary>§3.5 "숨 참기 → 숨 게이지 3초 → 비명 발생 안 함".</summary>
+        /// <summary>§3.5 [v0.4] "숨 참기 → 숨 게이지 4.5초 → 비명 발생 안 함".</summary>
         SuppressedByHeldBreath,
 
         /// <summary>§3.5 "잠수 중 → 자동 억제(물속이라 비명 못 지름)". 추가 비용 없음.</summary>
         SuppressedByDive,
 
-        /// <summary>§3.5 "게이지 3초 미만 → 억제 불가. 비명 강제 발생". 시도했으나 실패했다.</summary>
+        /// <summary>§3.5 [v0.4] "게이지 4.5초 미만 → 억제 불가. 비명 강제 발생". 시도했으나 실패했다.</summary>
         SuppressionFailed
     }
 
@@ -296,7 +297,7 @@ namespace Marco.Core.Sound
                 case SuppressionResult.SuppressedByDive:
                     return ScreamOutcome.SuppressedByDive;
                 default:
-                    return ScreamOutcome.SuppressionFailed; // §3.5 "게이지 3초 미만 → 억제 불가"
+                    return ScreamOutcome.SuppressionFailed; // §3.5 [v0.4] "게이지 4.5초 미만 → 억제 불가"
             }
         }
 
@@ -316,7 +317,7 @@ namespace Marco.Core.Sound
         /// </summary>
         public static bool IsInFearRadius(Vector3 origin, Vector3 position)
         {
-            return Vector3.Distance(origin, position) <= SeekerShoutConfig.FearRadiusMeters;
+            return DistanceMetric.Perceived(origin, position) <= SeekerShoutConfig.FearRadiusMeters;
         }
 
         /// <summary>새 라운드를 위해 전부 비운다(쿨다운·선딜레이·억제 입력 기록).</summary>

@@ -71,26 +71,28 @@
     <Compile Include="Assets\_Project\Tests\EditMode\ValveInteractionControllerTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\ValveTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\SoundPulseResolverTests.cs" />
+    <Compile Include="Assets\_Project\Tests\EditMode\BreathGaugeTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\RoleAssignerTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\SpawnAnchorRegistryTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\RoundFlowTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\GameFlowManagerTests.cs" />
+    <Compile Include="Assets\_Project\Tests\EditMode\WaterVolumeTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\ServerValveDriverTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\RematchVoteDriverTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\VoicePipelineStage3Tests.cs" />
+    <Compile Include="Assets\_Project\Tests\EditMode\FootstepMaterialTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\SeekerRotationTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\PulseVisualRegistryTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\LocomotionSimulatorTests.cs" />
-    <Compile Include="Assets\_Project\Tests\EditMode\BreathGaugeTests.cs" />
-    <Compile Include="Assets\_Project\Tests\EditMode\ServerShoutDriverTests.cs" />
-    <Compile Include="Assets\_Project\Tests\EditMode\FootstepMaterialTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\FallRecoveryTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\TaggingTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\LocalPulsePipelineTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\GhostFlightTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\LocalControlGateTests.cs" />
+    <Compile Include="Assets\_Project\Tests\EditMode\ServerShoutDriverTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\ServerTagDriverTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\LocalPulsePipelineExpiryTests.cs" />
+    <Compile Include="Assets\_Project\Tests\EditMode\OcclusionTagWeightTests.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Assets\_Project\Tests\EditMode\Core.Tests.asmdef" />
