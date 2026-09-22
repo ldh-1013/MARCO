@@ -19,10 +19,11 @@ namespace Marco.Presentation.Objectives
     /// </list>
     ///
     /// <para>
-    /// 여기서의 역할·거리 검사는 RPC 낭비를 막는 <b>사전 필터일 뿐</b>이다. 서버는 의사를 보관하고
-    /// 역할·수평 거리·잠수 여부를 매 틱 다시 판정한다(<see cref="DrainHatch.CanWork"/>, GAP-24).
-    /// 잠수 여부를 여기서 거르지 않는 이유 — 잠수 판정의 권위는 서버 숨 게이지에 있고, 클라이언트가
-    /// 먼저 잘라내면 "E를 누른 채 잠수"하는 순서가 서버에 전달되지 않는다.
+    /// 여기서의 검사는 RPC 낭비를 막는 <b>사전 필터일 뿐</b>이다 — 서버와 <b>같은 식</b>
+    /// (<see cref="UnderwaterWorkSession.CanWork"/> = 도망자 · 수평 2.5m · 이 자리에서 실제로 잠길 수 있음, GAP-88)을
+    /// 클라이언트가 아는 값(로컬 위치 · 전달받은 숨 게이지)으로 먼저 본다. 서버는 의사를 보관하고 자신이 아는
+    /// 위치와 숨으로 같은 식을 매 틱 다시 판정한다(GAP-24). 잠수 키(Ctrl)는 조건이 아니다 — 자격은
+    /// "잠길 수 있는 자리"이고, 작업 중 잠수 자세는 서버 세션이 유지한다(<see cref="FirstPersonController.SetWorkDive"/>는 표시).
     /// </para>
     /// </summary>
     public sealed class DrainPoint : MonoBehaviour
@@ -59,6 +60,12 @@ namespace Marco.Presentation.Objectives
                 return;
 
             bool want = WantsToWork();
+
+            // §6.5-2 작업 구간 동안 잠수 자세(표시) — 밸브 B·E와 같은 경로. 놓으면 부상 초만큼 더 유지.
+            FirstPersonController local = LocalPlayerRegistry.Current;
+            if (local != null && (want || _lastSentHeld))
+                local.SetWorkDive(want, DrainConfig.SurfaceSeconds);
+
             if (want == _lastSentHeld)
                 return;
 
@@ -80,7 +87,11 @@ namespace Marco.Presentation.Objectives
             if (keyboard == null || !keyboard[_interactKey].isPressed)
                 return false;
 
-            return InteractionRules.InRange(player.transform.position, transform.position, underwaterTarget: true);
+            // [커밋 전 수정 4-2] 수평 2.5m + 이 자리에서 실제로 잠길 수 있음 — 서버와 같은 식(사전 필터).
+            Vector3 feet = player.transform.position;
+            bool inRange = InteractionRules.InRange(feet, transform.position, underwaterTarget: true);
+            return UnderwaterWorkSession.CanWork(player.Role, inRange, Core.Water.WaterVolumeRegistry.Sample(feet), feet.y,
+                Core.Breath.BreathClientState.CanSubmerge);
         }
     }
 }

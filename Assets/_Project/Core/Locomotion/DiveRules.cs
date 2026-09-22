@@ -127,6 +127,22 @@ namespace Marco.Core.Locomotion
             return new Vector3(feet.x, Mathf.Min(feet.y, water.BedY), feet.z);
         }
 
+        /// <summary>
+        /// 이 자리에서 잠수하면 <b>실제로 머리가 수면 아래로 가는가</b> — 수중 작업(밸브 B·E, 배수구)의 자격(GAP-88 해소).
+        ///
+        /// <para>
+        /// 새 판정이 아니다 — 잠수 상태 판정이 이미 쓰는 두 식의 조합이다: <see cref="IsDiving"/>(도망자 · 물 안 ·
+        /// 숨 있음)에 "잠수 키를 눌렀다면"을 넣고, <see cref="ZoneOf"/>로 그 자세의 머리 높이가 수면 아래인지 본다.
+        /// 덱 위(물 밖)도, 경사로 윗부분(발 &gt; −0.5)도 여기서 걸린다 — 수중 대상의 거리는 수평으로 재므로(GAP-88)
+        /// 이 조건이 없으면 물 밖에서 수중 밸브를 돌려 숨을 한 번도 쓰지 않을 수 있었다.
+        /// </para>
+        /// </summary>
+        public static bool CanSubmergeHere(RoleType role, in WaterSample water, float feetY, bool canSubmerge)
+        {
+            return IsDiving(role, true, water.BodyInWater, canSubmerge)
+                   && ZoneOf(water, feetY, diving: true) == BreathZone.Submerged;
+        }
+
         /// <summary>발 기준 머리 높이. 잠수 중이면 <see cref="SubmergedHeadHeight"/>.</summary>
         public static float HeadHeight(bool diving)
         {

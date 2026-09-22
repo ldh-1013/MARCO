@@ -695,7 +695,7 @@ namespace Marco.Net
 
             // §6.1 [v0.4] 수중 밸브 작업 구간(진입 → 회전 → 부상)은 잠수 키와 같은 의도로 친다(GAP-91 해소).
             //   **강제로 잠기게 하지는 않는다** — 머리가 실제로 수면 아래인지는 아래 지오메트리 판정이 정한다.
-            held |= ValveNetworkSync.ServerIsInUnderwaterWork(playerId);
+            held |= ValveNetworkSync.ServerIsInUnderwaterWork(playerId) || RoundNetworkSync.ServerIsInDrainWork(playerId);
 
             // §3.1 잠수는 도망자 능력 — 술래가 Ctrl을 눌러도 잠기지 않는다(블록 5, §6.5-3).
             bool diving = DiveRules.IsDiving(player.EffectiveRole, held, water.BodyInWater, BreathOf(playerId).CanSubmerge);

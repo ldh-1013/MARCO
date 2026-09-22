@@ -117,6 +117,16 @@ namespace Marco.Presentation.Objectives
             // [블록 7] 수중 밸브는 수평 거리(GAP-88) — 로컬 컨트롤러와 같은 규칙.
             bool inRange = InteractionRules.DistanceTo(playerPosition, nearest.transform.position,
                 ValveOccupancy.IsUnderwater(nearest.ValveId)) <= _interactionRange;
+
+            // [커밋 전 수정 4-2] 수중 밸브는 "이 자리에서 실제로 잠길 수 있음"도 요구한다 — 덱 위·경사로
+            // 윗부분에서는 잡히지 않는다. 사전 필터일 뿐이고 서버가 같은 식으로 다시 판정한다(GAP-88 해소).
+            if (inRange && ValveOccupancy.IsUnderwater(nearest.ValveId))
+            {
+                bool canBreathe = Core.Breath.BreathClientState.CanSubmerge;
+                inRange = UnderwaterWorkSession.CanWork(_player.Role, true,
+                    Core.Water.WaterVolumeRegistry.Sample(playerPosition), playerPosition.y, canBreathe);
+            }
+
             bool held = interactHeld && inRange;
 
             IValveNetworkBridge bridge = nearest.NetworkBridge;
@@ -139,9 +149,15 @@ namespace Marco.Presentation.Objectives
             }
 
             // §6.1 [v0.4] 수중 작업 구간 동안 잠수 자세(표시) — 놓으면 부상 초만큼 더 유지한다.
-            _player.SetWorkDive(underwater && held, ValveOccupancy.SurfaceSeconds(nearest.ValveId));
+            //   **바뀔 때만** 알린다 — 매 프레임 끄면 근처 배수구(DrainPoint)가 켠 자세와 싸운다.
+            bool wantDive = underwater && held;
             if (underwater)
                 _workDiveSurfaceSeconds = ValveOccupancy.SurfaceSeconds(nearest.ValveId);
+            if (wantDive != _workDiving)
+            {
+                _workDiving = wantDive;
+                _player.SetWorkDive(wantDive, _workDiveSurfaceSeconds);
+            }
 
             bridge.SubmitHoldIntent(_player.PlayerId, _player.Role, held);
             _engagedBridge = held ? bridge : null;
@@ -149,6 +165,7 @@ namespace Marco.Presentation.Objectives
 
         private bool _selfPulseRaised;
         private float _workDiveSurfaceSeconds;
+        private bool _workDiving;
 
         /// <summary>진행 중이던 네트워크 홀드가 있으면 해제 의사(held=false)를 보낸다.</summary>
         private void ReleaseEngagedBridge()
@@ -159,7 +176,11 @@ namespace Marco.Presentation.Objectives
             _engagedBridge.SubmitHoldIntent(_player.PlayerId, _player.Role, false);
             _engagedBridge = null;
             _selfPulseRaised = false;
-            _player.SetWorkDive(false, _workDiveSurfaceSeconds);
+            if (_workDiving)
+            {
+                _workDiving = false;
+                _player.SetWorkDive(false, _workDiveSurfaceSeconds);
+            }
         }
 
         /// <summary>범위 제한은 컨트롤러가 하므로 여기서는 최근접 하나만 고른다.</summary>

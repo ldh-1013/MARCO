@@ -1,3 +1,7 @@
+using Marco.Core.Locomotion;
+using Marco.Core.Role;
+using Marco.Core.Water;
+
 namespace Marco.Core.Objectives
 {
     /// <summary>수중 밸브(B·E) 작업 1회의 구간. §6.1-1 총 점유 표의 진입 · 회전 · 부상.</summary>
@@ -48,6 +52,11 @@ namespace Marco.Core.Objectives
     /// </para>
     ///
     /// <para>
+    /// <b>배수구도 같은 세션이다</b>(§6.5-2 "총 점유 = 진입 1 + T + 부상 1"). 다른 것은 진입·부상 초뿐이라
+    /// 그것만 주입받는다 — 구간 규칙은 한 곳이다(더블체크 8).
+    /// </para>
+    ///
+    /// <para>
     /// <b>강제로 잠기게 하지 않는다.</b> 이 세션은 "잠수 키를 누른 것"과 같은 <i>의도</i>만 만든다. 실제로 머리가
     /// 수면 아래인지는 여전히 서버 지오메트리(<c>DiveRules.ZoneOf</c>)가 정한다 — 물이 얕아 머리가 안 잠기는
     /// 자리면 숨은 소모되지 않는다.
@@ -55,13 +64,36 @@ namespace Marco.Core.Objectives
     /// </summary>
     public sealed class UnderwaterWorkSession
     {
+        /// <summary>수중 밸브(B·E) — 진입·부상은 §6.1-1 배분(<see cref="ValveOccupancy"/>).</summary>
         public UnderwaterWorkSession(ValveId id)
+            : this(ValveOccupancy.EntrySeconds(id), ValveOccupancy.SurfaceSeconds(id))
         {
-            Id = id;
+        }
+
+        /// <summary>§6.5-2 배수구 — 진입 1 · 부상 1(<see cref="DrainConfig"/>).</summary>
+        public static UnderwaterWorkSession ForDrain() =>
+            new UnderwaterWorkSession(DrainConfig.EntrySeconds, DrainConfig.SurfaceSeconds);
+
+        private UnderwaterWorkSession(float entrySeconds, float surfaceSeconds)
+        {
+            EntrySeconds = entrySeconds;
+            SurfaceSeconds = surfaceSeconds;
             Phase = UnderwaterWorkPhase.Entry;
         }
 
-        public ValveId Id { get; }
+        public float EntrySeconds { get; }
+        public float SurfaceSeconds { get; }
+
+        /// <summary>
+        /// 수중 작업을 시작·유지할 자격 — <b>도망자 · 범위 안 · 이 자리에서 실제로 잠길 수 있음</b>.
+        /// 밸브 B·E와 배수구가 같은 식을 쓴다(<see cref="DrainHatch.CanWork"/>는 이것을 부른다).
+        /// </summary>
+        public static bool CanWork(RoleType role, bool inRange, bool canSubmergeHere) =>
+            role == RoleType.Runner && inRange && canSubmergeHere;
+
+        /// <summary>서버가 쓰는 형태 — 지오메트리에서 <see cref="DiveRules.CanSubmergeHere"/>를 계산해 넘긴다.</summary>
+        public static bool CanWork(RoleType role, bool inRange, in WaterSample water, float feetY, bool canSubmerge) =>
+            CanWork(role, inRange, DiveRules.CanSubmergeHere(role, water, feetY, canSubmerge));
 
         public UnderwaterWorkPhase Phase { get; private set; }
 
@@ -70,6 +102,12 @@ namespace Marco.Core.Objectives
 
         /// <summary>이 세션이 잠수 의도를 유지하는가(진입·회전·부상 전 구간).</summary>
         public bool KeepsSubmerged => Phase != UnderwaterWorkPhase.Done;
+
+        /// <summary>
+        /// 숨이 다해 강제 부상으로 끝났는가(§5.9-1). 부상 구간을 끝까지 마친 정상 종료와 구분한다 —
+        /// 배수구 통과(§6.5-2)는 정상 부상 뒤에만 열린다.
+        /// </summary>
+        public bool EndedByForce { get; private set; }
 
         /// <summary>
         /// 시간을 진전시킨다.
@@ -86,6 +124,7 @@ namespace Marco.Core.Objectives
             if (!canSubmerge)
             {
                 bool wasRotating = Phase == UnderwaterWorkPhase.Rotate;
+                EndedByForce = true;
                 Enter(UnderwaterWorkPhase.Done);
                 return new UnderwaterWorkTick(false, wasRotating);
             }
@@ -103,7 +142,7 @@ namespace Marco.Core.Objectives
                     }
 
                     PhaseElapsed += deltaSeconds;
-                    if (PhaseElapsed < ValveOccupancy.EntrySeconds(Id))
+                    if (PhaseElapsed < EntrySeconds)
                         return default;
 
                     Enter(UnderwaterWorkPhase.Rotate);
@@ -127,7 +166,7 @@ namespace Marco.Core.Objectives
 
                 case UnderwaterWorkPhase.Surface:
                     PhaseElapsed += deltaSeconds;
-                    if (PhaseElapsed >= ValveOccupancy.SurfaceSeconds(Id))
+                    if (PhaseElapsed >= SurfaceSeconds)
                         Enter(UnderwaterWorkPhase.Done);
                     return default;
             }

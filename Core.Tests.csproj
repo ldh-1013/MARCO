@@ -70,11 +70,11 @@
     <Compile Include="Assets\_Project\Tests\EditMode\VoiceClassifierTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\WinConditionEvaluatorTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\ServerLobbyDriverTests.cs" />
-    <Compile Include="Assets\_Project\Tests\EditMode\RoundStartSequencerTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\ValveInteractionControllerTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\ValveTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\UnderwaterWorkSessionTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\SoundPulseResolverTests.cs" />
+    <Compile Include="Assets\_Project\Tests\EditMode\RoundStartSequencerTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\BreathGaugeTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\RoleAssignerTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\PrototypeScenarioTests.cs" />
@@ -102,6 +102,7 @@
     <Compile Include="Assets\_Project\Tests\EditMode\ServerTagDriverTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\LocalPulsePipelineExpiryTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\OcclusionTagWeightTests.cs" />
+    <Compile Include="Assets\_Project\Tests\EditMode\DrainDiveTests.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Assets\_Project\Tests\EditMode\Core.Tests.asmdef" />

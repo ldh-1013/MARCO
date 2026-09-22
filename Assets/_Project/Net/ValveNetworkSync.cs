@@ -317,25 +317,45 @@ namespace Marco.Net
                 return;
             }
 
-            _underwaterHolding.Add(playerId);
-
-            // 이미 내려가 있거나 돌리고 있으면 그대로 둔다(매 프레임 오는 같은 의사).
-            if (_underwaterSessions.TryGetValue(playerId, out UnderwaterWorkSession existing) &&
-                (existing.Phase == UnderwaterWorkPhase.Entry || existing.Phase == UnderwaterWorkPhase.Rotate))
-                return;
-
-            // 어차피 거부될 작업이면 내려가지도 않는다(비활성·이미 열림·메아리).
+            // 어차피 거부될 작업이면 의사도 받지 않는다(비활성·이미 열림·메아리).
             ValveInteractionRejection pre = _host.Valve.CheckInteract(role);
             if (pre != ValveInteractionRejection.None)
             {
-                _underwaterHolding.Remove(playerId);
                 Debug.Log($"[ValveNet:Server] {name} 홀드 거부 — {pre} (playerId={playerId})");
                 return;
             }
 
-            _underwaterSessions[playerId] = new UnderwaterWorkSession(id);
-            Debug.Log($"[ValveNet:Server] {name} 수중 진입 시작 — playerId={playerId}, " +
-                      $"진입 {ValveOccupancy.EntrySeconds(id):0.0}초 후 회전 (§6.1 총 점유 {ValveOccupancy.TotalSeconds(id):0.0}초 전 구간 잠수)");
+            // 의사만 보관한다 — 진입(세션 시작)은 자격(범위 · 실제로 잠길 수 있는 자리)이 되는 틱에
+            // TickUnderwaterSessions가 연다. 덱 위에서 누른 채 물로 들어가도 다시 누를 필요가 없다.
+            _underwaterHolding.Add(playerId);
+        }
+
+        /// <summary>
+        /// 수중 밸브 작업 자격 — 도망자 · 수평 2.5m · <b>이 자리에서 실제로 잠길 수 있음</b>(GAP-88 해소).
+        /// 배수구와 같은 식(<see cref="UnderwaterWorkSession.CanWork"/>). 위치는 서버가 아는 플레이어 위치다.
+        /// </summary>
+        private bool IsEligibleForUnderwaterWork(ulong playerId, out RoleType role)
+        {
+            role = RoleType.Echo;
+            RoleNetworkSync player = null;
+            for (int i = 0; i < RoleNetworkSync.Spawned.Count; i++)
+            {
+                RoleNetworkSync p = RoleNetworkSync.Spawned[i];
+                if (p != null && p.OrderKey >= 0 && (ulong)p.OrderKey == playerId)
+                {
+                    player = p;
+                    break;
+                }
+            }
+
+            if (player == null)
+                return false; // 나갔다
+
+            role = player.EffectiveRole;
+            Vector3 feet = player.transform.position;
+            bool inRange = InteractionRules.InRange(feet, transform.position, underwaterTarget: true);
+            return UnderwaterWorkSession.CanWork(role, inRange, Core.Water.WaterVolumeRegistry.Sample(feet), feet.y,
+                PulseNetworkSync.ServerCanSubmerge(playerId));
         }
 
         /// <summary>
@@ -344,9 +364,32 @@ namespace Marco.Net
         /// </summary>
         private void TickUnderwaterSessions(float dt)
         {
+            // ① 시작 — 누르고 있고 자격이 되면 진입을 연다(이미 세션이 있으면 그 세션이 끝난 뒤).
+            ValveId? valveId = _host?.Valve?.Id;
+            if (valveId.HasValue && _underwaterHolding.Count > 0)
+            {
+                foreach (ulong playerId in _underwaterHolding)
+                {
+                    if (_underwaterSessions.ContainsKey(playerId))
+                        continue;
+
+                    if (_host.Valve.CheckInteract(RoleType.Runner) != ValveInteractionRejection.None)
+                        break; // 열렸거나 잠겼다 — 아무도 내려갈 이유가 없다
+
+                    if (!IsEligibleForUnderwaterWork(playerId, out _))
+                        continue;
+
+                    _underwaterSessions[playerId] = new UnderwaterWorkSession(valveId.Value);
+                    Debug.Log($"[ValveNet:Server] {name} 수중 진입 시작 — playerId={playerId}, " +
+                              $"진입 {ValveOccupancy.EntrySeconds(valveId.Value):0.0}초 후 회전 " +
+                              $"(§6.1 총 점유 {ValveOccupancy.TotalSeconds(valveId.Value):0.0}초 전 구간 잠수)");
+                }
+            }
+
             if (_underwaterSessions.Count == 0)
                 return;
 
+            // ② 진행
             _sessionScratch.Clear();
             _sessionScratch.AddRange(_underwaterSessions.Keys);
 
@@ -355,8 +398,8 @@ namespace Marco.Net
                 ulong playerId = _sessionScratch[i];
                 UnderwaterWorkSession session = _underwaterSessions[playerId];
 
-                RoleType role = CurrentRoleOf(playerId);
-                bool holding = _underwaterHolding.Contains(playerId) && role == RoleType.Runner;
+                bool eligible = IsEligibleForUnderwaterWork(playerId, out RoleType role);
+                bool holding = _underwaterHolding.Contains(playerId) && eligible;
                 bool finished = _driver.State == ValveState.Open;
                 bool canSubmerge = PulseNetworkSync.ServerCanSubmerge(playerId);
 
@@ -379,25 +422,15 @@ namespace Marco.Net
                 if (step.StopRotation)
                     _driver.EndHold(playerId);
 
-                if (!canSubmerge && session.Phase == UnderwaterWorkPhase.Done)
+                if (session.EndedByForce)
+                {
+                    _underwaterHolding.Remove(playerId); // 강제 부상 — 다시 누르게 한다(자동 재진입 반복 방지)
                     Debug.Log($"[ValveNet:Server] {name} 강제 부상 — playerId={playerId} 숨 0 (§5.9-1)");
+                }
 
                 if (session.Phase == UnderwaterWorkPhase.Done)
                     _underwaterSessions.Remove(playerId);
             }
-        }
-
-        private static RoleType CurrentRoleOf(ulong playerId)
-        {
-            List<RoleNetworkSync> players = RoleNetworkSync.Spawned;
-            for (int i = 0; i < players.Count; i++)
-            {
-                RoleNetworkSync p = players[i];
-                if (p != null && p.OrderKey >= 0 && (ulong)p.OrderKey == playerId)
-                    return p.EffectiveRole;
-            }
-
-            return RoleType.Echo; // 나갔다 — 작업 자격 없음
         }
 
         /// <summary>

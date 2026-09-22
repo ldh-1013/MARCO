@@ -142,13 +142,16 @@ namespace Marco.Core.Tests
         }
 
         [Test]
-        public void DrainHatch_CompletesAfterT_ThenTransit1Point5_ThenEscape()
+        public void DrainHatch_CompletesAfterT_TransitAfterSurface_ThenEscape()
         {
+            // [커밋 전 수정 4-1 의미 변경] 완료 즉시 통과 → 완료 후 **부상을 마쳐야** 통과(§6.5-2 · §6.5-3).
             var d = new DrainHatch(DrainId.KiddiePool, 8f);
             d.TryWork(7, RoleType.Runner);
 
             DrainTickResult r = d.Tick(8f);
-            Assert.IsTrue(r.TransitStarted, "T=8초 경과 → 통과 시작");
+            Assert.IsTrue(r.Completed, "T=8초 경과 → 작업 완료(부상 대기)");
+            Assert.IsFalse(d.IsInTransit);
+            Assert.IsTrue(d.BeginTransit(7), "부상 완료 → 통과 시작");
             Assert.IsTrue(d.IsInTransit);
             Assert.AreEqual(7UL, d.TransitPlayer);
 
@@ -163,7 +166,7 @@ namespace Marco.Core.Tests
         {
             var d = new DrainHatch(DrainId.MainPool, 14f);
             d.TryWork(1, RoleType.Runner);
-            Assert.IsFalse(d.Tick(13.9f).TransitStarted);
+            Assert.IsFalse(d.Tick(13.9f).Completed);
             Assert.AreEqual(13.9f / 14f, d.Progress01, 1e-3f);
         }
 
@@ -173,6 +176,7 @@ namespace Marco.Core.Tests
             var d = new DrainHatch(DrainId.MainPool, 8f);
             d.TryWork(4, RoleType.Runner);
             d.Tick(8f);
+            d.BeginTransit(4); // 부상을 마쳤다
 
             d.CancelTransit(4);
             Assert.IsFalse(d.IsInTransit);

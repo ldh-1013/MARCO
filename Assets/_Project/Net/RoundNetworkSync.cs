@@ -143,6 +143,13 @@ namespace Marco.Net
         /// </summary>
         private readonly HashSet<ulong> _drainIntent = new HashSet<ulong>();
 
+        /// <summary>
+        /// [커밋 전 수정 4-1] 배수구 작업 세션 — 수중 밸브 B·E와 <b>같은</b> <see cref="UnderwaterWorkSession"/>
+        /// (진입 1 → 작업 T → 부상 1, 전 구간 잠수). 부상을 마쳐야 통과가 열린다. 서버 전용.
+        /// </summary>
+        private readonly Dictionary<ulong, UnderwaterWorkSession> _drainSessions = new Dictionary<ulong, UnderwaterWorkSession>();
+        private readonly List<ulong> _drainScratch = new List<ulong>();
+
         /// <summary>§6.2-1 잔여 30초 출구 파문의 다음 발생 시각(서버 전용).</summary>
         private float _nextExitPulseAt;
 
@@ -805,6 +812,7 @@ namespace Marco.Net
             _drain = new DrainHatch(chosen, workSeconds);
             _drainPulse.Reset();
             _drainIntent.Clear();
+            _drainSessions.Clear();
             _activeDrain.Value = (int)chosen;
             _drainProgress.Value = 0f;
             _drainDecaying.Value = false;
@@ -854,26 +862,93 @@ namespace Marco.Net
         /// 보관된 작업 의사마다 자격을 재평가해 작업을 붙이거나 뗀다(<see cref="DrainHatch.CanWork"/>).
         /// <see cref="DrainHatch.TryWork"/>는 이미 참여 중이면 아무것도 바꾸지 않는다(멱등).
         /// </summary>
-        private void ApplyDrainIntents()
+        private void ApplyDrainIntents(float dt)
         {
-            if (_drainIntent.Count == 0 || _drain.IsInTransit)
-                return;
-
             bool hasPos = DrainRegistry.TryGetPosition(_drain.Id, out Vector3 drainPos);
 
-            foreach (ulong playerId in _drainIntent)
+            // ① 시작 — 누르고 있고, 자격이 되면(도망자 · 범위 · 이 자리에서 실제로 잠길 수 있음) 진입을 연다.
+            if (!_drain.IsInTransit)
             {
-                RoleNetworkSync player = FindPlayer(playerId);
-                RoleType role = player != null ? player.EffectiveRole : RoleType.Echo;
-                bool inRange = hasPos && player != null &&
-                               InteractionRules.InRange(player.transform.position, drainPos, underwaterTarget: true);
-                bool submerged = PulseNetworkSync.ServerIsSubmerged(playerId);
+                foreach (ulong playerId in _drainIntent)
+                {
+                    if (_drainSessions.ContainsKey(playerId))
+                        continue;
 
-                if (DrainHatch.CanWork(role, inRange, submerged))
-                    _drain.TryWork(playerId, role);
-                else
-                    _drain.StopWork(playerId);
+                    if (IsEligibleForDrain(playerId, hasPos, drainPos, out _))
+                    {
+                        _drainSessions[playerId] = UnderwaterWorkSession.ForDrain();
+                        Debug.Log($"[RoundNet:Server] 배수구 진입 — playerId={playerId} (§6.5-2 진입 " +
+                                  $"{DrainConfig.EntrySeconds:0}초 → 작업 {_drain.WorkSeconds:0}초 → 부상 {DrainConfig.SurfaceSeconds:0}초, 전 구간 잠수)");
+                    }
+                }
             }
+
+            if (_drainSessions.Count == 0)
+                return;
+
+            // ② 진행 — 밸브 B·E와 같은 세션 규칙.
+            _drainScratch.Clear();
+            _drainScratch.AddRange(_drainSessions.Keys);
+            for (int i = 0; i < _drainScratch.Count; i++)
+            {
+                ulong playerId = _drainScratch[i];
+                UnderwaterWorkSession session = _drainSessions[playerId];
+
+                bool eligible = IsEligibleForDrain(playerId, hasPos, drainPos, out RoleType role);
+                bool holding = _drainIntent.Contains(playerId) && eligible;
+                bool canSubmerge = PulseNetworkSync.ServerCanSubmerge(playerId);
+
+                UnderwaterWorkTick step = session.Tick(dt, holding, _drain.IsCompleted, canSubmerge);
+
+                if (step.BeginRotation && _drain.TryWork(playerId, role) != ValveInteractionRejection.None)
+                    session.ForceSurface();
+                if (step.StopRotation)
+                    _drain.StopWork(playerId);
+
+                if (session.Phase != UnderwaterWorkPhase.Done)
+                    continue;
+
+                _drainSessions.Remove(playerId);
+
+                if (session.EndedByForce)
+                {
+                    // §5.9-1 강제 부상 — 통과는 열리지 않는다(완료는 유지). 다시 누르게 한다.
+                    _drainIntent.Remove(playerId);
+                    Debug.Log($"[RoundNet:Server] 배수구 강제 부상 — playerId={playerId} 숨 0. " +
+                              (_drain.IsCompleted ? "작업은 끝나 있음 — 다음 잠수에서 진입·부상만 하면 된다" : "작업 미완 — 감쇠"));
+                }
+                else if (_drain.IsCompleted && _drain.BeginTransit(playerId))
+                {
+                    Debug.Log($"[RoundNet:Server] §6.5-2 부상 완료 → 통과 {DrainConfig.TransitSeconds:0.0}초 (그 동안 태그 가능)");
+                }
+            }
+        }
+
+        /// <summary>
+        /// 배수구 작업 자격(§6.5-2 · GAP-88 해소) — 도망자 · 수평 2.5m · <b>이 자리에서 실제로 잠길 수 있음</b>
+        /// (<see cref="UnderwaterWorkSession.CanWork"/>, 밸브 B·E와 같은 식).
+        /// </summary>
+        private static bool IsEligibleForDrain(ulong playerId, bool hasPos, Vector3 drainPos, out RoleType role)
+        {
+            RoleNetworkSync player = FindPlayer(playerId);
+            role = player != null ? player.EffectiveRole : RoleType.Echo;
+            if (player == null || !hasPos)
+                return false;
+
+            Vector3 feet = player.transform.position;
+            bool inRange = InteractionRules.InRange(feet, drainPos, underwaterTarget: true);
+            return UnderwaterWorkSession.CanWork(role, inRange, Core.Water.WaterVolumeRegistry.Sample(feet), feet.y,
+                PulseNetworkSync.ServerCanSubmerge(playerId));
+        }
+
+        /// <summary>이 플레이어가 배수구 작업 구간(진입·작업·부상) 안인가 — 잠수 의도로 합쳐진다. 서버 전용.</summary>
+        internal static bool ServerIsInDrainWork(ulong playerId)
+        {
+            RoundNetworkSync instance = ServerInstance;
+            if (instance == null || ServerPhase != GameFlowState.InGame)
+                return false;
+
+            return instance._drainSessions.TryGetValue(playerId, out UnderwaterWorkSession s) && s.KeepsSubmerged;
         }
 
         private static RoleNetworkSync FindPlayer(ulong playerId)
@@ -898,7 +973,7 @@ namespace Marco.Net
             if (_drain == null)
                 return;
 
-            ApplyDrainIntents();
+            ApplyDrainIntents(dt);
 
             // §6.1 [v0.4] / §6.5-3 수중 작업 중 2.5초 주기 강제 파문(Valve 등급 12m) —
             //   "침묵 탈출은 불가능하다". 새 SoundType 없음.
@@ -916,9 +991,8 @@ namespace Marco.Net
             if (_drainDecaying.Value != _drain.IsDecaying)
                 _drainDecaying.Value = _drain.IsDecaying;
 
-            if (tick.TransitStarted)
-                Debug.Log($"[RoundNet:Server] §6.5-2 배수구 작업 완료 — 통과 {DrainConfig.TransitSeconds:0.0}초 " +
-                          "(그 동안 태그 가능)");
+            if (tick.Completed)
+                Debug.Log("[RoundNet:Server] §6.5-2 배수구 작업 완료 — 부상을 마치면 통과가 열린다");
 
             if (!tick.EscapedPlayer.HasValue)
                 return;
@@ -1020,6 +1094,7 @@ namespace Marco.Net
             _drain = null;
             _drainPulse.Reset();
             _drainIntent.Clear();
+            _drainSessions.Clear();
             _nextExitPulseAt = 0f;
             EndgamePressureActive = false;
             Core.Net.RoundStateRegistry.PublishFromServer(_totalPlayers.Value, false, false);
