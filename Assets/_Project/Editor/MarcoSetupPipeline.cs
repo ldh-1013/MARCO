@@ -136,7 +136,9 @@ namespace Marco.EditorTools
             if (!ActivateScene(log, "Game"))
                 return false;
 
-            if (!Step(log, "맵 v2 생성 (§10.1) — 구 그레이박스 비활성화", () => MapV2GeneratorTool.Generate()))
+            // 생성기가 §16.1 암전(환경광·스카이박스·태양광)도 이 활성 씬(Game)에 박는다. 플레이어 카메라의
+            // 흑 배경은 3단계(Setup Network Player)가 프리팹에 박는다.
+            if (!Step(log, "맵 v2 생성 (§10.1) — 구 그레이박스 비활성화 · §16.1 암전", () => MapV2GeneratorTool.Generate()))
                 return false;
 
             SaveOpenScenes(log);

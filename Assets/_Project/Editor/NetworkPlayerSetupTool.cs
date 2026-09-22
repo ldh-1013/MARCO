@@ -217,12 +217,43 @@ namespace Marco.EditorTools
                     root.AddComponent<ReadyNetworkSync>();
                     Debug.Log("[NetworkPlayerSetupTool] Player 프리팹에 ReadyNetworkSync 부착");
                 }
+
+                // ⑦ [§16.1 암전] 플레이어 카메라 = 흑 단색 클리어. 맵 씬 스카이박스를 지워도 클리어 플래그가
+                //    Skybox로 남으면 폴백이 불확실하므로 명시한다(이 프리팹은 Skybox였다).
+                ApplyBlackBackground(root);
             }
 
             // EditPrefabContentsScope가 저장을 마친 뒤의 확정 에셋에서 참조를 다시 읽는다.
             AssetDatabase.SaveAssets();
             GameObject savedPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(PrefabPath);
             return savedPrefab != null ? savedPrefab.GetComponent<NetworkObject>() : null;
+        }
+
+        /// <summary>
+        /// <see cref="FirstPersonController"/>가 참조하는 카메라(<c>_cameraTransform</c>)에 §16.2 배경 `#000000`을 고정한다.
+        /// 다른 카메라를 추측해서 고치지 않는다 — 참조가 비어 있으면 경고만 남긴다.
+        /// </summary>
+        private static void ApplyBlackBackground(GameObject root)
+        {
+            var controller = root.GetComponentInChildren<FirstPersonController>(true);
+            Transform view = controller != null
+                ? new SerializedObject(controller).FindProperty("_cameraTransform")?.objectReferenceValue as Transform
+                : null;
+            Camera camera = view != null ? view.GetComponent<Camera>() : null;
+
+            if (camera == null)
+            {
+                Debug.LogWarning("[NetworkPlayerSetupTool] FirstPersonController의 카메라를 찾지 못해 " +
+                                 "§16.1 흑 배경을 적용하지 못했습니다(_cameraTransform 참조 확인).");
+                return;
+            }
+
+            if (camera.clearFlags == CameraClearFlags.SolidColor && camera.backgroundColor == Color.black)
+                return;
+
+            camera.clearFlags = CameraClearFlags.SolidColor;
+            camera.backgroundColor = Color.black;
+            Debug.Log($"[NetworkPlayerSetupTool] Player 카메라 '{camera.name}' — 클리어 = 흑 단색(§16.1/§16.2)");
         }
 
         private static void EnsureFolderExists(string projectPath)

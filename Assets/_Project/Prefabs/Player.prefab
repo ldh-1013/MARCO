@@ -171,6 +171,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   _role: 1
+  _ghostAscendKey: 1
+  _ghostDescendKey: 55
   _cameraTransform: {fileID: 8226035136475508314}
   _mouseSensitivity: 0.12
   _invertY: 0
@@ -188,6 +190,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   _player: {fileID: 3561125662736213093}
+  _retryIntervalSeconds: 0.5
   _logTargetDiagnostics: 1
 --- !u!114 &5211837106982790943
 MonoBehaviour:
@@ -417,7 +420,7 @@ Camera:
   m_GameObject: {fileID: 1803192958280037329}
   m_Enabled: 1
   serializedVersion: 2
-  m_ClearFlags: 1
+  m_ClearFlags: 2
   m_BackGroundColor: {r: 0, g: 0, b: 0, a: 1}
   m_projectionMatrixMode: 1
   m_GateFitMode: 2

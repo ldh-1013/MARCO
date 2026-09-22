@@ -62,7 +62,8 @@ namespace Marco.EditorTools
                     $"  · 수면 {MapV2Layout.Waters.Length}개 (침강부 포함) + 수면 차폐판\n" +
                     $"  · 밸브 {MapV2Layout.Valves.Length}개 · 배수구 {MapV2Layout.Drains.Length}개 마커\n" +
                     $"  · 출구 {MapV2Layout.Exits.Length}개 · 계단 경사로 {MapV2Layout.Stairs.Length}개 · " +
-                    $"찰칵이 리스폰 {MapV2Layout.ClickerSpawns.Length}곳\n\n" +
+                    $"찰칵이 리스폰 {MapV2Layout.ClickerSpawns.Length}곳\n" +
+                    $"  · §16.1 암전 — 환경광 흑 · 스카이박스 없음 · Directional Light 끔\n\n" +
                     $"⚠ 기존 '{RootName}' 루트가 있으면 지우고 다시 만듭니다.\n\n계속하시겠습니까?",
                     "생성", "취소"))
             {
@@ -106,6 +107,7 @@ namespace Marco.EditorTools
             AttachPlanData(root);
             PlaceAnchors(log);
             DisableLegacyMap(log);
+            ApplyDarkness(log);
 
             foreach (KeyValuePair<string, int> kv in counts)
                 log.AppendLine($"  {kv.Key}: {kv.Value}개");
@@ -193,14 +195,14 @@ namespace Marco.EditorTools
             var group = Child(root, "BaseFloor");
             string tag = MapV2Layout.MaterialTag(FootstepMaterial.Concrete);
 
-            // L자: (0,0)~(40,40) + (40,0)~(52,28)
-            MakeFloor(group, "BaseFloor_West", new Rect(0f, 0f, MapV2Layout.CutX, MapV2Layout.MapDepth),
-                topY: -MapV2Layout.BaseFloorDrop, tag: tag);
-            MakeFloor(group, "BaseFloor_EastWing",
+            // L자: (0,0)~(40,40) + (40,0)~(52,28). 수면 사각형은 뚫는다(풀 뚜껑 방지).
+            int made = MakeFloorAroundWater(group, "BaseFloor_West", new Rect(0f, 0f, MapV2Layout.CutX, MapV2Layout.MapDepth),
+                -MapV2Layout.BaseFloorDrop, tag);
+            made += MakeFloorAroundWater(group, "BaseFloor_EastWing",
                 new Rect(MapV2Layout.CutX, 0f, MapV2Layout.MapWidth - MapV2Layout.CutX, MapV2Layout.CutY),
-                topY: -MapV2Layout.BaseFloorDrop, tag: tag);
+                -MapV2Layout.BaseFloorDrop, tag);
 
-            Bump(counts, "기본 바닥", 2);
+            Bump(counts, "기본 바닥", made);
         }
 
         private static void BuildZones(GameObject root, Dictionary<string, int> counts)
@@ -214,9 +216,17 @@ namespace Marco.EditorTools
                 GameObject parent = Child(zone.IsUpperFloor ? upper : ground, "Zone_" + zone.Name);
                 float floorY = zone.IsUpperFloor ? MapV2Layout.UpperFloorY : 0f;
 
-                // ① 밟는 바닥 — §5.9 재질 태그. 하향 레이가 읽는다.
-                MakeFloor(parent, "Floor", zone.Area, floorY, MapV2Layout.MaterialTag(zone.Material));
-                Bump(counts, "구역 바닥", 1);
+                // ① 밟는 바닥 — §5.9 재질 태그. 하향 레이가 읽는다. 지상 바닥은 수면 사각형을 뚫는다.
+                string floorTag = MapV2Layout.MaterialTag(zone.Material);
+                if (zone.IsUpperFloor)
+                {
+                    MakeFloor(parent, "Floor", zone.Area, floorY, floorTag);
+                    Bump(counts, "구역 바닥", 1);
+                }
+                else
+                {
+                    Bump(counts, "구역 바닥", MakeFloorAroundWater(parent, "Floor", zone.Area, floorY, floorTag));
+                }
 
                 // ② 2층 바닥은 §5.6 층간 차폐판(Wall 2장 상당)을 겸한다.
                 //    계단 개구부에는 구멍을 낸다 — §5.6 "계단은 개구부라 미적용".
@@ -301,7 +311,8 @@ namespace Marco.EditorTools
 
                 // [블록 7 · GAP-90] 수면판은 **트리거**다 — 고체면 플레이어가 물 위를 걸어 잠수가 아예
                 // 성립하지 않았다(발이 수면 높이라 "덱"으로 판정). 차폐 레이는 트리거도 센다
-                // (PhysicsOcclusionProbe — SoundBlocking 레이어의 트리거는 이 판뿐이다).
+                // (PhysicsOcclusionProbe — QueryTriggerInteraction.Collide). 풀 측벽(④)도 같은 이유로 트리거다.
+                // 수면 위를 덮던 구역 바닥·기본 바닥은 수면 사각형만큼 뚫는다(MakeFloorAroundWater).
                 occluder.GetComponent<Collider>().isTrigger = true;
 
                 // [블록 7 · GAP-90] 수영 바닥 — 발이 수면 아래 SwimFloorDepth에 머문다(떠 있는 높이).
@@ -458,6 +469,11 @@ namespace Marco.EditorTools
                 StripRenderer(go);
                 go.layer = LayerMask.NameToLayer(SoundBlockingLayer);
                 go.tag = PhysicsOcclusionProbe.WallTag;
+
+                // [버그 수정 1] 측벽은 **트리거**다 — 소리만 막고 몸은 막지 않는다(수면판·밸브 마커와 같은 패턴).
+                // 레이어 충돌 행렬상 SoundBlocking도 플레이어와 부딪히므로 고체로 두면 보이지 않는 벽이 된다.
+                // 차폐 레이는 트리거도 센다(PhysicsOcclusionProbe — QueryTriggerInteraction.Collide).
+                go.GetComponent<Collider>().isTrigger = true;
             }
         }
 
@@ -615,6 +631,37 @@ namespace Marco.EditorTools
             }
         }
 
+        /// <summary>
+        /// [버그 수정 2] §16.1 "완전한 흑 배경 위에 발광 라인과 파문만으로" · §16.2 배경 `#000000` — 맵 씬의
+        /// 환경광 · 스카이박스 · 태양광을 끈다. <b>씬을 손으로 고치지 않고 여기서 박는다</b> — 정본이 둘이 되면
+        /// 재생성 때 조용히 되돌아간다(§10.1 좌표 유실과 같은 함정).
+        ///
+        /// <para>
+        /// <c>RenderSettings</c>는 <b>활성 씬</b>의 값이다. 생성기는 맵 루트를 만드는 그 활성 씬(파이프라인 1b: Game)에
+        /// 쓴다. 런타임에는 FishNet이 맵(전역 씬)을 로드한 뒤 그 씬을 활성으로 바꾸므로 라운드 동안 이 값이 적용된다.
+        /// 태양광은 구 그레이박스와 같이 <b>끄되 지우지 않는다</b>.
+        /// </para>
+        /// </summary>
+        private static void ApplyDarkness(StringBuilder log)
+        {
+            RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Flat;
+            RenderSettings.ambientLight = Color.black;
+            RenderSettings.skybox = null;
+
+            // 스카이박스를 지워도 기본 환경 반사가 남으면 Lit 표면이 희미하게 보인다 — §16.1 "라이팅 사용량 0".
+            RenderSettings.reflectionIntensity = 0f;
+
+            log.AppendLine("§16.1 암전 — 환경광 Flat 흑 · 스카이박스 없음 · 환경 반사 0");
+
+            GameObject sun = GameObject.Find("Directional Light");
+            if (sun != null)
+            {
+                Undo.RecordObject(sun, "Disable directional light (§16.1)");
+                sun.SetActive(false);
+                log.AppendLine("§16.1 'Directional Light' 비활성화(삭제 아님)");
+            }
+        }
+
         /// <summary>이 (x, z) 지점의 수심. 침강부를 반영한다 — 없으면 0.</summary>
         private static float DepthAt(Vector2 p)
         {
@@ -675,21 +722,14 @@ namespace Marco.EditorTools
         /// </summary>
         private static int MakeFloorSlab(GameObject parent, Rect area, float floorY)
         {
-            var pieces = new List<Rect> { area };
-
             // 구멍은 계단의 **실제 발자국**이다. 점 중심 정사각형으로 뚫으면 경사로가
             // 차폐판을 비스듬히 가로지르는 구간이 남아 §5.6 "계단은 개구부라 미적용"이
             // 부분적으로만 성립한다.
+            var holes = new List<Rect>();
             for (int i = 0; i < MapV2Layout.Stairs.Length; i++)
-            {
-                Rect hole = MapV2Layout.Stairs[i].Footprint;
+                holes.Add(MapV2Layout.Stairs[i].Footprint);
 
-                var next = new List<Rect>();
-                for (int p = 0; p < pieces.Count; p++)
-                    next.AddRange(Subtract(pieces[p], hole));
-
-                pieces = next;
-            }
+            List<Rect> pieces = SubtractAll(area, holes);
 
             int made = 0;
             for (int i = 0; i < pieces.Count; i++)
@@ -707,6 +747,52 @@ namespace Marco.EditorTools
             }
 
             return made;
+        }
+
+        /// <summary>
+        /// [버그 수정] 지상 바닥판 — 수면 사각형만큼 뚫어 여러 조각으로 만든다. 반환값은 만든 조각 수다.
+        ///
+        /// <para>
+        /// 구역 바닥(y 0)과 기본 바닥(y −0.01)이 수면을 통째로 덮고 있었다 — 풀 위가 고체 뚜껑이라 물에
+        /// 들어갈 수 없었다(GAP-90의 수면판 트리거화만으로는 풀리지 않았다). 뚫는 영역은 §10.1 수면 사각형
+        /// 그대로다(새 좌표 없음). 가장자리는 풀 경사로(GAP-102) 윗변과 만난다. 2층 바닥은 뚫지 않는다(관람석은 풀 위 발코니다).
+        /// </para>
+        /// </summary>
+        private static int MakeFloorAroundWater(GameObject parent, string name, Rect area, float topY, string tag)
+        {
+            var holes = new List<Rect>();
+            for (int i = 0; i < MapV2Layout.Waters.Length; i++)
+                holes.Add(MapV2Layout.Waters[i].Area);
+
+            List<Rect> pieces = SubtractAll(area, holes);
+
+            int made = 0;
+            for (int i = 0; i < pieces.Count; i++)
+            {
+                if (pieces[i].width < 0.05f || pieces[i].height < 0.05f)
+                    continue;
+
+                MakeFloor(parent, pieces.Count == 1 ? name : $"{name}_{made}", pieces[i], topY, tag);
+                made++;
+            }
+
+            return made;
+        }
+
+        /// <summary>사각형에서 구멍 여러 개를 차례로 뺀 조각들(겹치지 않는 구멍은 무시된다).</summary>
+        private static List<Rect> SubtractAll(Rect from, List<Rect> holes)
+        {
+            var pieces = new List<Rect> { from };
+            for (int i = 0; i < holes.Count; i++)
+            {
+                var next = new List<Rect>();
+                for (int p = 0; p < pieces.Count; p++)
+                    next.AddRange(Subtract(pieces[p], holes[i]));
+
+                pieces = next;
+            }
+
+            return pieces;
         }
 
         /// <summary>사각형에서 사각형을 빼 최대 4조각으로 만든다(겹치지 않으면 원본 그대로).</summary>
@@ -748,6 +834,10 @@ namespace Marco.EditorTools
             GameObject wall = MakeCube(parent, name, center, size);
 
             GameObject sound = MakeCube(wall, "Sound", center, size);
+            // [버그 수정] MakeCube는 localScale에 size를 쓴다 — 부모(벽)가 이미 size로 늘어나 있어 자식의 실제
+            // 크기가 size²가 됐다(길이 18m 벽 → 324m, 높이 3.5m → 12.25m). 플레이어와 충돌하는 SoundBlocking이라
+            // 맵을 가로지르는 보이지 않는 벽이 됐고, 문 개구부도 옆 벽의 연장선이 막았다. 1이어야 벽과 같은 크기다.
+            sound.transform.localScale = Vector3.one;
             StripRenderer(sound);
             sound.layer = LayerMask.NameToLayer(SoundBlockingLayer);
             sound.tag = PhysicsOcclusionProbe.WallTag;
