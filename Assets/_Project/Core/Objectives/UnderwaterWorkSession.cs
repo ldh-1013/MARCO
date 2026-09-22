@@ -110,27 +110,39 @@ namespace Marco.Core.Objectives
         public bool EndedByForce { get; private set; }
 
         /// <summary>
+        /// 이번 틱(<paramref name="deltaSeconds"/>) 안에 부상 구간이 끝나는가 — §5.9-1 "게이지 0초 경계" 판정.
+        /// 서버는 숨 게이지를 이 세션보다 <b>먼저</b> 진전시키므로(<c>ServerTickOrder</c>), 게이지가 이 값을 보고
+        /// 같은 틱의 고갈을 질식으로 치지 않는다(<see cref="Marco.Core.Breath.BreathGauge.Tick(Marco.Core.Breath.BreathZone, float, bool)"/>).
+        /// </summary>
+        public bool SurfaceCompletesWithin(float deltaSeconds) =>
+            Phase == UnderwaterWorkPhase.Surface && PhaseElapsed + (deltaSeconds > 0f ? deltaSeconds : 0f) >= SurfaceSeconds;
+
+        /// <summary>
         /// 시간을 진전시킨다.
         /// </summary>
         /// <param name="holding">플레이어가 아직 E를 누르고 있다(도망자 한정 — 호출부가 역할을 확인한다).</param>
         /// <param name="rotationFinished">밸브가 열렸다(이 플레이어든 동시 작업자든).</param>
-        /// <param name="canSubmerge">§5.9-1 숨이 남아 있다. 0이면 강제 부상 — 세션이 즉시 끝난다.</param>
+        /// <param name="canSubmerge">
+        /// §5.9-1 숨이 남아 있다. 0이면 강제 부상 — 세션이 즉시 끝난다. <b>단 이번 틱에 부상이 끝나면 부상 완료가 이긴다</b>
+        /// (§5.9-1 "게이지 0초 경계": 순위 1 부상 완료 · 순위 2 게이지 고갈 — 부상 완료가 확정되면 질식은 무시).
+        /// </param>
         public UnderwaterWorkTick Tick(float deltaSeconds, bool holding, bool rotationFinished, bool canSubmerge)
         {
             if (Phase == UnderwaterWorkPhase.Done)
                 return default;
 
+            if (deltaSeconds < 0f)
+                deltaSeconds = 0f;
+
             // §5.9-1 강제 부상 — 숨이 다하면 어느 구간이든 그 자리에서 끝난다(더 소모할 숨이 없다).
-            if (!canSubmerge)
+            // 예외는 하나 — 같은 틱에 부상이 끝나면 아래 Surface 분기가 정상 종료로 처리한다(0초 경계, 순위 1).
+            if (!canSubmerge && !SurfaceCompletesWithin(deltaSeconds))
             {
                 bool wasRotating = Phase == UnderwaterWorkPhase.Rotate;
                 EndedByForce = true;
                 Enter(UnderwaterWorkPhase.Done);
                 return new UnderwaterWorkTick(false, wasRotating);
             }
-
-            if (deltaSeconds < 0f)
-                deltaSeconds = 0f;
 
             switch (Phase)
             {

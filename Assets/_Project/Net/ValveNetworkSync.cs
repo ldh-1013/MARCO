@@ -28,6 +28,7 @@ namespace Marco.Net
     /// <see cref="NetworkActive"/>가 false다. 그때 Presentation은 이 브릿지를 무시하고
     /// 스프린트 5의 클라이언트 권위 경로를 그대로 쓴다(회귀 없음).
     /// </summary>
+    [DefaultExecutionOrder(ServerTickOrder.UnderwaterWork)] // §5.9-1 0초 경계 — 숨 게이지 다음에 세션이 돈다
     public sealed class ValveNetworkSync : NetworkBehaviour, IValveNetworkBridge
     {
         // 서버가 확정해 전 클라이언트에 전파하는 권위 상태.
@@ -446,6 +447,26 @@ namespace Marco.Net
             {
                 ValveNetworkSync v = Spawned[i];
                 if (v != null && v._underwaterSessions.TryGetValue(playerId, out UnderwaterWorkSession s) && s.KeepsSubmerged)
+                    return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// 이 플레이어의 수중 밸브 작업이 이번 틱에 부상을 마치는가 — §5.9-1 0초 경계(숨 게이지가 질식 판정 전에 묻는다).
+        /// 숨은 세션보다 먼저 돈다(<see cref="ServerTickOrder"/>) — 여기서 보는 세션 상태는 이번 틱 진전 전이다.
+        /// </summary>
+        internal static bool ServerSurfaceCompletesWithin(ulong playerId, float deltaSeconds)
+        {
+            if (RoundNetworkSync.ServerPhase != Core.GameFlow.GameFlowState.InGame)
+                return false;
+
+            for (int i = 0; i < Spawned.Count; i++)
+            {
+                ValveNetworkSync v = Spawned[i];
+                if (v != null && v._underwaterSessions.TryGetValue(playerId, out UnderwaterWorkSession s) &&
+                    s.SurfaceCompletesWithin(deltaSeconds))
                     return true;
             }
 

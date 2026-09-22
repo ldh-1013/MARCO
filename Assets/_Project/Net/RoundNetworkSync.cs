@@ -39,6 +39,7 @@ namespace Marco.Net
     /// **NRE 가드**(스프린트 10 교훈): <c>IsSpawned</c>/<c>IsServerStarted</c>는
     /// <see cref="NetworkBehaviour.NetworkObject"/> null 확인 뒤에만 호출한다.
     /// </summary>
+    [DefaultExecutionOrder(ServerTickOrder.UnderwaterWork)] // §5.9-1 0초 경계 — 숨 게이지 다음에 배수구 세션이 돈다
     public sealed class RoundNetworkSync : NetworkBehaviour, IRoundNetworkBridge
     {
         [Tooltip("§6.2 제한시간. 4인 MVP=600초. 로컬 RoundTimer.FourPlayerSeconds와 같은 값을 유지할 것.")]
@@ -949,6 +950,20 @@ namespace Marco.Net
                 return false;
 
             return instance._drainSessions.TryGetValue(playerId, out UnderwaterWorkSession s) && s.KeepsSubmerged;
+        }
+
+        /// <summary>
+        /// 이 플레이어의 배수구 작업이 이번 틱에 부상을 마치는가 — §5.9-1 0초 경계(숨 게이지가 질식 판정 전에 묻는다).
+        /// 숨은 세션보다 먼저 돈다(<see cref="ServerTickOrder"/>) — 여기서 보는 세션 상태는 이번 틱 진전 전이다.
+        /// </summary>
+        internal static bool ServerSurfaceCompletesWithin(ulong playerId, float deltaSeconds)
+        {
+            RoundNetworkSync instance = ServerInstance;
+            if (instance == null || ServerPhase != GameFlowState.InGame)
+                return false;
+
+            return instance._drainSessions.TryGetValue(playerId, out UnderwaterWorkSession s) &&
+                   s.SurfaceCompletesWithin(deltaSeconds);
         }
 
         private static RoleNetworkSync FindPlayer(ulong playerId)

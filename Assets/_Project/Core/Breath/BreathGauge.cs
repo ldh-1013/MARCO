@@ -100,7 +100,13 @@ namespace Marco.Core.Breath
         ///    <b>대기와 회복은 같은 틱에 겹치지 않는다</b> — 대기가 끝난 잔여 시간까지
         ///    회복으로 돌리면 §5.9-1 검증표의 "2초 + 회복시간" 합이 어긋난다.
         /// </summary>
-        public BreathTick Tick(BreathZone zone, float deltaSeconds)
+        /// <param name="surfacingCompletes">
+        /// 이번 틱에 수중 작업의 부상 구간이 끝난다(<c>UnderwaterWorkSession.SurfaceCompletesWithin</c>).
+        /// 참이면 같은 틱에 게이지가 0이 돼도 <b>질식이 아니다</b> — §5.9-1 "게이지 0초 경계 처리":
+        /// 순위 1 부상 완료 · 순위 2 게이지 고갈, "부상 완료 판정이 질식 판정보다 항상 우선한다".
+        /// 숨은 그대로 0까지 소모된다(회복 대기도 동일) — 무시되는 것은 질식 페널티와 고함급 파문뿐이다.
+        /// </param>
+        public BreathTick Tick(BreathZone zone, float deltaSeconds, bool surfacingCompletes = false)
         {
             if (deltaSeconds <= 0f)
                 return new BreathTick(false);
@@ -109,13 +115,13 @@ namespace Marco.Core.Breath
                 _chokePenaltyRemaining = Max0(_chokePenaltyRemaining - deltaSeconds);
 
             if (zone == BreathZone.Submerged)
-                return new BreathTick(TickSubmerged(deltaSeconds));
+                return new BreathTick(TickSubmerged(deltaSeconds, surfacingCompletes));
 
             TickRecovery(zone, deltaSeconds);
             return new BreathTick(false);
         }
 
-        private bool TickSubmerged(float deltaSeconds)
+        private bool TickSubmerged(float deltaSeconds, bool surfacingCompletes)
         {
             bool hadBreath = _current > 0f;
 
@@ -126,6 +132,10 @@ namespace Marco.Core.Breath
 
             // §5.9-1 "잠수 중 게이지가 0이 되면" — 0으로 **떨어지는 그 틱**에만 1회.
             if (!hadBreath || _current > 0f)
+                return false;
+
+            // §5.9-1 0초 경계 — 같은 틱에 부상이 끝나면 부상 완료가 우선(질식 무시).
+            if (surfacingCompletes)
                 return false;
 
             _chokePenaltyRemaining = BreathConfig.ChokePenaltySeconds;

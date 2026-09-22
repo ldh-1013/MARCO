@@ -56,6 +56,7 @@
   <ItemGroup>
     <Compile Include="Assets\_Project\Net\Transports\FishyFacepunch\FishyFacepunch.cs" />
     <Compile Include="Assets\_Project\Net\ReadyNetworkSync.cs" />
+    <Compile Include="Assets\_Project\Net\ServerTickOrder.cs" />
     <Compile Include="Assets\_Project\Net\Transports\FishyFacepunch\Core\ClientHostSocket.cs" />
     <Compile Include="Assets\_Project\Net\Transports\FishyFacepunch\Core\ClientSocket.cs" />
     <Compile Include="Assets\_Project\Net\PlayerOwnershipGate.cs" />

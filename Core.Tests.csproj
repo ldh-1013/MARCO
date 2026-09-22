@@ -97,6 +97,7 @@
     <Compile Include="Assets\_Project\Tests\EditMode\TaggingTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\LocalPulsePipelineTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\GhostFlightTests.cs" />
+    <Compile Include="Assets\_Project\Tests\EditMode\ZeroBreathBoundaryTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\LocalControlGateTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\ServerShoutDriverTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\ServerTagDriverTests.cs" />

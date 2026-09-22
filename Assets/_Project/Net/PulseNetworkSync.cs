@@ -45,6 +45,7 @@ namespace Marco.Net
     /// NRE가 나므로(스프린트 10 교훈), <see cref="NetworkBehaviour.NetworkObject"/> null 여부를
     /// 먼저 확인한다.
     /// </summary>
+    [DefaultExecutionOrder(ServerTickOrder.Breath)] // §5.9-1 0초 경계 — 숨이 수중 작업 세션보다 먼저 돈다
     public sealed class PulseNetworkSync : NetworkBehaviour, IPulseNetworkBridge
     {
         [Tooltip("서버 판정·전송 로그를 남길지. 초당 여러 번 도는 경로라 기본은 꺼둔다(델리버리 전량 로그).")]
@@ -834,7 +835,12 @@ namespace Marco.Net
                 ulong id = (ulong)p.OrderKey;
                 BreathZone zone = ZoneOf(p);
                 BreathGauge gauge = BreathOf(id);
-                BreathTick tick = gauge.Tick(zone, deltaSeconds);
+
+                // §5.9-1 0초 경계 — 이번 틱에 수중 작업의 부상이 끝나면 같은 틱의 고갈은 질식이 아니다(부상 완료 우선).
+                //   이 판정이 세션 진전보다 먼저라는 것은 ServerTickOrder가 보장한다.
+                bool surfacing = ValveNetworkSync.ServerSurfaceCompletesWithin(id, deltaSeconds) ||
+                                 RoundNetworkSync.ServerSurfaceCompletesWithin(id, deltaSeconds);
+                BreathTick tick = gauge.Tick(zone, deltaSeconds, surfacing);
 
                 SendBreathToOwner(p, id, gauge, zone);
 
