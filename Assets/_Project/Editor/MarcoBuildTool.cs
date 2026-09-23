@@ -18,10 +18,19 @@ namespace Marco.EditorTools
     /// 에디터가 프로젝트를 열고 있으면 배치모드(<c>-executeMethod</c>) 빌드는 잠금 때문에 실패한다 —
     /// 그때는 이 메뉴를 쓴다.
     /// </para>
+    ///
+    /// <para>
+    /// <b>QA 빌드다</b> — <see cref="QaBuildDefine"/>를 넣어 QA 전용 코드(<c>Marco.Presentation.QA.QaDebugOverlay</c>)를
+    /// 포함한다. 심볼은 <see cref="BuildPlayerOptions.extraScriptingDefines"/>로 <b>이 빌드에만</b> 넘긴다 —
+    /// PlayerSettings에 저장하지 않으므로 에디터 Play와 다른 빌드 경로(향후 릴리즈/스팀 빌드)에는 새지 않는다.
+    /// </para>
     /// </summary>
     public static class MarcoBuildTool
     {
         private const string OutputPath = "Builds/Windows/MARCO.exe";
+
+        /// <summary>QA 전용 코드를 켜는 스크립팅 정의 심볼. 이 도구 밖에서 정의하지 않는다.</summary>
+        public const string QaBuildDefine = "MARCO_QA_BUILD";
 
         [MenuItem("Tools/MARCO/Build Windows (3인 테스트)", priority = 300)]
         public static void BuildFromMenu()
@@ -57,6 +66,7 @@ namespace Marco.EditorTools
                 locationPathName = OutputPath,
                 target = BuildTarget.StandaloneWindows64,
                 options = BuildOptions.None,
+                extraScriptingDefines = new[] { QaBuildDefine },
             };
 
             BuildReport report = BuildPipeline.BuildPlayer(options);
@@ -66,7 +76,8 @@ namespace Marco.EditorTools
             if (summary.result == BuildResult.Succeeded)
             {
                 Debug.Log($"[Build] 성공 — {OutputPath} ({summary.totalSize / (1024 * 1024)} MB, {summary.totalTime.TotalSeconds:0}초). " +
-                          $"씬: {sceneList}. 3인 테스트: 에디터 Play(호스트) + exe 2개 실행 → 로비 접속.");
+                          $"씬: {sceneList}. 3인 테스트: 에디터 Play(호스트) + exe 2개 실행 → 로비 접속. " +
+                          $"{QaBuildDefine} 포함 — exe에서 F3 QA 오버레이 · F2 QA 라이트.");
                 return true;
             }
 
