@@ -88,6 +88,7 @@
     <Compile Include="Assets\_Project\Tests\EditMode\VoicePipelineStage3Tests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\FootstepMaterialTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\SeekerRotationTests.cs" />
+    <Compile Include="Assets\_Project\Tests\EditMode\PulseWallRevealTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\SonarAfterglowClickerTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\PulseVisualRegistryTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\LocomotionSimulatorTests.cs" />

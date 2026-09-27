@@ -102,7 +102,7 @@ namespace Marco.Core.Tests
         // ── 요청 검증 1: 전 구간 ───────────────────────────────────────────
 
         [Test]
-        public void FullSequence_BriefingRunsThirtyToZero_WithoutReset_ThenInGame()
+        public void FullSequence_BriefingRunsToZero_WithoutReset_ThenInGame()
         {
             var f = new ServerFlow();
             float lastBriefing = float.MaxValue;
@@ -129,9 +129,9 @@ namespace Marco.Core.Tests
             Assert.AreEqual(1, f.BeginRounds);
             Assert.AreEqual(0, f.RoundNumber, "첫 라운드 = 0번(§2.3 로테이션 기준)");
 
-            // 30초 → 0: 시작 틱에 이미 dt 1회 차감되므로 (시작 틱 ~ 종료 틱) = 30 − dt.
+            // 브리핑 Seconds → 0: 시작 틱에 이미 dt 1회 차감되므로 (시작 틱 ~ 종료 틱) = Seconds − dt.
             Assert.AreEqual(BriefingConfig.Seconds - Dt, f.InGameAt - f.BriefingStartedAt, Eps);
-            // 전체 = 로비 틱 1 + 카운트다운 3 + 맵 로드 5 + 브리핑 30.
+            // 전체 = 로비 틱 1 + 카운트다운 3 + 맵 로드 5 + 브리핑 Seconds(정본 30 · 현재 임시 7).
             Assert.AreEqual(Dt + ServerLobbyDriver.CountdownSeconds + f.MapLoadSeconds + BriefingConfig.Seconds - Dt,
                 f.InGameAt, Eps);
             Assert.AreEqual(0f, f.Start.BriefingRemaining);
@@ -153,7 +153,10 @@ namespace Marco.Core.Tests
             Assert.IsTrue(f.Start.Briefing);
             Assert.AreEqual(BriefingConfig.Seconds - Dt, f.Start.BriefingRemaining, Eps);
 
-            for (int i = 0; i < 1918; i++)
+            // 잔여 1틱까지: 시작 틱에 1회 이미 차감 + 마지막 1틱 남김 → Seconds/Dt − 2틱(7초 446 · 정본 30초 1918).
+            // 상수에서 계산한다 — 브리핑 길이를 바꿔도(임시값 ↔ 정본) 이 테스트를 고칠 필요가 없다.
+            int ticksToLastOne = (int)(BriefingConfig.Seconds / Dt) - 2;
+            for (int i = 0; i < ticksToLastOne; i++)
                 f.Tick(Dt);
             Assert.AreEqual(GameFlowState.RoleAssign, f.Phase, "잔여 1틱 — 아직 브리핑");
             Assert.AreEqual(Dt, f.Start.BriefingRemaining, Eps);

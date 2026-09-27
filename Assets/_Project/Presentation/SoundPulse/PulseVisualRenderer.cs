@@ -100,6 +100,12 @@ namespace Marco.Presentation.Sound
 
         private readonly List<Flash> _flashes = new List<Flash>();
 
+        /// <summary>
+        /// "말하면 보인다" — 확장 링이 닿는 벽의 윤곽을 같은 선 기법으로 잠깐 그린다(<see cref="PulseWallRevealer"/>).
+        /// 반경 · 지속은 파문 자신의 값(§5.1), 밝기는 링의 곡선. §16.4 잔상과는 별개다(잔상은 그대로).
+        /// </summary>
+        private PulseWallRevealer _wallReveal;
+
         /// <summary>이번 프레임 로컬 플레이어가 메아리인가(소나 시야). 매 프레임 재조회(GAP-61).</summary>
         private bool _echoView;
 
@@ -138,6 +144,7 @@ namespace Marco.Presentation.Sound
                 _viewCamera = Camera.main;
 
             _ringMaterial = _ringMaterialOverride != null ? _ringMaterialOverride : CreateDefaultRingMaterial();
+            _wallReveal = new PulseWallRevealer(transform, _ringMaterial, _ringWidth);
 
             _registry.VisualAdded += OnVisualAdded;
             _registry.VisualUpdated += OnVisualUpdated;
@@ -313,6 +320,7 @@ namespace Marco.Presentation.Sound
             {
                 _echoView = echo;
                 ClearResiduals();
+                _wallReveal.Clear(); // §3.2-1 메아리 소나 — "지형: 끝까지 보이지 않음"
             }
 
             _registry.Tick(now);
@@ -331,7 +339,10 @@ namespace Marco.Presentation.Sound
             if (_echoView)
                 UpdateSonarRings(now);
             else
+            {
                 UpdateRings(now);
+                _wallReveal.Tick(now, _frameColor);
+            }
 
             UpdateAfterglowRings(now);
             UpdateFlashes(now);
@@ -505,6 +516,7 @@ namespace Marco.Presentation.Sound
             LineRenderer ring = RentRing();
             _activeRings[state.PulseId] = ring;
             ring.enabled = state.Kind == PulseVisualKind.WorldRing;
+            AttachWallReveal(state);
         }
 
         private void OnVisualUpdated(PulseVisualState state)
@@ -512,11 +524,30 @@ namespace Marco.Presentation.Sound
             // 표현 종류가 바뀌면(차폐 발생/해소) 링 표시 여부만 토글하면 된다.
             if (_activeRings.TryGetValue(state.PulseId, out LineRenderer ring))
                 ring.enabled = state.Kind == PulseVisualKind.WorldRing;
+
+            // 차폐로 링이 사라지면 윤곽도 없다. 반경이 바뀌었으면 다시 붙인다(같으면 Add가 그대로 둔다).
+            if (_echoView || state.Kind != PulseVisualKind.WorldRing)
+                _wallReveal.Remove(state.PulseId);
+            else
+                AttachWallReveal(state);
+        }
+
+        /// <summary>
+        /// 확장 링이 보이는 파문에만 벽 윤곽을 붙인다 — 방향만 보이는(차폐된) 파문은 링이 없으니 윤곽도 없다.
+        /// 메아리 시야(소나)에서는 붙이지 않는다(§3.2-1 "지형: 끝까지 보이지 않음").
+        /// </summary>
+        private void AttachWallReveal(in PulseVisualState state)
+        {
+            if (_echoView || state.Kind != PulseVisualKind.WorldRing)
+                return;
+
+            _wallReveal.Add(state);
         }
 
         private void OnVisualRemoved(int pulseId)
         {
             _selfPulses.Remove(pulseId);
+            _wallReveal.Remove(pulseId);
 
             if (!_activeRings.TryGetValue(pulseId, out LineRenderer ring))
                 return;

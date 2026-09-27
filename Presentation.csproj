@@ -64,6 +64,7 @@
     <Compile Include="Assets\_Project\Presentation\UI\LobbyScreen.cs" />
     <Compile Include="Assets\_Project\Presentation\GameFlow\FallRecoveryDriver.cs" />
     <Compile Include="Assets\_Project\Presentation\Objectives\ClickerSpawnPoint.cs" />
+    <Compile Include="Assets\_Project\Presentation\SoundPulse\PulseWallReveal.cs" />
     <Compile Include="Assets\_Project\Presentation\GameFlow\RoundTimer.cs" />
     <Compile Include="Assets\_Project\Presentation\Echo\EchoKnockController.cs" />
     <Compile Include="Assets\_Project\Presentation\GameFlow\MapPlanData.cs" />

@@ -296,10 +296,31 @@ namespace Marco.Core.Tests
             Assert.GreaterOrEqual(driver.AddPulse(1, SoundType.Valve, Vector3.zero, 0f, radiusOverride: 6f, durationOverride: 8f), 0);
         }
 
+        /// <summary>
+        /// §12.4 정본 "맵 평면도를 30초간" — 코드에 남긴 기획서 값(<see cref="BriefingConfig.DesignSeconds"/>, 지금은 미사용).
+        /// 정식 밸런스로 복원할 때(<c>Seconds = DesignSeconds</c>) 30초가 맞는지 보장하는 안전장치다.
+        /// </summary>
         [Test]
-        public void BriefingConstants_MatchDesignDoc()
+        public void BriefingDesignSeconds_MatchDesignDoc()
         {
-            Assert.AreEqual(30f, BriefingConfig.Seconds, Eps);            // §12.4 "30초간"
+            Assert.AreEqual(30f, BriefingConfig.DesignSeconds, Eps); // §12.4 "30초간"
+        }
+
+        /// <summary>
+        /// <b>기획서 값이 아니다.</b> 09-24 테스트 반복용 임시값(7초)을 고정한다 — 정본은 위 테스트(30초).
+        /// 이 테스트가 통과한다고 코드가 기획서를 따른다는 뜻이 아니다. 정식 밸런스로 복원하면 이 테스트는
+        /// <b>실패하는 것이 맞다</b> — 그때 이 테스트를 지운다.
+        /// </summary>
+        [Test]
+        public void BriefingSeconds_MatchPrototypeOverride()
+        {
+            Assert.AreEqual(7f, BriefingConfig.Seconds, Eps,
+                "브리핑이 임시값 7초가 아니다 — 정식 밸런스(Seconds = DesignSeconds)로 복원했다면 이 테스트를 지운다.");
+        }
+
+        [Test]
+        public void OpeningGuideSeconds_MatchDesignDoc()
+        {
             Assert.AreEqual(20f, BriefingConfig.OpeningGuideSeconds, Eps); // §12.4 "첫 20초"
         }
 

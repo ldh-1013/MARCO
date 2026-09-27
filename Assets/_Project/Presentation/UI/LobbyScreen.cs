@@ -194,7 +194,14 @@ namespace Marco.Presentation.UI
                 return;
             }
 
-            bool show = phase == GameFlowState.Lobby || phase == GameFlowState.RoleAssign;
+            // 버그(09-24): RoleAssign은 §12.3 카운트다운(3초)뿐 아니라 맵 로드 대기 · §12.4 브리핑
+            // 30초까지 포함하는 페이즈다(RoundStartSequencer). CountdownRemaining은 카운트다운
+            // 하위 구간에서만 흐르고 그 뒤로는 0에 멈춰 있는데, 예전 조건은 phase == RoleAssign이면
+            // 무조건 이 화면을 띄워 "시작까지 0초"가 맵 로드 · 브리핑 30초 내내 얼어붙은 채 보였다
+            // (실제 남은 시간과 표시가 어긋남). 카운트다운이 실제로 도는 동안만 보이게 하고, 0이 되면
+            // 숨겨서 InGameHud의 §12.4 브리핑 표시(실제 남은 초를 그대로 반영)가 이어받게 한다.
+            bool show = phase == GameFlowState.Lobby
+                || (phase == GameFlowState.RoleAssign && _round.CountdownRemaining > 0f);
             SetVisible(show);
             if (!show)
                 return;
