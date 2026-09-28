@@ -531,7 +531,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Presentation::Marco.Presentation.GameFlow.PawnPhaseTeleporter
   _verticalOffset: 0.05
-  _spawnRadius: 4
+  _spawnRadius: 3
   _spawnSlots: 8
 --- !u!114 &1302611210
 MonoBehaviour:

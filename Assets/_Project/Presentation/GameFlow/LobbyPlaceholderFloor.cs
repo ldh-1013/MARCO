@@ -57,6 +57,32 @@ namespace Marco.Presentation.GameFlow
             }
         }
 
+        /// <summary>
+        /// 임시 바닥 윗면의 중심(월드). 맵이 없을 때(로비) 배정 스폰의 기준점이다 — <c>PawnPhaseTeleporter.TryGetAssignedSpawn</c>.
+        /// 콜라이더가 꺼져 있어도(맵이 있을 때) 계산되도록 <c>bounds</c>가 아니라 BoxCollider 크기 · 트랜스폼으로 구한다.
+        /// </summary>
+        public bool TryGetTopCenter(out Vector3 topCenter)
+        {
+            topCenter = default;
+            BoxCollider box = GetComponentInChildren<BoxCollider>(includeInactive: true);
+            if (box == null)
+                return false;
+
+            Matrix4x4 m = box.transform.localToWorldMatrix;
+            Vector3 h = box.size * 0.5f;
+            float top = float.NegativeInfinity;
+            for (int i = 0; i < 8; i++)
+            {
+                Vector3 local = box.center + new Vector3(
+                    (i & 1) == 0 ? -h.x : h.x, (i & 2) == 0 ? -h.y : h.y, (i & 4) == 0 ? -h.z : h.z);
+                top = Mathf.Max(top, m.MultiplyPoint3x4(local).y);
+            }
+
+            Vector3 center = m.MultiplyPoint3x4(box.center);
+            topCenter = new Vector3(center.x, top, center.z);
+            return true;
+        }
+
         private void Apply(bool value)
         {
             if (_renderers != null)

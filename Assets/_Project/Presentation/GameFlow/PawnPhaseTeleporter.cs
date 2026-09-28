@@ -35,6 +35,7 @@ namespace Marco.Presentation.GameFlow
         private int _placedForRound = int.MinValue;
         private RoundCoordinator _round;
         private readonly SeekerIsolation _isolation = new SeekerIsolation();
+        private LobbyPlaceholderFloor _lobbyFloor;
         private bool _loggedAlive;
         private bool _loggedWaitingAnchor;
         private bool _loggedWaitingPlayer;
@@ -207,12 +208,53 @@ namespace Marco.Presentation.GameFlow
             return _round != null ? _round.RoundNumber : 0;
         }
 
+        /// <summary>
+        /// 이 플레이어가 지금 배정받는 스폰 지점(발 위치). <c>FallRecoveryDriver</c>가 반복 낙하 복구에 쓴다 — 계산을 두 곳에
+        /// 두면 09-28 회귀(반지름과 앵커가 따로 놀았다)처럼 어긋난다.
+        /// <list type="bullet">
+        /// <item>맵이 있으면 맵 로드 배치와 <b>같은 계산</b> — 술래는 격리 앵커, 그 밖은 스폰 링 슬롯.</item>
+        /// <item>맵이 없으면(로비 · 판 사이) 로비 임시 바닥 윗면 중심을 앵커로 같은 슬롯.</item>
+        /// </list>
+        /// 둘 다 없으면 false.
+        /// </summary>
+        public bool TryGetAssignedSpawn(FirstPersonController player, out Vector3 feet)
+        {
+            feet = default;
+            if (player == null)
+                return false;
+
+            SpawnPose pose;
+            if (SpawnAnchorRegistry.HasAnchor)
+            {
+                pose = SeekerIsolation.AppliesTo(player.Role) && IsolationAnchorRegistry.HasAnchor
+                    ? IsolationAnchorRegistry.Pose
+                    : SpawnRing.GetPose(SpawnAnchorRegistry.Pose, SlotOf(player), _spawnRadius, _spawnSlots);
+            }
+            else
+            {
+                if (_lobbyFloor == null)
+                    _lobbyFloor = FindAnyObjectByType<LobbyPlaceholderFloor>();
+                if (_lobbyFloor == null || !_lobbyFloor.TryGetTopCenter(out Vector3 center))
+                    return false;
+
+                pose = SpawnRing.GetPose(new SpawnPose(center, Quaternion.identity), SlotOf(player), _spawnRadius, _spawnSlots);
+            }
+
+            feet = pose.Position + Vector3.up * _verticalOffset;
+            return true;
+        }
+
+        /// <summary>
+        /// 플레이어별로 다른 슬롯을 쓴다. PlayerId는 접속마다 다른 값이라(스프린트 8 이후 서버가
+        /// 배정) 각 클라이언트가 스스로 계산해도 서로 다른 자리에 선다 — 서버가 좌표를 나눠
+        /// 줄 필요가 없다. 앵커 한 점에 전원이 모이면 시작 즉시 태그가 성립한다(§실기 버그).
+        /// </summary>
+        private int SlotOf(FirstPersonController player) =>
+            (int)(player.PlayerId % (ulong)Mathf.Max(1, _spawnSlots));
+
         private void PlaceAtAnchor(FirstPersonController player, SpawnPose anchor)
         {
-            // 플레이어별로 다른 슬롯을 쓴다. PlayerId는 접속마다 다른 값이라(스프린트 8 이후 서버가
-            // 배정) 각 클라이언트가 스스로 계산해도 서로 다른 자리에 선다 — 서버가 좌표를 나눠
-            // 줄 필요가 없다. 앵커 한 점에 전원이 모이면 시작 즉시 태그가 성립한다(§실기 버그).
-            int slot = (int)(player.PlayerId % (ulong)Mathf.Max(1, _spawnSlots));
+            int slot = SlotOf(player);
             SpawnPose spread = SpawnRing.GetPose(anchor, slot, _spawnRadius, _spawnSlots);
 
             Vector3 target = spread.Position + Vector3.up * _verticalOffset;

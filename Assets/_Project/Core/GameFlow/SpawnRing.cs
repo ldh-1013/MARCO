@@ -25,9 +25,17 @@ namespace Marco.Core.GameFlow
 
         /// <summary>
         /// 앵커에서 각 슬롯까지의 거리(m). 인접 슬롯 간 간격은
-        /// <c>2 · r · sin(π / slots)</c> = 기본값에서 약 3.06m로, 태그 반경 1.2m보다 충분히 크다.
+        /// <c>2 · r · sin(π / slots)</c> = 기본값에서 약 2.30m로, 태그 반경 1.2m보다 충분히 크다.
+        ///
+        /// <para>
+        /// <b>[09-29 회귀 수정] 4 → 3.</b> 앵커가 로비 중심(7, 36)으로 옮겨진 뒤(937ebe8) 반지름 4는 로비 남북 반폭(4m)과 같아,
+        /// 슬롯 2 = (7, 40)이 로비 북벽 = 맵 북쪽 끝에 걸렸고 그 슬롯의 러너(PlayerId 2)가 맵 밖으로 떨어졌다.
+        /// 3이면 슬롯이 z 33~39 · x 4~10에 들어와 벽 안쪽 면까지 캡슐 여유가 0.55m 이상이다.
+        /// <b>실제로 쓰이는 값은 Lobby 씬 <c>PawnPhaseTeleporter._spawnRadius</c>(직렬화)다</b> — 두 값이 같은지와
+        /// 모든 슬롯이 Game 씬 바닥 위 · 벽 밖에 있는지는 <c>SpawnPointSceneTests</c>가 지킨다.
+        /// </para>
         /// </summary>
-        public const float DefaultRadiusMeters = 4f;
+        public const float DefaultRadiusMeters = 3f;
 
         /// <summary>
         /// <paramref name="index"/> 슬롯의 시작 지점을 계산한다. 높이(Y)와 회전은 앵커 값을

@@ -69,6 +69,7 @@
     <Compile Include="Assets\_Project\Tests\EditMode\ValveRosterTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\VoiceClassifierTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\WinConditionEvaluatorTests.cs" />
+    <Compile Include="Assets\_Project\Tests\EditMode\SpawnPointSceneTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\ServerLobbyDriverTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\ValveInteractionControllerTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\ValveTests.cs" />
