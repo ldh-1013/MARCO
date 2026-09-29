@@ -59,13 +59,27 @@ namespace Marco.Presentation.UI
         }
 
         /// <summary>
-        /// §6.1 배수로 게이트 상태 안내. 밸브가 전부 열리면 탈출이 열렸음을 알린다 —
-        /// 지금까지 Console 로그로만 보이던 이정표(스프린트 5)를 화면으로 옮긴 것이다.
-        /// 아직 안 열렸으면 빈 문자열(표시 없음).
+        /// §12.4 "출구 개방 — '탈출구 개방' 표시(양쪽 출구)". 게이트는 서버가 판정해 공개한 값이라 모든 HUD가 같은 순간에 바뀐다.
+        /// 출구는 둘(§10.5 정문 · 배수로)이다. 아직 안 열렸으면 빈 문자열(표시 없음).
         /// </summary>
         public static string FormatGateHint(bool gateOpen)
         {
-            return gateOpen ? "배수로 게이트 개방 — 탈출 가능" : string.Empty;
+            return gateOpen ? "탈출구 개방 — 정문·배수로" : string.Empty;
+        }
+
+        /// <summary>
+        /// 게이트가 닫힌 채 출구에 닿았을 때의 안내(출구 범위 안에서 한 줄). 조건은 §6.2 요구 수만큼 <b>동시</b> 개방 —
+        /// 활성 밸브를 전부 열 필요는 없다.
+        /// </summary>
+        public static string FormatGateClosedHint(int requiredOpen)
+        {
+            return $"탈출구 닫힘 — 밸브 {requiredOpen}개를 동시에 열어야 한다";
+        }
+
+        /// <summary>탈출한 플레이어 화면(09-29) — 월드에서 빠진 뒤 관전 중임을 알린다. 관전 카메라는 두지 않는다.</summary>
+        public static string FormatEscapedOverlay(bool escaped)
+        {
+            return escaped ? "탈출 성공 — 관전 중" : string.Empty;
         }
 
         /// <summary>

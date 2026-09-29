@@ -150,6 +150,10 @@ namespace Marco.Net
             if (!RoleNetworkSync.TryGetCallerIdentity(caller, out RoleType role, out ulong playerId))
                 return;
 
+            // 탈출자는 월드에서 빠졌다(09-29).
+            if (!RoleNetworkSync.CallerInWorld(caller))
+                return;
+
             // 거리 재검증 — 줍기도 E 상호작용이다(§4.3 "상호작용(밸브·아이템 줍기)"). 같은 GAP-10/73 범위.
             if (!ClickerSpawnRegistry.TryGetPosition(spawnIndex, out Vector3 spawnPos))
                 return;
@@ -181,6 +185,9 @@ namespace Marco.Net
                 return;
 
             if (!RoleNetworkSync.TryGetCallerIdentity(caller, out RoleType role, out ulong playerId))
+                return;
+
+            if (!RoleNetworkSync.CallerInWorld(caller))
                 return;
 
             if (!_driver.TryUse(playerId, role))

@@ -27,6 +27,9 @@ namespace Marco.Core.Net
         /// <summary>이미 태그됐는가(= 역할이 Echo). 태그된 대상은 재태그 불가.</summary>
         bool IsTagged { get; }
 
+        /// <summary>탈출해 월드에서 빠졌는가(09-29). 탈출자는 태그 대상이 아니다.</summary>
+        bool IsEscaped { get; }
+
         /// <summary>대상의 월드 위치. 술래 쪽 클라이언트가 거리 사전 판정에 쓴다.</summary>
         Vector3 WorldPosition { get; }
 

@@ -221,16 +221,22 @@ namespace Marco.Core.Objectives
         /// 마친 뒤에야 손을 대므로, 하강을 시작하기 전에 "어차피 거부될 작업"을 걸러야 한다
         /// (<see cref="UnderwaterWorkSession"/>). 거부 조건은 여기 한 곳이고 <see cref="TryInteract"/>도 이것을 쓴다.
         /// </summary>
-        public ValveInteractionRejection CheckInteract(RoleType role)
+        public ValveInteractionRejection CheckInteract(RoleType role) => CheckInteract(role, IsActive, State);
+
+        /// <summary>
+        /// 거부 규칙 본체 — 서버(<see cref="TryInteract"/>)와 클라이언트 안내(<see cref="InteractionPrompt"/>)가 같이 쓴다.
+        /// 클라이언트는 서버가 전파한 활성 여부 · 상태를 넣는다.
+        /// </summary>
+        public static ValveInteractionRejection CheckInteract(RoleType role, bool isActive, ValveState state)
         {
             // GAP-5: 메아리는 물리 상호작용 불가.
             if (role == RoleType.Echo)
                 return ValveInteractionRejection.EchoCannotInteract;
 
-            if (!IsActive)
+            if (!isActive)
                 return ValveInteractionRejection.NotActiveThisRound;
 
-            if (State == ValveState.Open)
+            if (state == ValveState.Open)
                 return ValveInteractionRejection.AlreadyOpen;
 
             return ValveInteractionRejection.None;

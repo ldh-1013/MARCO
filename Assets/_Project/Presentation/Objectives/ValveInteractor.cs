@@ -7,6 +7,7 @@ using Marco.Core.Role;
 using Marco.Core.Sound;
 using Marco.Presentation.Player;
 using Marco.Presentation.Sound;
+using Marco.Presentation.UI;
 
 namespace Marco.Presentation.Objectives
 {
@@ -46,6 +47,9 @@ namespace Marco.Presentation.Objectives
 
         public float Progress01 => _controller?.Progress01 ?? 0f;
 
+        /// <summary>이번 프레임 안내 한 줄(09-29). HUD는 <see cref="InteractionPromptFeed"/>로 읽는다.</summary>
+        public string Prompt { get; private set; } = string.Empty;
+
         private void Awake()
         {
             if (_player == null)
@@ -76,13 +80,23 @@ namespace Marco.Presentation.Objectives
             if (!_player.IsLocallyControlled)
                 return;
 
-            Keyboard keyboard = Keyboard.current;
-            if (keyboard == null)
+            // 탈출자는 월드에서 빠졌다(09-29) — 잡고 있던 밸브를 놓고 안내도 끈다.
+            if (!WorldPresence.CanAct(_player.IsEscaped))
+            {
+                ReleaseEngagedBridge();
+                Prompt = string.Empty;
                 return;
+            }
+
+            Keyboard keyboard = Keyboard.current;
+            bool interactHeld = keyboard != null && keyboard[_interactKey].isPressed;
 
             Vector3 playerPosition = _player.transform.position;
             ValveBehaviour nearest = FindNearestValve(playerPosition);
-            bool interactHeld = keyboard[_interactKey].isPressed;
+            UpdatePrompt(nearest, playerPosition, interactHeld);
+
+            if (keyboard == null)
+                return;
 
             // 스프린트 10: 최근접 밸브가 서버 권위(네트워크)로 관리되면, 로컬에서 Core를
             // 직접 조작하지 않고 서버에 홀드 의사만 보낸다. 상태 확정·개방은 서버가 한다.
@@ -165,6 +179,32 @@ namespace Marco.Presentation.Objectives
         private bool _selfPulseRaised;
         private float _workDiveSurfaceSeconds;
         private bool _workDiving;
+
+        /// <summary>
+        /// 안내 한 줄 — 범위 · 거부 사유 · 진행도(<see cref="InteractionPrompt"/>). 거부 사유는 서버와 같은 규칙
+        /// (<see cref="Valve.CheckInteract(RoleType, bool, ValveState)"/>)에 서버가 전파한 활성 · 상태를 넣는다.
+        /// 수중 밸브의 범위는 "이 자리에서 잠길 수 있음"까지 본다 — 역할과 무관한 지형 조건(역할 거부는 사유로 말한다).
+        /// </summary>
+        private void UpdatePrompt(ValveBehaviour nearest, Vector3 playerPosition, bool held)
+        {
+            if (nearest == null)
+            {
+                Prompt = string.Empty;
+                return;
+            }
+
+            bool underwater = ValveOccupancy.IsUnderwater(nearest.ValveId);
+            float distance = InteractionRules.DistanceTo(playerPosition, nearest.transform.position, underwater);
+            bool inRange = distance <= _interactionRange;
+            if (inRange && underwater)
+                inRange = UnderwaterWorkSession.CanWork(RoleType.Runner, true,
+                    Core.Water.WaterVolumeRegistry.Sample(playerPosition), playerPosition.y, true);
+
+            ValveInteractionRejection rejection = Valve.CheckInteract(_player.Role, nearest.IsActiveThisRound, nearest.State);
+            bool working = held && inRange && rejection == ValveInteractionRejection.None;
+            Prompt = InteractionPrompt.Valve(nearest.ValveId, inRange, rejection, working, nearest.Progress01);
+            InteractionPromptFeed.Offer(Prompt, distance);
+        }
 
         /// <summary>진행 중이던 네트워크 홀드가 있으면 해제 의사(held=false)를 보낸다.</summary>
         private void ReleaseEngagedBridge()

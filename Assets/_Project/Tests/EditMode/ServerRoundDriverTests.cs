@@ -25,6 +25,7 @@ namespace Marco.Core.Tests
             public ulong PlayerId { get; set; }
             public RoleType Role { get; set; }
             public bool IsTagged { get; set; }
+            public bool IsEscaped { get; set; }
             public Vector3 WorldPosition { get; set; }
             public bool NetworkActive { get; set; }
             public void RequestTag(ulong seekerId, RoleType seekerRole) { }

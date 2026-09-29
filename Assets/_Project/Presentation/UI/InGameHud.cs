@@ -69,6 +69,8 @@ namespace Marco.Presentation.UI
         private Text _valveText;
         private Text _roleText;
         private Text _gateHintText;
+        private Text _promptText;
+        private Text _escapedText;
         private Text _phaseText;             // §6.5 최후 생존자 페이즈 · 배수구 [블록 4]
         private Text _itemText;              // §12.4 아이템 슬롯(우하단) — 찰칵이 [블록 6]
         private Text _staminaText;           // §3.1 질주 스태미나(기능 표시) [블록 5·7]
@@ -218,6 +220,13 @@ namespace Marco.Presentation.UI
 
             // §12.4 오프닝 가이드 — 화면 중앙 조금 아래(시야 중앙을 가리지 않게).
             _guideText = CreateText(font, "guide", TextAnchor.MiddleCenter, new Vector2(0.5f, 0.3f), Vector2.zero);
+
+            // 상호작용 안내 한 줄(09-29) — 조준점 아래. 밸브 · 배수구 · 출구가 InteractionPromptFeed에 낸다.
+            _promptText = CreateText(font, "prompt", TextAnchor.MiddleCenter, new Vector2(0.5f, 0.42f), Vector2.zero);
+
+            // 탈출 성공 — 관전 중(09-29). 결과 배너(중앙)와 겹치지 않게 위쪽.
+            _escapedText = CreateText(font, "escaped", TextAnchor.MiddleCenter, new Vector2(0.5f, 0.62f), Vector2.zero);
+            _escapedText.fontSize = Mathf.RoundToInt(_fontSize * 1.5f);
 
             // 연출.md §4.2 태그 오버레이 — 마지막에 만들어 모든 HUD 위에 그린다.
             var overlayGo = new GameObject("HUD_tagOverlay");
@@ -484,6 +493,8 @@ namespace Marco.Presentation.UI
             UpdateValves();
             UpdateRole();
             UpdateGateHint();
+            UpdatePrompt();
+            UpdateEscaped();
             UpdateResult();
             UpdateVoice();
         }
@@ -1017,6 +1028,25 @@ namespace Marco.Presentation.UI
 
             _gateHintText.text = HudFormatter.FormatGateHint(_round.IsEscapeGateOpen);
             _gateHintText.color = _palette != null ? _palette.GetInteractable(Colorblind) : Color.yellow;
+        }
+
+        private void UpdatePrompt()
+        {
+            if (_promptText == null)
+                return;
+
+            _promptText.text = InteractionPromptFeed.Current;
+            _promptText.color = InteractableColor();
+        }
+
+        private void UpdateEscaped()
+        {
+            if (_escapedText == null)
+                return;
+
+            FirstPersonController local = LocalPlayerRegistry.Current;
+            _escapedText.text = HudFormatter.FormatEscapedOverlay(local != null && local.IsLocallyControlled && local.IsEscaped);
+            _escapedText.color = PulseColor();
         }
 
         private void UpdateResult()

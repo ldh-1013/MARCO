@@ -38,6 +38,12 @@ namespace Marco.Net
         private readonly SyncVar<bool> _tagged = new();
 
         /// <summary>
+        /// 서버가 확정해 전 피어에 전파하는 탈출 상태(09-29) — <b>SyncVar 하나</b>. 각 피어의 <see cref="PawnRoleSync"/>가 태그와 같은
+        /// 경로(직전 적용값과 다를 때만)로 <see cref="IEscapeState"/>에 적용한다 — 탈출자는 월드에서 빠진다(<see cref="WorldPresence"/>).
+        /// </summary>
+        private readonly SyncVar<bool> _escaped = new();
+
+        /// <summary>
         /// §3.1-1 태그가 확정된 서버 시각. 도망자 3.0초 암전의 기준점이며
         /// 0이면 태그되지 않은 상태다. <b>전 피어에 전파해야</b> 각자 암전 연출을
         /// 같은 시점에 시작한다.
@@ -102,6 +108,9 @@ namespace Marco.Net
         public RoleType Role => _roleState != null ? _roleState.Role : RoleType.Runner;
 
         public bool IsTagged => _tagged.Value;
+
+        /// <summary>탈출해 월드에서 빠졌는가(서버 SyncVar).</summary>
+        public bool IsEscaped => _escaped.Value;
 
         /// <summary>§3.1-1 태그 확정 시각(네트워크 공유). 암전 연출의 기준점이다.</summary>
         public float TaggedAt => _taggedAt.Value;
@@ -182,10 +191,11 @@ namespace Marco.Net
                 Core.Water.WaterVolumeRegistry.Sample(transform.position),
                 PulseNetworkSync.ServerIsSubmerged(PlayerId));
 
-            if (!ServerTagDriver.Validate(seekerRole, targetRole, _tagged.Value, seekerPosition, targetPosition))
+            if (!ServerTagDriver.Validate(seekerRole, targetRole, _tagged.Value, _escaped.Value, seekerPosition, targetPosition))
             {
                 Debug.Log($"[TagNet:Server] targetId={PlayerId} 태그 거부 — 서버 재검증 실패 " +
-                          $"(seekerRole={seekerRole} ← 서버 측 실제 역할, targetRole={targetRole}, 거리검증 포함 §5.3)");
+                          $"(seekerRole={seekerRole} ← 서버 측 실제 역할, targetRole={targetRole}, " +
+                          $"탈출={_escaped.Value}, 거리검증 포함 §5.3)");
                 return;
             }
 
@@ -225,6 +235,7 @@ namespace Marco.Net
         {
             base.OnStartNetwork();
             _tagged.OnChange += OnTaggedChanged;
+            _escaped.OnChange += OnEscapedChanged;
             TagTargetRegistry.Register(this);
 
             if (!Spawned.Contains(this))
@@ -238,14 +249,16 @@ namespace Marco.Net
             Debug.Log($"[TagNet:Register] 태그 대상 등록 — targetId={PlayerId}, obj={gameObject.name}, " +
                       $"서버컨텍스트={IsServerInitialized}, 클라컨텍스트={IsClientInitialized}");
 
-            // 재접속·늦은 스폰 대비: 이미 태그된 상태로 들어오면 효과를 즉시 반영.
+            // 재접속·늦은 스폰 대비: 이미 태그 · 탈출된 상태로 들어오면 효과를 즉시 반영.
             RoleSync?.ReceiveTagged(_tagged.Value);
+            RoleSync?.ReceiveEscaped(_escaped.Value);
         }
 
         public override void OnStopNetwork()
         {
             base.OnStopNetwork();
             _tagged.OnChange -= OnTaggedChanged;
+            _escaped.OnChange -= OnEscapedChanged;
             TagTargetRegistry.Unregister(this);
             Spawned.Remove(this);
         }
@@ -261,6 +274,7 @@ namespace Marco.Net
         {
             _tagged.Value = false;
             _taggedAt.Value = 0f;
+            _escaped.Value = false;
 
             // §3.1-1 술래 경직 기록도 라운드 경계에서 비운다 — 지난 라운드의 경직이
             // 살아남으면 새 라운드 첫 태그가 거부된다(더블체크 2).
@@ -272,6 +286,15 @@ namespace Marco.Net
         private static void ResetForNewSession() => Spawned.Clear();
 
         private void OnTaggedChanged(bool prev, bool next, bool asServer) => RoleSync?.ReceiveTagged(next);
+
+        private void OnEscapedChanged(bool prev, bool next, bool asServer) => RoleSync?.ReceiveEscaped(next);
+
+        /// <summary>서버가 탈출을 확정했다(<c>RoundNetworkSync.ServerSubmitEscape</c>). 서버 전용.</summary>
+        internal void ServerMarkEscaped()
+        {
+            if (!_escaped.Value)
+                _escaped.Value = true;
+        }
 
         /// <summary>
         /// 메아리 효과 — 역할 전환(Echo)은 <see cref="RoleNetworkSync"/>가 적용하고, 여기서는 라운드 집계에 통지한다.

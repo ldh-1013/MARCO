@@ -62,6 +62,7 @@
     <Compile Include="Assets\_Project\Presentation\Objectives\EscapePointTrigger.cs" />
     <Compile Include="Assets\_Project\Presentation\Tagging\TagDetector.cs" />
     <Compile Include="Assets\_Project\Presentation\UI\LobbyScreen.cs" />
+    <Compile Include="Assets\_Project\Presentation\UI\InteractionPromptFeed.cs" />
     <Compile Include="Assets\_Project\Presentation\GameFlow\FallRecoveryDriver.cs" />
     <Compile Include="Assets\_Project\Presentation\Objectives\ClickerSpawnPoint.cs" />
     <Compile Include="Assets\_Project\Presentation\SoundPulse\PulseWallReveal.cs" />

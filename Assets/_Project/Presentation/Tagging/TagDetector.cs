@@ -93,7 +93,7 @@ namespace Marco.Presentation.Tagging
                 for (int i = 0; i < targets.Count; i++)
                 {
                     ITagTarget t = targets[i];
-                    if (t == null || t.IsTagged || t.Role != RoleType.Runner)
+                    if (t == null || t.IsTagged || t.IsEscaped || t.Role != RoleType.Runner)
                         continue;
                     runnerCount++;
                     if (t.NetworkActive) networkRunners++;
@@ -111,7 +111,8 @@ namespace Marco.Presentation.Tagging
                 if (target == null)
                     continue;
 
-                if (target.IsTagged || target.Role != RoleType.Runner)
+                // 탈출자는 월드에서 빠졌다(09-29) — 서버도 거부한다(ServerTagDriver).
+                if (target.IsTagged || target.IsEscaped || target.Role != RoleType.Runner)
                 {
                     // 확정됐거나 대상이 아니게 됐으면 재시도 상태를 남겨 둘 이유가 없다.
                     _nextRequestAt.Remove(target.PlayerId);

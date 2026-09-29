@@ -373,12 +373,13 @@ namespace Marco.Net
             // §3.2 메아리는 발소리가 없고(비행형) 음성은 생존자에게 들리지 않는다 — 메아리의 소리는
             //   노크(전용 경로)뿐이다. 역할 검사가 없어 메아리의 말소리가 생존자 화면에 파문으로 떴다
             //   (블록 6에서 발견). 역할은 서버가 호출자에서 읽는다(GAP-24).
+            //   탈출자도 같다(09-29 월드 제외) — 규칙은 WorldPresence 한 곳.
             if (RoleNetworkSync.TryGetCallerIdentity(caller, out RoleType callerRole, out ulong _)
-                && callerRole == RoleType.Echo)
+                && !WorldPresence.CanEmitPulses(callerRole, RoleNetworkSync.CallerEscaped(caller)))
             {
                 if (_logDiagnostics)
-                    Debug.Log($"[PulseNet:Server] 파문 거부 — 메아리의 {type}(§3.2 메아리 소리는 노크뿐). " +
-                              $"callerId={caller.ClientId}");
+                    Debug.Log($"[PulseNet:Server] 파문 거부 — {callerRole}{(RoleNetworkSync.CallerEscaped(caller) ? "(탈출)" : "")}의 {type}" +
+                              $"(§3.2 메아리 소리는 노크뿐 · 탈출자는 월드 제외). callerId={caller.ClientId}");
                 return;
             }
 
@@ -886,9 +887,9 @@ namespace Marco.Net
                 RoleType role = p.EffectiveRole;
                 Vector3 pos = p.transform.position;
 
-                if (!CampingConfig.AppliesTo(role))
+                if (!WorldPresence.CampingApplies(role, p.IsEscapedOut))
                 {
-                    // 메아리는 미적용. 태그로 전환되는 순간 진행 중이던 판정도 버린다.
+                    // 메아리 · 탈출자는 미적용. 태그 · 탈출로 전환되는 순간 진행 중이던 판정도 버린다.
                     _camping.Remove(id);
                     _campingLastPos.Remove(id);
                     continue;
@@ -1079,6 +1080,10 @@ namespace Marco.Net
             {
                 RoleNetworkSync p = players[i];
                 if (p == null || p.OrderKey < 0)
+                    continue;
+
+                // 탈출자는 월드에서 빠졌다(09-29) — 공포 반경의 강제 비명 대상이 아니다.
+                if (!WorldPresence.CanAct(p.IsEscapedOut))
                     continue;
 
                 ulong id = (ulong)p.OrderKey;

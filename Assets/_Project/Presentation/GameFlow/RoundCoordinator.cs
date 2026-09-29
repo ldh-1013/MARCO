@@ -58,6 +58,9 @@ namespace Marco.Presentation.GameFlow
         /// <summary>§6.1: 밸브가 전부 열려야 배수로 게이트가 열린다.</summary>
         public bool IsEscapeGateOpen => _valveTracker != null && _valveTracker.IsEscapeGateOpen;
 
+        /// <summary>§6.2 이번 판 요구 개방 수(서버가 라운드 시작 때 확정해 공개한 값).</summary>
+        public int RequiredOpenValves => _valveTracker != null ? _valveTracker.RequiredOpenCount : 0;
+
         /// <summary>
         /// 라운드가 서버 권위(네트워크)로 관리되는가. 그러면 로컬 타이머·판정을 멈추고
         /// 서버가 전파한 값(남은 시간·탈출 수·최종 결과)만 반영한다.

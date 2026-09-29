@@ -133,13 +133,19 @@ namespace Marco.Presentation.Objectives
             // 언제 요청을 보낼지는 Core 규칙이 정한다(EscapeAttemptScheduler).
             bool inProgress = _roundCoordinator.CurrentPhase == Core.GameFlow.GameFlowState.InGame
                               && _roundCoordinator.Result == Core.Objectives.RoundResult.InProgress;
+            // 서버가 확정한 탈출(SyncVar → IEscapeState)을 받으면 재시도를 멈춘다.
             Core.Objectives.EscapeAttemptDecision decision = _scheduler.Tick(
-                inside, _roundCoordinator.IsEscapeGateOpen, alreadyEscaped: false, inProgress, Time.time);
+                inside, _roundCoordinator.IsEscapeGateOpen, player.IsEscaped, inProgress, Time.time);
 
             if (decision == Core.Objectives.EscapeAttemptDecision.BlockedByGate)
                 ShowGateClosedHint();
             else if (decision == Core.Objectives.EscapeAttemptDecision.Request)
                 _roundCoordinator.RequestEscape(player.PlayerId, player.Role);
+
+            // 게이트가 닫힌 동안 출구 범위 안이면 이유를 한 줄로 보여 준다(밸브 · 배수구 안내와 같은 줄).
+            if (inside && inProgress && !player.IsEscaped && !_roundCoordinator.IsEscapeGateOpen)
+                UI.InteractionPromptFeed.Offer(UI.HudFormatter.FormatGateClosedHint(_roundCoordinator.RequiredOpenValves),
+                    Vector3.Distance(player.transform.position, transform.position));
         }
 
         /// <summary>
@@ -153,7 +159,7 @@ namespace Marco.Presentation.Objectives
                 return;
 
             _gateClosedHintShown = true;
-            Debug.Log("[Escape] 배수로 게이트가 아직 닫혀 있다 — 밸브 3개를 모두 열어야 탈출할 수 있다 (§6.1)");
+            Debug.Log("[Escape] " + UI.HudFormatter.FormatGateClosedHint(_roundCoordinator.RequiredOpenValves));
         }
     }
 }

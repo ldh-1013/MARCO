@@ -46,5 +46,18 @@ namespace Marco.Core.Tagging
 
             return true;
         }
+
+        /// <summary>
+        /// 탈출 상태까지 보는 형태(09-29) — 서버가 쓴다. <paramref name="targetEscaped"/>는 대상의 탈출 SyncVar.
+        /// </summary>
+        public static bool Validate(RoleType seekerRole, RoleType targetRole, bool targetAlreadyTagged, bool targetEscaped,
+            Vector3 seekerPosition, Vector3 targetPosition)
+        {
+            // 탈출자는 월드에서 빠졌다 — 태그 대상이 아니다(§6.3 탈출 우선, 09-29).
+            if (targetEscaped)
+                return false;
+
+            return Validate(seekerRole, targetRole, targetAlreadyTagged, seekerPosition, targetPosition);
+        }
     }
 }

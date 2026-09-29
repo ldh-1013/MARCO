@@ -30,7 +30,7 @@ namespace Marco.Presentation.Player
     /// 바뀔 때만 알린다(위치·물속 여부·게이지는 전부 서버가 스스로 구한다).
     /// </summary>
     [RequireComponent(typeof(CharacterController))]
-    public sealed class FirstPersonController : MonoBehaviour, ILocalControlGate, IPlayerIdentity, IRoleState
+    public sealed class FirstPersonController : MonoBehaviour, ILocalControlGate, IPlayerIdentity, IRoleState, IEscapeState
     {
         /// <summary>
         /// 네트워크가 없는 로컬 단독 실행에서의 발생원 ID.
@@ -103,6 +103,27 @@ namespace Marco.Presentation.Player
         public MovementState CurrentState => _simulator?.CurrentState ?? MovementState.Idle;
         public RoleType Role => _role;
 
+        /// <summary>탈출해 월드에서 빠졌는가(09-29, <see cref="IEscapeState"/>). 서버 SyncVar를 <c>RoleNetworkSync</c>가 적용한다.</summary>
+        public bool IsEscaped { get; private set; }
+
+        /// <summary>
+        /// 서버가 확정한 탈출을 적용한다(<see cref="IEscapeState"/>) — 모든 피어에서 같은 규칙(<see cref="WorldPresence"/>):
+        /// 몸 숨김(<see cref="RefreshEchoVisibility"/>) · 충돌 끔(<see cref="ApplyGhostFlightState"/>) · 이동 입력 정지(<see cref="Update"/>).
+        /// 관전 카메라는 두지 않는다 — 시점 회전만 남는다.
+        /// </summary>
+        public void ApplyEscaped(bool escaped)
+        {
+            if (IsEscaped == escaped)
+                return;
+
+            IsEscaped = escaped;
+            _workDiveHeld = false;
+            _workDiveUntil = 0f;
+            ApplyGhostFlightState();
+
+            Debug.Log($"[Escape] '{name}' {(escaped ? "탈출 — 월드에서 제외(몸 · 충돌 · 이동 입력)" : "월드 복귀")}");
+        }
+
         /// <summary>
         /// 네트워크(또는 로컬 판정)가 확정한 역할을 적용한다(<see cref="IRoleState"/>).
         /// 스프린트 11: 서버가 태그를 확정하면 <c>TagNetworkSync</c>가 이 플레이어를 Echo로 바꾼다.
@@ -162,10 +183,19 @@ namespace Marco.Presentation.Player
                 return;
 
             FirstPersonController viewer = LocalPlayerRegistry.Current;
-            if (viewer == null)
-                return; // 아직 로컬 pawn이 없다 — 다음 프레임에 다시 본다(상태를 흔들지 않는다).
+            bool shouldRender;
+            if (!WorldPresence.BodyVisible(IsEscaped))
+            {
+                shouldRender = false; // 탈출자는 누구의 화면에도 그리지 않는다(09-29)
+            }
+            else
+            {
+                if (viewer == null)
+                    return; // 아직 로컬 pawn이 없다 — 다음 프레임에 다시 본다(상태를 흔들지 않는다).
 
-            bool shouldRender = EchoVisibility.ShouldRender(viewer.Role, _role, ReferenceEquals(viewer, this));
+                shouldRender = EchoVisibility.ShouldRender(viewer.Role, _role, ReferenceEquals(viewer, this));
+            }
+
             if (shouldRender == _bodyVisible)
                 return;
 
@@ -177,7 +207,8 @@ namespace Marco.Presentation.Player
             }
 
             Debug.Log($"[EchoVis] '{name}' 몸체 {(shouldRender ? "표시" : "숨김")} — " +
-                      $"뷰어={viewer.Role}, 대상={_role} (§3.2 메아리 은닉, GAP-63)");
+                      $"뷰어={(viewer != null ? viewer.Role.ToString() : "-")}, 대상={_role}" +
+                      (IsEscaped ? " · 탈출(월드 제외)" : " (§3.2 메아리 은닉, GAP-63)"));
         }
 
         private void ApplyGhostFlightState()
@@ -185,10 +216,11 @@ namespace Marco.Presentation.Player
             if (_characterController == null)
                 return;
 
-            bool flying = GhostFlight.IsFlying(_role);
-            _characterController.enabled = !flying;
+            // 메아리 비행(§3.2 벽 통과)과 탈출(09-29 월드 제외)이 같은 스위치다.
+            bool collide = WorldPresence.HasCollision(_role, IsEscaped);
+            _characterController.enabled = collide;
 
-            if (flying)
+            if (!collide)
                 _verticalVelocity = 0f;
         }
 
@@ -395,6 +427,10 @@ namespace Marco.Presentation.Player
             // 시점 회전은 항상 허용한다 — §10.1 격리 중에도 술래가 주변을 볼 수 있어야
             // "격리 공간에서 대기"가 성립한다(눈까지 막으라는 규칙은 없다).
             ApplyLook();
+
+            // 탈출자는 월드에서 빠졌다(09-29) — 이동 · 잠수 · 아이템 입력을 받지 않는다(시점만 돌린다).
+            if (!WorldPresence.AcceptsMovement(IsEscaped))
+                return;
 
             if (MovementLocked)
                 return;

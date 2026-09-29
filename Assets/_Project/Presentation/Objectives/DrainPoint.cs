@@ -2,6 +2,7 @@ using Marco.Core.Objectives;
 using Marco.Core.Role;
 using Marco.Presentation.GameFlow;
 using Marco.Presentation.Player;
+using Marco.Presentation.UI;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
@@ -60,6 +61,7 @@ namespace Marco.Presentation.Objectives
                 return;
 
             bool want = WantsToWork();
+            UpdatePrompt(want);
 
             // §6.5-2 작업 구간 동안 잠수 자세(표시) — 밸브 B·E와 같은 경로. 놓으면 부상 초만큼 더 유지.
             FirstPersonController local = LocalPlayerRegistry.Current;
@@ -83,6 +85,10 @@ namespace Marco.Presentation.Objectives
             if (player == null || !player.IsLocallyControlled || player.Role != RoleType.Runner)
                 return false;
 
+            // 탈출자는 월드에서 빠졌다(09-29).
+            if (!WorldPresence.CanAct(player.IsEscaped))
+                return false;
+
             Keyboard keyboard = Keyboard.current;
             if (keyboard == null || !keyboard[_interactKey].isPressed)
                 return false;
@@ -92,6 +98,26 @@ namespace Marco.Presentation.Objectives
             bool inRange = InteractionRules.InRange(feet, transform.position, underwaterTarget: true);
             return UnderwaterWorkSession.CanWork(player.Role, inRange, Core.Water.WaterVolumeRegistry.Sample(feet), feet.y,
                 Core.Breath.BreathClientState.CanSubmerge);
+        }
+
+        /// <summary>
+        /// 안내 한 줄(09-29) — 밸브와 같은 형식. 범위는 수평 2.5m + 이 자리에서 잠길 수 있음(지형 조건만, 역할 거부는 사유로 말한다).
+        /// </summary>
+        private void UpdatePrompt(bool working)
+        {
+            FirstPersonController player = LocalPlayerRegistry.Current;
+            if (player == null || !player.IsLocallyControlled || !_round.IsNetworkActive || !WorldPresence.CanAct(player.IsEscaped))
+                return;
+
+            Vector3 feet = player.transform.position;
+            float distance = InteractionRules.DistanceTo(feet, transform.position, underwaterTarget: true);
+            bool inRange = distance <= InteractionRules.RangeMeters &&
+                           UnderwaterWorkSession.CanWork(RoleType.Runner, true, Core.Water.WaterVolumeRegistry.Sample(feet), feet.y, true);
+
+            InteractionPrompt.DrainBlock block = InteractionPrompt.CheckDrain(player.Role, _round.ActiveDrain == (int)_id);
+            InteractionPromptFeed.Offer(
+                InteractionPrompt.Drain(HudFormatter.FormatDrainName((int)_id), inRange, block, working, _round.DrainProgress01),
+                distance);
         }
     }
 }

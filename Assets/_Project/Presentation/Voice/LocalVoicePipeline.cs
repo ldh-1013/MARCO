@@ -167,8 +167,9 @@ namespace Marco.Presentation.Voice
             // §3.2 메아리의 음성은 생존자에게 들리지 않는다 — 파문을 만들지 않는다
             // (서버도 같은 규칙으로 거부한다. 여기서는 RPC 낭비와 자기 화면 오표시만 막는다).
             // GAP-61: 로컬 플레이어는 매번 재조회한다.
+            // 탈출자도 같다(09-29 월드 제외) — 규칙은 WorldPresence 한 곳.
             Player.FirstPersonController player = Player.LocalPlayerRegistry.Current;
-            if (player != null && player.Role == Marco.Core.Role.RoleType.Echo)
+            if (player != null && !Marco.Core.Role.WorldPresence.CanEmitPulses(player.Role, player.IsEscaped))
                 return;
 
             SoundType type = ToSoundType(grade);

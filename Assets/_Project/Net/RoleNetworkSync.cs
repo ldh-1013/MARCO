@@ -45,11 +45,13 @@ namespace Marco.Net
         private readonly SyncVar<byte> _assignment = new();
 
         private IRoleState _roleState;
+        private IEscapeState _escapeState;
         private PawnRoleSync _roleSync;
 
         private void Awake()
         {
             _roleState = GetComponent<IRoleState>();
+            _escapeState = GetComponent<IEscapeState>();
         }
 
         /// <summary>
@@ -66,6 +68,7 @@ namespace Marco.Net
                 _roleState ??= GetComponent<IRoleState>();
                 _roleSync = new PawnRoleSync(_roleState != null ? _roleState.Role : RoleType.Runner);
                 _roleSync.RoleApplied += OnRoleApplied;
+                _roleSync.EscapeApplied += OnEscapeApplied;
                 return _roleSync;
             }
         }
@@ -112,6 +115,25 @@ namespace Marco.Net
         /// 그 사이에 메아리 능력(§3.2 노크)의 판정이 달라지면 안 된다.
         /// </summary>
         internal RoleType EffectiveRole => IsTaggedOut ? RoleType.Echo : CurrentRole;
+
+        /// <summary>탈출해 월드에서 빠졌는가 — 진실은 <see cref="TagNetworkSync"/>의 서버 SyncVar(09-29).</summary>
+        internal bool IsEscapedOut => GetComponent<ITagTarget>() is { } target && target.IsEscaped;
+
+        /// <summary>RPC 호출자가 탈출자인가(서버 측 값).</summary>
+        internal static bool CallerEscaped(NetworkConnection caller)
+        {
+            if (caller == null || caller.FirstObject == null)
+                return false;
+
+            RoleNetworkSync sync = caller.FirstObject.GetComponent<RoleNetworkSync>();
+            return sync != null && sync.IsEscapedOut;
+        }
+
+        /// <summary>
+        /// RPC 호출자가 월드 행동(밸브 · 배수구 · 줍기 · 파문)을 할 수 있는가(09-29) — 탈출자는 월드에서 빠졌다.
+        /// 신원 확인(<see cref="TryGetCallerIdentity"/>) <b>다음에</b> 부른다.
+        /// </summary>
+        internal static bool CallerInWorld(NetworkConnection caller) => WorldPresence.CanAct(CallerEscaped(caller));
 
         // ── 서버: RPC 호출자 신원 조회 ────────────────────────────────────
 
@@ -187,8 +209,8 @@ namespace Marco.Net
             if (!Spawned.Contains(this))
                 Spawned.Add(this);
 
-            // 늦은 스폰·재접속 대비: 이미 배정 · 태그된 상태로 들어오면 둘을 한 번에 계산해 반영한다(중간 역할 없음).
-            RoleSync.ReceiveSnapshot(State, IsTaggedOut);
+            // 늦은 스폰·재접속 대비: 이미 배정 · 태그 · 탈출된 상태로 들어오면 한 번에 계산해 반영한다(중간 상태 없음).
+            RoleSync.ReceiveSnapshot(State, IsTaggedOut, IsEscapedOut);
         }
 
         public override void OnStopNetwork()
@@ -210,6 +232,13 @@ namespace Marco.Net
             _roleState?.ApplyRole(role);
             if (role != RoleType.Echo)
                 Debug.Log($"[RoleNet:Client] ownerId={OrderKey} 역할 반영 = {role} — 서버 배정 수신");
+        }
+
+        /// <summary>규칙이 정한 탈출(월드 제외)을 이 피어의 <see cref="IEscapeState"/>에 반영한다(09-29).</summary>
+        private void OnEscapeApplied(bool escaped)
+        {
+            _escapeState?.ApplyEscaped(escaped);
+            Debug.Log($"[RoleNet:Client] ownerId={OrderKey} {(escaped ? "탈출 반영 — 월드에서 제외" : "탈출 해제 — 월드 복귀")}");
         }
 
         /// <summary>

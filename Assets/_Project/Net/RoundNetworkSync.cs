@@ -136,6 +136,7 @@ namespace Marco.Net
         private readonly SyncVar<int> _requiredOpen = new();
         private readonly SyncVar<bool> _gateOpen = new();
         private readonly RoundObjective _objective = new RoundObjective();
+        private readonly List<Vector3> _gatePulses = new List<Vector3>();
 
         /// <summary>§6.5-2 이번 페이즈의 배수구(서버 전용). 없으면 null.</summary>
         private DrainHatch _drain;
@@ -587,11 +588,19 @@ namespace Marco.Net
         private void ServerTickGate()
         {
             int opened = CountOpenValves();
-            if (!_objective.Tick(opened))
+            bool openedNow = _objective.Tick(opened);
+
+            // §10.5 게이트가 열리는 순간 양쪽 출구에서 고함급 파문 1회 — 출구 좌표는 씬의 탈출 지점에서 읽는다.
+            GateAnnouncement.CollectPulses(openedNow, EscapePointRegistry.Positions, _gatePulses);
+            for (int i = 0; i < _gatePulses.Count; i++)
+                PulseNetworkSync.ServerEmitWorldPulse(GateAnnouncement.PulseType, _gatePulses[i]);
+
+            if (!openedNow)
                 return;
 
             ServerPublishObjective();
-            Debug.Log($"[RoundNet:Server] §6.1-2 게이트 개방 — 동시 개방 {opened}/{_objective.RequiredOpen} (래치, 역류로 닫혀도 유지)");
+            Debug.Log($"[RoundNet:Server] §6.1-2 게이트 개방 — 동시 개방 {opened}/{_objective.RequiredOpen} (래치, 역류로 닫혀도 유지) · " +
+                      $"§10.5 출구 개방음 {_gatePulses.Count}곳({GateAnnouncement.PulseType})");
         }
 
         /// <summary>순수 클라이언트: 목표 수치 SyncVar가 바뀌면 레지스트리를 다시 채운다(늦은 접속자도 같은 값).</summary>
@@ -665,7 +674,7 @@ namespace Marco.Net
             for (int i = 0; i < exits.Count; i++)
             {
                 PulseNetworkSync.ServerEmitWorldPulse(
-                    Core.Sound.SoundType.Shout, exits[i]);
+                    GateAnnouncement.PulseType, exits[i]);
             }
 
             Debug.Log($"[RoundNet:Server] §6.2-1 출구 파문 {exits.Count}곳 " +
@@ -751,8 +760,27 @@ namespace Marco.Net
             }
 
             _escaped.Value = _driver.EscapedCount;
+            ServerMarkPawnEscaped(playerId);
             Debug.Log($"[RoundNet:Server] 탈출 확정 — playerId={playerId} (누적 {_driver.EscapedCount}명)");
             EvaluateAndPush();
+        }
+
+        /// <summary>
+        /// 탈출을 그 pawn의 SyncVar 하나로 공개한다(09-29) — 모든 피어가 월드에서 뺀다(<c>PawnRoleSync</c> → <c>IEscapeState</c>).
+        /// </summary>
+        private static void ServerMarkPawnEscaped(ulong playerId)
+        {
+            List<TagNetworkSync> pawns = TagNetworkSync.Spawned;
+            for (int i = 0; i < pawns.Count; i++)
+            {
+                if (pawns[i] != null && pawns[i].PlayerId == playerId)
+                {
+                    pawns[i].ServerMarkEscaped();
+                    return;
+                }
+            }
+
+            Debug.LogWarning($"[RoundNet:Server] 탈출 pawn을 찾지 못했다 — playerId={playerId}. 월드 제외가 적용되지 않는다.");
         }
 
         /// <summary>서버 판정을 1회 수행하고, 새로 결정되면 결과 전파 + RoundEnd 페이즈 진입. 서버 전용.</summary>
@@ -893,6 +921,10 @@ namespace Marco.Net
                 return;
 
             if (!RoleNetworkSync.TryGetCallerIdentity(caller, out RoleType role, out ulong playerId))
+                return;
+
+            // 탈출자는 월드에서 빠졌다(09-29).
+            if (!RoleNetworkSync.CallerInWorld(caller))
                 return;
 
             if (!held)

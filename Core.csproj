@@ -62,12 +62,14 @@
     <Compile Include="Assets\_Project\Core\SoundPulse\ActivePulseTracker.cs" />
     <Compile Include="Assets\_Project\Core\Role\RoleAssigner.cs" />
     <Compile Include="Assets\_Project\Core\Objectives\RoundObjective.cs" />
+    <Compile Include="Assets\_Project\Core\Role\WorldPresence.cs" />
     <Compile Include="Assets\_Project\Core\Net\IValveNetworkBridge.cs" />
     <Compile Include="Assets\_Project\Core\SoundPulse\SoundPulseResolver.cs" />
     <Compile Include="Assets\_Project\Core\GameFlow\SpawnPlacementRules.cs" />
     <Compile Include="Assets\_Project\Core\Objectives\Valve.cs" />
     <Compile Include="Assets\_Project\Core\Net\IReadyState.cs" />
     <Compile Include="Assets\_Project\Core\GameFlow\FallRecovery.cs" />
+    <Compile Include="Assets\_Project\Core\Net\IEscapeState.cs" />
     <Compile Include="Assets\_Project\Core\Util\DeterministicRandom.cs" />
     <Compile Include="Assets\_Project\Core\Voice\VoiceCalibration.cs" />
     <Compile Include="Assets\_Project\Core\Sound\SeekerShoutConfig.cs" />
@@ -86,6 +88,7 @@
     <Compile Include="Assets\_Project\Core\Sound\KnockConfig.cs" />
     <Compile Include="Assets\_Project\Core\Tagging\TagAftermath.cs" />
     <Compile Include="Assets\_Project\Core\Voice\VoiceConfig.cs" />
+    <Compile Include="Assets\_Project\Core\Objectives\InteractionPrompt.cs" />
     <Compile Include="Assets\_Project\Core\GameFlow\GameFlowState.cs" />
     <Compile Include="Assets\_Project\Core\Objectives\UnderwaterWorkSession.cs" />
     <Compile Include="Assets\_Project\Core\Objectives\ValveState.cs" />
@@ -99,6 +102,7 @@
     <Compile Include="Assets\_Project\Core\SoundPulse\PerceivedPulse.cs" />
     <Compile Include="Assets\_Project\Core\Sound\CampingMonitor.cs" />
     <Compile Include="Assets\_Project\Core\GameFlow\ServerLobbyDriver.cs" />
+    <Compile Include="Assets\_Project\Core\Objectives\GateAnnouncement.cs" />
     <Compile Include="Assets\_Project\Core\SoundPulse\DirectionGaugeRules.cs" />
     <Compile Include="Assets\_Project\Core\Locomotion\DiveRules.cs" />
     <Compile Include="Assets\_Project\Core\Objectives\EscapePointRegistry.cs" />

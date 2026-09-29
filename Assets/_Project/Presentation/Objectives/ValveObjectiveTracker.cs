@@ -158,7 +158,7 @@ namespace Marco.Presentation.Objectives
             if (_latch.Update(OpenedCount, RequiredOpenCount))
             {
                 Debug.Log($"[Valve] 동시 개방 {OpenedCount}/{RequiredOpenCount} 달성 — " +
-                          "배수로 게이트 Open(latch, §6.1-2). 역류로 밸브가 닫혀도 유지된다");
+                          "탈출구 게이트 Open(latch, §6.1-2). 역류로 밸브가 닫혀도 유지된다");
             }
 
             if (OpenedCount == _lastOpenedCount)

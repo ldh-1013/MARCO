@@ -37,6 +37,9 @@ namespace Marco.Presentation.Tagging
 
         public bool IsTagged => Role == RoleType.Echo;
 
+        /// <summary>로컬 대역은 탈출하지 않는다(탈출은 서버 확정 — <c>TagNetworkSync</c>).</summary>
+        public bool IsEscaped => false;
+
         public Vector3 WorldPosition => transform.position;
 
         /// <summary>로컬 대역이라 서버 권위 대상이 아니다 — 즉시 확정한다.</summary>
