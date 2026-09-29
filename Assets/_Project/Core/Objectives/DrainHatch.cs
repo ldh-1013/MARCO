@@ -150,8 +150,10 @@ namespace Marco.Core.Objectives
         /// </summary>
         public ValveInteractionRejection TryWork(ulong playerId, RoleType role)
         {
-            if (role != RoleType.Runner)
+            if (role == RoleType.Echo)
                 return ValveInteractionRejection.EchoCannotInteract;
+            if (role != RoleType.Runner)
+                return ValveInteractionRejection.SeekerCannotInteract;
 
             if (IsInTransit)
                 return ValveInteractionRejection.AlreadyOpen;

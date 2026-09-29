@@ -233,6 +233,10 @@ namespace Marco.Core.Objectives
             if (role == RoleType.Echo)
                 return ValveInteractionRejection.EchoCannotInteract;
 
+            // 09-30 결정: 밸브 · 배수구는 도망자만 조작한다 — 술래는 밸브를 돌릴 수 없다.
+            if (role != RoleType.Runner)
+                return ValveInteractionRejection.SeekerCannotInteract;
+
             if (!isActive)
                 return ValveInteractionRejection.NotActiveThisRound;
 
@@ -463,6 +467,9 @@ namespace Marco.Core.Objectives
 
         /// <summary>GAP-5 메아리는 물리 상호작용 불가.</summary>
         EchoCannotInteract,
+
+        /// <summary>술래는 밸브를 돌릴 수 없다(09-30 결정 — 밸브 · 배수구는 도망자만 조작한다).</summary>
+        SeekerCannotInteract,
 
         /// <summary>§6.1-0 이번 라운드 비활성 밸브. 잠금 표시된다.</summary>
         NotActiveThisRound,

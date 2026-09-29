@@ -61,16 +61,17 @@ namespace Marco.Core.Tests
             Assert.IsNull(controller.ActiveValve);
         }
 
-        // 3) 술래는 밸브를 돌릴 수 있다 — 기획서가 금지한 것은 메아리뿐이다.
+        // 3) 술래는 밸브를 돌릴 수 없다 — 밸브 · 배수구는 도망자만 조작한다(09-30 결정). 로컬 경로도 Core가 거부한다.
         [Test]
-        public void SeekerRole_IsAllowed()
+        public void SeekerRole_IsRejectedByCore()
         {
             var controller = new ValveInteractionController();
             var valve = new Valve();
 
             var result = controller.Tick(Input(valve, NearValve, held: true, role: RoleType.Seeker), 0.02f);
 
-            Assert.AreEqual(ValveInteractionEvent.Started, result);
+            Assert.AreEqual(ValveInteractionEvent.Rejected, result);
+            Assert.AreEqual(ValveState.Closed, valve.State);
         }
 
         // 4) §6.2 3초를 채우면 완료되고 Open이 된다.

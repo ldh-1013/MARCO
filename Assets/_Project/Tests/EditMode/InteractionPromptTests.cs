@@ -54,6 +54,28 @@ namespace Marco.Core.Tests
         }
 
         [Test]
+        public void Valve_Seeker_IsRejected_AndGetsNoPrompt()
+        {
+            Assert.AreEqual(ValveInteractionRejection.SeekerCannotInteract, Valve.CheckInteract(RoleType.Seeker, true, ValveState.Closed),
+                "술래는 밸브를 돌릴 수 없다(09-30 결정)");
+            Assert.AreEqual(ValveInteractionRejection.SeekerCannotInteract, Valve.CheckInteract(RoleType.Seeker, false, ValveState.Open),
+                "역할 사유가 비활성 · 이미 열림보다 먼저다(메아리와 같은 순서)");
+            Assert.IsEmpty(InteractionPrompt.Valve(ValveId.A, true, ValveInteractionRejection.SeekerCannotInteract, false, 0f),
+                "술래에게는 안내를 띄우지 않는다");
+        }
+
+        [Test]
+        public void Drain_Seeker_GetsNoPrompt_AndServerRejects()
+        {
+            Assert.IsEmpty(InteractionPrompt.Drain("메인 풀", true, InteractionPrompt.CheckDrain(RoleType.Seeker, true), false, 0f),
+                "술래에게는 배수구 안내도 띄우지 않는다");
+
+            var hatch = new DrainHatch(DrainId.MainPool, workSeconds: 8f);
+            Assert.AreEqual(ValveInteractionRejection.SeekerCannotInteract, hatch.TryWork(1, RoleType.Seeker));
+            Assert.AreEqual(ValveInteractionRejection.EchoCannotInteract, hatch.TryWork(2, RoleType.Echo));
+        }
+
+        [Test]
         public void Valve_ReasonOrder_MatchesServerRule()
         {
             Assert.AreEqual(ValveInteractionRejection.EchoCannotInteract, Valve.CheckInteract(RoleType.Echo, false, ValveState.Open));
@@ -73,8 +95,6 @@ namespace Marco.Core.Tests
                 InteractionPrompt.Drain("메인 풀", true, InteractionPrompt.DrainBlock.None, true, 0.305f));
             Assert.AreEqual("배수구 유아풀 — 메아리 불가",
                 InteractionPrompt.Drain("유아풀", true, InteractionPrompt.CheckDrain(RoleType.Echo, true), false, 0f));
-            Assert.AreEqual("배수구 유아풀 — 도망자 전용",
-                InteractionPrompt.Drain("유아풀", true, InteractionPrompt.CheckDrain(RoleType.Seeker, true), false, 0f));
             Assert.AreEqual("배수구 유아풀 — 이번 판 비활성",
                 InteractionPrompt.Drain("유아풀", true, InteractionPrompt.CheckDrain(RoleType.Runner, false), false, 0f));
             Assert.IsEmpty(InteractionPrompt.Drain("유아풀", false, InteractionPrompt.DrainBlock.None, false, 0f));
@@ -107,6 +127,11 @@ namespace Marco.Core.Tests
                 player.ApplyEscaped(true);
                 Lifecycle(interactor, "Update");
                 Assert.IsEmpty(interactor.Prompt, "탈출자는 월드에서 빠졌다 — 안내도 없다");
+
+                player.ApplyEscaped(false);
+                player.ApplyRole(RoleType.Seeker);
+                Lifecycle(interactor, "Update");
+                Assert.IsEmpty(interactor.Prompt, "술래 화면에는 '[E] 밸브 돌리기'가 뜨지 않는다(수정 전: 떴다)");
             }
             finally
             {

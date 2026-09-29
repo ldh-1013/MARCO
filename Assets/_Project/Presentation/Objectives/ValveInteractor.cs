@@ -290,7 +290,8 @@ namespace Marco.Presentation.Objectives
                     break;
 
                 case ValveInteractionEvent.Rejected:
-                    Debug.Log($"[Valve] {label} 상호작용 거부 — 역할 {_player.Role} (GAP-5: 메아리는 밸브 조작 불가)");
+                    Debug.Log($"[Valve] {label} 상호작용 거부 — 역할 {_player.Role} " +
+                              "(밸브는 도망자만: 메아리 GAP-5 · 술래는 밸브를 돌릴 수 없다 09-30)");
                     break;
             }
         }

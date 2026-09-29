@@ -195,16 +195,16 @@ namespace Marco.Core.Tests
             Assert.IsFalse(driver.IsRotating);
         }
 
-        // 12) 술래도 밸브를 돌릴 수 있다 — 금지된 것은 메아리뿐(GAP-5).
+        // 12) 술래는 밸브를 돌릴 수 없다 — 밸브 · 배수구는 도망자만 조작한다(09-30 결정). 서버가 거부한다.
         [Test]
-        public void BeginHold_BySeeker_IsAllowed()
+        public void BeginHold_BySeeker_IsRejected()
         {
             var driver = NewDriver();
 
-            ValveInteractionRejection accepted = driver.BeginHold(Runner, RoleType.Seeker);
+            ValveInteractionRejection rejected = driver.BeginHold(Runner, RoleType.Seeker);
 
-            Assert.AreEqual(ValveInteractionRejection.None, accepted);
-            Assert.AreEqual(ValveState.Rotating, driver.State);
+            Assert.AreEqual(ValveInteractionRejection.SeekerCannotInteract, rejected);
+            Assert.AreEqual(ValveState.Closed, driver.State, "술래의 홀드로 회전이 시작되면 안 된다");
         }
     }
 }
