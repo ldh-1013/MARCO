@@ -67,7 +67,7 @@ namespace Marco.Core.Tests
         [Test]
         public void Drain_Seeker_GetsNoPrompt_AndServerRejects()
         {
-            Assert.IsEmpty(InteractionPrompt.Drain("메인 풀", true, InteractionPrompt.CheckDrain(RoleType.Seeker, true), false, 0f),
+            Assert.IsEmpty(InteractionPrompt.Drain("메인 풀", true, InteractionPrompt.CheckDrain(RoleType.Seeker, true, true), false, 0f),
                 "술래에게는 배수구 안내도 띄우지 않는다");
 
             var hatch = new DrainHatch(DrainId.MainPool, workSeconds: 8f);
@@ -94,10 +94,30 @@ namespace Marco.Core.Tests
             Assert.AreEqual("배수구 메인 풀 여는 중 30%",
                 InteractionPrompt.Drain("메인 풀", true, InteractionPrompt.DrainBlock.None, true, 0.305f));
             Assert.AreEqual("배수구 유아풀 — 메아리 불가",
-                InteractionPrompt.Drain("유아풀", true, InteractionPrompt.CheckDrain(RoleType.Echo, true), false, 0f));
+                InteractionPrompt.Drain("유아풀", true, InteractionPrompt.CheckDrain(RoleType.Echo, true, true), false, 0f));
             Assert.AreEqual("배수구 유아풀 — 이번 판 비활성",
-                InteractionPrompt.Drain("유아풀", true, InteractionPrompt.CheckDrain(RoleType.Runner, false), false, 0f));
+                InteractionPrompt.Drain("유아풀", true, InteractionPrompt.CheckDrain(RoleType.Runner, phaseActive: true, thisDrainActive: false), false, 0f),
+                "페이즈 중 다른 배수구가 활성 — 이번 판 비활성");
             Assert.IsEmpty(InteractionPrompt.Drain("유아풀", false, InteractionPrompt.DrainBlock.None, false, 0f));
+        }
+
+        [Test]
+        public void Drain_OutsideLastSurvivorPhase_SaysLastSurvivorOnly()
+        {
+            Assert.AreEqual(InteractionPrompt.DrainBlock.LastSurvivorOnly,
+                InteractionPrompt.CheckDrain(RoleType.Runner, phaseActive: false, thisDrainActive: false));
+            Assert.AreEqual("배수구 메인 풀 — 최후 생존자 전용",
+                InteractionPrompt.Drain("메인 풀", true,
+                    InteractionPrompt.CheckDrain(RoleType.Runner, phaseActive: false, thisDrainActive: false), false, 0f),
+                "페이즈가 아닐 때는 '이번 판 비활성'이 아니다(수정 전: 이번 판 비활성)");
+        }
+
+        [Test]
+        public void Drain_InPhase_ActiveDrain_ShowsKey()
+        {
+            Assert.AreEqual("[E] 배수구 유아풀 열기",
+                InteractionPrompt.Drain("유아풀", true,
+                    InteractionPrompt.CheckDrain(RoleType.Runner, phaseActive: true, thisDrainActive: true), false, 0f));
         }
 
         // ── 실제 컴포넌트 ────────────────────────────────────────────────

@@ -16,7 +16,12 @@ namespace Marco.Core.Objectives
             None,
             Echo,
             RunnersOnly,
+
+            /// <summary>페이즈 중이지만 이번 판 활성 배수구가 아니다(§6.5-2 무작위 1개).</summary>
             NotActive,
+
+            /// <summary>최후 생존자 페이즈가 아니다 — 배수구는 §6.5 페이즈 전용 오브젝트다.</summary>
+            LastSurvivorOnly,
         }
 
         public static string Valve(ValveId id, bool inRange, ValveInteractionRejection rejection, bool working, float progress01) =>
@@ -26,13 +31,20 @@ namespace Marco.Core.Objectives
         /// 배수구 거부 사유 — 서버 자격(<see cref="UnderwaterWorkSession.CanWork(RoleType, bool, bool)"/> · <see cref="DrainHatch.TryWork"/>: 도망자만)과
         /// 같은 순서. 술래(<see cref="DrainBlock.RunnersOnly"/>)에게는 안내를 띄우지 않는다.
         /// </summary>
-        public static DrainBlock CheckDrain(RoleType role, bool activeThisPhase)
+        /// <param name="phaseActive">§6.5 최후 생존자 페이즈 중인가.</param>
+        /// <param name="thisDrainActive">이 배수구가 이번 판 활성 배수구인가.</param>
+        public static DrainBlock CheckDrain(RoleType role, bool phaseActive, bool thisDrainActive)
         {
             if (role == RoleType.Echo)
                 return DrainBlock.Echo;
             if (role != RoleType.Runner)
                 return DrainBlock.RunnersOnly;
-            return activeThisPhase ? DrainBlock.None : DrainBlock.NotActive;
+
+            // 페이즈 밖에서는 "이번 판 비활성"이 아니다 — 두 배수구 모두 최후 생존자 페이즈에만 쓰인다(09-30).
+            if (!phaseActive)
+                return DrainBlock.LastSurvivorOnly;
+
+            return thisDrainActive ? DrainBlock.None : DrainBlock.NotActive;
         }
 
         public static string Drain(string drainName, bool inRange, DrainBlock block, bool working, float progress01) =>
@@ -78,6 +90,7 @@ namespace Marco.Core.Objectives
                 case DrainBlock.Echo: return "메아리 불가";
                 case DrainBlock.RunnersOnly: return NoPrompt;
                 case DrainBlock.NotActive: return "이번 판 비활성";
+                case DrainBlock.LastSurvivorOnly: return "최후 생존자 전용";
                 default: return null;
             }
         }

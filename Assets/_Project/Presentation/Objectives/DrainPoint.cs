@@ -114,7 +114,8 @@ namespace Marco.Presentation.Objectives
             bool inRange = distance <= InteractionRules.RangeMeters &&
                            UnderwaterWorkSession.CanWork(RoleType.Runner, true, Core.Water.WaterVolumeRegistry.Sample(feet), feet.y, true);
 
-            InteractionPrompt.DrainBlock block = InteractionPrompt.CheckDrain(player.Role, _round.ActiveDrain == (int)_id);
+            InteractionPrompt.DrainBlock block = InteractionPrompt.CheckDrain(
+                player.Role, _round.LastSurvivorPhaseActive, _round.ActiveDrain == (int)_id);
             InteractionPromptFeed.Offer(
                 InteractionPrompt.Drain(HudFormatter.FormatDrainName((int)_id), inRange, block, working, _round.DrainProgress01),
                 distance);
