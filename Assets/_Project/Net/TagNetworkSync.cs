@@ -210,6 +210,14 @@ namespace Marco.Net
                 return;
             }
 
+            // §6.3 "탈출과 태그가 동일 프레임(같은 도망자) — 탈출 우선. 출구에 닿았다면 탈출로 확정"(09-30).
+            //   요청이 도착한 순서가 아니라 대상의 서버 위치로 가른다 — 게이트가 열린 채 출구 반경 안이면 태그 대신 탈출이다.
+            if (RoundNetworkSync.ServerEscapeTakesPriorityOverTag(PlayerId, targetRole, transform.position))
+            {
+                Debug.Log($"[TagNet:Server] targetId={PlayerId} 태그 거부 — 게이트 개방 · 출구 반경 안 → 탈출로 확정(§6.3 탈출 우선, seeker={seekerId})");
+                return;
+            }
+
             _tagged.Value = true; // → OnChange가 전 피어에 전파.
             _taggedAt.Value = Time.time;
 

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Marco.Core.Net;
 using Marco.Core.Objectives;
 using Marco.Core.Role;
+using UnityEngine;
 
 namespace Marco.Core.GameFlow
 {
@@ -159,6 +160,32 @@ namespace Marco.Core.GameFlow
 
             if (LastSurvivorPhase)
                 PhaseRemainingSeconds = Math.Max(0f, PhaseRemainingSeconds - deltaSeconds);
+        }
+
+        /// <summary>태그 요청을 서버가 어떻게 확정하는가 — <see cref="ResolveTagRequest"/>.</summary>
+        public enum TagResolution
+        {
+            /// <summary>태그로 확정한다(기존 경로).</summary>
+            Tag,
+
+            /// <summary>§6.3 탈출 우선 — 이 요청은 태그 대신 탈출로 확정됐다(태그 거부).</summary>
+            EscapeInstead,
+        }
+
+        /// <summary>
+        /// §6.3 "탈출과 태그가 동일 프레임(같은 도망자) — 탈출 우선. 출구에 닿았다면 탈출로 확정"(09-30). 서버가 태그를 확정하기
+        /// <b>직전</b>(거리 · 역할 · 경직 재검증을 통과한 뒤)에 부른다. 게이트가 열려 있고 대상이 어느 출구의 판정 반경
+        /// (<see cref="EscapeRules.ExitRadiusMeters"/>) 안이면 탈출로 확정하고 <see cref="TagResolution.EscapeInstead"/>를 돌려준다 —
+        /// 호출자는 태그를 거부한다. 위치는 서버가 아는 대상의 발 위치다(클라이언트 주장이 아니다).
+        /// </summary>
+        public TagResolution ResolveTagRequest(ulong targetId, RoleType targetRole, Vector3 targetFeet, bool gateOpen,
+            IReadOnlyList<Vector3> exits)
+        {
+            // 탈출의 정의(§6.3 "게이트 개방 후 출구 접촉")를 그대로 — 게이트 · 역할(GAP-11) · 중복은 TryRegisterEscape가 강제한다.
+            if (gateOpen && EscapeRules.IsWithinAnyExit(targetFeet, exits) && TryRegisterEscape(targetId, targetRole, gateOpen))
+                return TagResolution.EscapeInstead;
+
+            return TagResolution.Tag;
         }
 
         /// <summary>한 번의 서버 판정 단계 결과 — <see cref="Step"/>.</summary>

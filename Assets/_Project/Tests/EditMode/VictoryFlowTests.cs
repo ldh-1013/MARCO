@@ -17,7 +17,7 @@ namespace Marco.Core.Tests
         // Game 씬의 두 출구(중심 · 판정 반경 2m) — ExitValveSceneTests가 씬에서 확인한다.
         private static readonly Vector3 FrontDoor = new Vector3(7f, 1f, 40f);
         private static readonly Vector3 DrainExit = new Vector3(46f, 1f, 2f);
-        private const float EscapeRadius = 2f;
+        private const float EscapeRadius = EscapeRules.ExitRadiusMeters;
         private const float Dt = 0.25f;
 
         private sealed class Round

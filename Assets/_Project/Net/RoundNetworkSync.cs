@@ -759,10 +759,39 @@ namespace Marco.Net
                 return;
             }
 
+            OnServerEscapeConfirmed(playerId, "출구 트리거");
+        }
+
+        /// <summary>
+        /// 탈출이 확정된 뒤의 공통 처리 — 집계 SyncVar · pawn 월드 제외 · 판정. 출구 트리거(<see cref="ServerSubmitEscape"/>)와
+        /// §6.3 탈출 우선(<see cref="ServerEscapeTakesPriorityOverTag"/>)이 같은 경로를 쓴다. 서버 전용.
+        /// </summary>
+        private void OnServerEscapeConfirmed(ulong playerId, string source)
+        {
             _escaped.Value = _driver.EscapedCount;
             ServerMarkPawnEscaped(playerId);
-            Debug.Log($"[RoundNet:Server] 탈출 확정 — playerId={playerId} (누적 {_driver.EscapedCount}명)");
+            Debug.Log($"[RoundNet:Server] 탈출 확정 — playerId={playerId} (누적 {_driver.EscapedCount}명, {source})");
             EvaluateAndPush();
+        }
+
+        /// <summary>
+        /// §6.3 동일 프레임 탈출 우선(09-30) — <c>TagNetworkSync</c>가 태그를 확정하기 직전에 묻는다. 게이트가 열려 있고 대상이 출구
+        /// 판정 반경 안(서버 위치)이면 탈출로 확정하고 true(호출자는 태그를 거부한다). 규칙은 Core
+        /// (<see cref="ServerRoundDriver.ResolveTagRequest"/>)가 소유한다. 서버 전용.
+        /// </summary>
+        internal static bool ServerEscapeTakesPriorityOverTag(ulong targetId, RoleType targetRole, Vector3 targetFeet)
+        {
+            RoundNetworkSync instance = ServerInstance;
+            if (instance == null || ServerPhase != GameFlowState.InGame || instance._driver == null)
+                return false;
+
+            ServerRoundDriver.TagResolution resolution = instance._driver.ResolveTagRequest(
+                targetId, targetRole, targetFeet, instance.CurrentGateOpen(), EscapePointRegistry.Positions);
+            if (resolution != ServerRoundDriver.TagResolution.EscapeInstead)
+                return false;
+
+            instance.OnServerEscapeConfirmed(targetId, "태그 요청 중 출구 반경 안 — §6.3 탈출 우선");
+            return true;
         }
 
         /// <summary>

@@ -95,6 +95,7 @@
     <Compile Include="Assets\_Project\Core\GameFlow\RematchVoteDriver.cs" />
     <Compile Include="Assets\_Project\Core\Locomotion\GhostFlight.cs" />
     <Compile Include="Assets\_Project\Core\Net\IPulseNetworkBridge.cs" />
+    <Compile Include="Assets\_Project\Core\Objectives\EscapeRules.cs" />
     <Compile Include="Assets\_Project\Core\Objectives\WinConditionEvaluator.cs" />
     <Compile Include="Assets\_Project\Core\Tagging\ServerTagDriver.cs" />
     <Compile Include="Assets\_Project\Core\Net\IRoleState.cs" />

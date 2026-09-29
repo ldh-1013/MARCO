@@ -125,7 +125,7 @@ namespace Marco.Core.Tests
                 var failures = new List<string>();
                 foreach (EscapePointTrigger exit in exits)
                 {
-                    float radius = new SerializedObject(exit).FindProperty("_escapeRadius").floatValue;
+                    float radius = exit.EscapeRadius; // Core 상수(EscapeRules) — 트리거와 서버가 같이 쓴다
                     Vector3 at = exit.transform.position;
 
                     // EscapePointTrigger와 같은 판정 — 발(transform.position)과 출구 중심의 3D 거리. QA 지점은 중심에서 수평 0.8m(여유).

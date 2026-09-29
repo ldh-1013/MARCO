@@ -20,8 +20,6 @@ namespace Marco.Presentation.Objectives
         [SerializeField] private FirstPersonController _player;
         [SerializeField] private RoundCoordinator _roundCoordinator;
 
-        [Tooltip("GAP-12: 기획서에 탈출 판정 반경 수치가 없어 둔 값. 플레이테스트 조정 대상.")]
-        [SerializeField] private float _escapeRadius = 2f;
 
         [Header("디버그")]
         [Tooltip("게이트가 닫힌 상태로 도달했을 때 안내 로그를 낼지(1회만).")]
@@ -39,6 +37,12 @@ namespace Marco.Presentation.Objectives
         /// §6.2-1 종반 출구 파문이 위치를 알아야 하므로 Core 레지스트리에 스스로 등록한다 —
         /// Net이 이 Presentation 타입을 찾으면 §15.2 경계가 깨진다.
         /// </summary>
+        /// <summary>
+        /// 판정 반경 — Core 상수 하나(<see cref="Core.Objectives.EscapeRules.ExitRadiusMeters"/>, GAP-12 잠정 2m)를 서버(§6.3 탈출 우선)와
+        /// 같이 쓴다(09-30). 전에는 이 컴포넌트의 인스펙터 값이었다.
+        /// </summary>
+        public float EscapeRadius => Core.Objectives.EscapeRules.ExitRadiusMeters;
+
         private void OnEnable()
         {
             Core.Objectives.EscapePointRegistry.Register(transform);
@@ -128,7 +132,7 @@ namespace Marco.Presentation.Objectives
             if (!player.IsLocallyControlled)
                 return;
 
-            bool inside = Vector3.Distance(player.transform.position, transform.position) <= _escapeRadius;
+            bool inside = Core.Objectives.EscapeRules.IsWithinExit(player.transform.position, transform.position);
 
             // 언제 요청을 보낼지는 Core 규칙이 정한다(EscapeAttemptScheduler).
             bool inProgress = _roundCoordinator.CurrentPhase == Core.GameFlow.GameFlowState.InGame

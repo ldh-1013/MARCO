@@ -64,6 +64,7 @@
     <Compile Include="Assets\_Project\Tests\EditMode\VictoryPathTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\SpawnRingTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\ServerPulseDriverTests.cs" />
+    <Compile Include="Assets\_Project\Tests\EditMode\TagEscapePriorityTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\GateOpenAnnouncementTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\GameSettingsTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\EchoVisibilityTests.cs" />
