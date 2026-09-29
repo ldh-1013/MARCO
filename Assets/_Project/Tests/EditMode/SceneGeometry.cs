@@ -154,6 +154,23 @@ namespace Marco.Core.Tests
             return hits;
         }
 
+        /// <summary>
+        /// 이 자리 위 <paramref name="clearance"/> 안에 다른 고체가 덮여 있는가 — 다른 바닥 아래 갇힌 틈(예: 수영 바닥 아래 풀 바닥)은
+        /// 걸어서 닿을 수 없는 자리다. 맵의 벽 높이가 3.5m라 정상 천장(2층 바닥 아래면 3.3m)은 걸리지 않는다.
+        /// </summary>
+        internal static bool HasLowCeiling(List<Aabb> solids, Vector3 feet, float clearance)
+        {
+            foreach (Aabb b in solids)
+            {
+                if (feet.x < b.Min.x || feet.x > b.Max.x || feet.z < b.Min.z || feet.z > b.Max.z)
+                    continue;
+                if (b.Min.y > feet.y + FloorClearance && b.Min.y < feet.y + clearance)
+                    return true;
+            }
+
+            return false;
+        }
+
         internal static float DistanceXZ(in Aabb box, Vector3 p)
         {
             float dx = Mathf.Max(box.Min.x - p.x, 0f, p.x - box.Max.x);

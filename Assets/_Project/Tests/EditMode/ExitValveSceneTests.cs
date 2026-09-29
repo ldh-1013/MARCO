@@ -24,6 +24,9 @@ namespace Marco.Core.Tests
         private const string PlayerPrefabPath = "Assets/_Project/Prefabs/Player.prefab";
         private const float GridStep = 0.1f;
 
+        /// <summary>이보다 낮은 천장 아래는 설 자리가 아니다(<see cref="SceneGeometry.HasLowCeiling"/>).</summary>
+        private const float EnclosedCeiling = 3f;
+
         private struct Capsule
         {
             public float Radius, Bottom, Top;
@@ -50,6 +53,12 @@ namespace Marco.Core.Tests
         /// </summary>
         private static bool TryFindStandPoint(List<SceneGeometry.Aabb> solids, Capsule capsule, Vector3 target, float reach,
             float preferredHorizontal, System.Func<Vector3, float> distance, System.Func<Vector3, bool> extra,
+            out Vector3 best, out string reason) =>
+            TryFindStandPoint(solids, capsule, target, target.y + 0.5f, reach, preferredHorizontal, distance, extra, out best, out reason);
+
+        /// <param name="maxFloorTop">밟을 바닥 윗면의 상한 — 지상 · 2층 대상은 대상 높이 + 0.5, 수중 대상은 수면(사람은 수영 바닥에 선다).</param>
+        private static bool TryFindStandPoint(List<SceneGeometry.Aabb> solids, Capsule capsule, Vector3 target, float maxFloorTop,
+            float reach, float preferredHorizontal, System.Func<Vector3, float> distance, System.Func<Vector3, bool> extra,
             out Vector3 best, out string reason)
         {
             best = default;
@@ -60,13 +69,15 @@ namespace Marco.Core.Tests
             {
                 for (float z = target.z - reach; z <= target.z + reach; z += GridStep)
                 {
-                    if (!SceneGeometry.TryStandTop(solids, x, z, capsule.Radius, target.y + 0.5f, out float top))
+                    if (!SceneGeometry.TryStandTop(solids, x, z, capsule.Radius, maxFloorTop, out float top))
                         continue;
 
                     var feet = new Vector3(x, top, z);
                     float d = distance(feet);
                     if (d > reach)
                         continue;
+                    if (SceneGeometry.HasLowCeiling(solids, feet, EnclosedCeiling))
+                        continue; // 다른 바닥 아래 갇힌 틈 — 걸어서 닿을 수 없다
                     if (SceneGeometry.CapsuleOverlaps(solids, feet, capsule.Radius, capsule.Bottom, capsule.Top).Count > 0)
                         continue;
 
@@ -164,8 +175,10 @@ namespace Marco.Core.Tests
                     if (underwater)
                         canWork = feet => UnderwaterWorkSession.CanWork(RoleType.Runner, true, WaterVolumeRegistry.Sample(feet), feet.y, true);
 
-                    // QA 지점은 밸브에서 수평 1.2m — 밸브를 바라보고 선다.
-                    if (TryFindStandPoint(solids, capsule, at, range, 1.2f, feet => InteractionRules.DistanceTo(feet, at, underwater), canWork,
+                    // 수중 밸브는 물 밖 · 수영 바닥에서 손을 뻗는다 — 바닥 상한은 수면(밸브 높이 + 0.5가 아니다: 그러면 수영 바닥 아래
+                    // 풀 바닥에 갇힌 자리를 고른다). QA 지점은 밸브에서 수평 1.2m — 밸브를 바라보고 선다.
+                    float maxFloorTop = underwater ? WaterVolumeRegistry.Sample(at).SurfaceY + 0.05f : at.y + 0.5f;
+                    if (TryFindStandPoint(solids, capsule, at, maxFloorTop, range, 1.2f, feet => InteractionRules.DistanceTo(feet, at, underwater), canWork,
                             out Vector3 point, out string reason))
                         TestContext.Out.WriteLine(QaPointLine($"밸브 {valve.ValveId} — {ValveOccupancy.ZoneOf(valve.ValveId)}", point, at) +
                                                   $" // 판정 거리 {InteractionRules.DistanceTo(point, at, underwater):0.00} ≤ {range}");

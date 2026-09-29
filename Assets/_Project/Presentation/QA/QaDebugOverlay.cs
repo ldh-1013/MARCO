@@ -85,7 +85,7 @@ namespace Marco.Presentation.QA
             // 09-29 승리 경로 — ExitValveSceneTests [QA-POINT]: 설 수 있음 · 캡슐이 벽과 안 겹침 · 판정 거리 안(수중은 CanWork),
             //   밸브는 수평 1.2m 앞에서 밸브를 바라본다. 이번 판 활성 밸브는 브리핑에서 확인한다.
             new QaPoint("⑥ 밸브 A — 기계실", 46.00f, 0.05f, 6.80f, 0f),
-            new QaPoint("⑦ 밸브 B — 메인 풀(수중)", 34.00f, -3.45f, 20.80f, 0f),
+            new QaPoint("⑦ 밸브 B — 메인 풀(수중) 수영 바닥", 32.80f, -0.85f, 22.00f, 90f),
             new QaPoint("⑧ 밸브 C — 물탱크실(2층)", 5.80f, 3.55f, 26.00f, 90f),
             new QaPoint("⑨ 밸브 D — 약품창고", 17.80f, 0.05f, 36.00f, 90f),
             new QaPoint("⑩ 밸브 E — 유아풀(얕은 수중)", 6.20f, -0.85f, 9.00f, 270f),
