@@ -109,6 +109,7 @@
     <Compile Include="Assets\_Project\Tests\EditMode\SprintStealthCampingTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\FallRecoveryTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\ValveDecayReflowTests.cs" />
+    <Compile Include="Assets\_Project\Tests\EditMode\MainMenuScreenTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\TaggingTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\LocalPulsePipelineTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\GhostFlightTests.cs" />

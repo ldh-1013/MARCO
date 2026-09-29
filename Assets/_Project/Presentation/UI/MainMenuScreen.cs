@@ -56,6 +56,9 @@ namespace Marco.Presentation.UI
         [SerializeField, Range(24, 96)] private int _titleFontSize = 64;
         [SerializeField, Range(12, 48)] private int _bodyFontSize = 24;
 
+        [Tooltip("\"솔로 연습장 — 준비 중\" 줄을 보일지. 09-30 숨김(GAP-31 이월 — 줄과 문구 코드는 남긴다).")]
+        [SerializeField] private bool _showSoloPracticeHint;
+
         private Text _titleText;
         private Text _menuText;
         private Text _hintText;
@@ -101,12 +104,15 @@ namespace Marco.Presentation.UI
             _titleText.text = "마르코!";
             _titleText.color = new Color(0.91f, 0.91f, 0.91f);
 
-            // §12.2 도식의 버튼 3종 — 솔로 연습장은 GAP-31로 이월임을 화면에도 밝힌다.
+            // §12.2 도식의 버튼 3종 — 솔로 연습장은 GAP-31로 이월. 09-30부터 그 안내 줄은 기본 숨김(_showSoloPracticeHint).
             _menuText.text = $"{_hostKey} — 방 만들기        {_joinKey} — 코드 입장";
             _menuText.color = new Color(0.21f, 0.94f, 0.82f);
 
             _hintText.text = "솔로 연습장 — 준비 중";
             _hintText.color = new Color(0.5f, 0.5f, 0.5f);
+
+            // 09-30: 준비 중인 기능을 첫 화면에 내세우지 않는다 — 줄은 만들되 끈다(코드 삭제 금지 · 인스펙터에서 다시 켤 수 있다).
+            _hintText.gameObject.SetActive(_showSoloPracticeHint);
         }
 
         private static Font ResolveFont()
