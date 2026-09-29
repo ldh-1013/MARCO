@@ -795,12 +795,13 @@ namespace Marco.Net
             // ServerSubmitEscape → TryRegisterEscape(gateOpen)가 한다.
             RunnerCensus census = _driver.Census(CountRunners(), tagged);
 
-            // §6.5-1 살아있는 도망자가 1명이 되면 페이즈에 들어간다(판정보다 먼저).
-            //   진입 판정의 소유자는 RunnerCensus 하나다.
-            if (census.ShouldEnterLastSurvivorPhase && _driver.TryEnterLastSurvivorPhase())
+            // 판정과 페이즈 진입의 순서는 Core(ServerRoundDriver.Step)가 소유한다 — 판정 먼저, 미정일 때만 §6.5-1 진입
+            //   (탈출로 승리가 확정되는 같은 처리에서 '최후 생존자 페이즈 진입'이 찍히던 순서 결함, 09-30).
+            ServerRoundDriver.RoundStep step = _driver.Step(census);
+            if (step.EnteredLastSurvivorPhase)
                 OnLastSurvivorPhaseEntered(census);
 
-            if (!_driver.Evaluate(census))
+            if (!step.Decided)
                 return;
 
             _result.Value = _driver.Result;

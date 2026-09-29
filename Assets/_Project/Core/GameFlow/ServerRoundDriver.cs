@@ -161,6 +161,42 @@ namespace Marco.Core.GameFlow
                 PhaseRemainingSeconds = Math.Max(0f, PhaseRemainingSeconds - deltaSeconds);
         }
 
+        /// <summary>한 번의 서버 판정 단계 결과 — <see cref="Step"/>.</summary>
+        public readonly struct RoundStep
+        {
+            /// <summary>이번 단계에서 승패가 새로 확정됐는가.</summary>
+            public readonly bool Decided;
+
+            /// <summary>이번 단계에서 최후 생존자 페이즈에 새로 들어갔는가(1회성).</summary>
+            public readonly bool EnteredLastSurvivorPhase;
+
+            public RoundStep(bool decided, bool enteredLastSurvivorPhase)
+            {
+                Decided = decided;
+                EnteredLastSurvivorPhase = enteredLastSurvivorPhase;
+            }
+        }
+
+        /// <summary>
+        /// 서버가 탈출 · 태그 · 타이머 이벤트마다 부르는 한 단계 — 승패 판정과 페이즈 진입의 <b>순서</b>를 한 곳이 소유한다
+        /// (<c>RoundNetworkSync.EvaluateAndPush</c>가 이것을 호출한다).
+        ///
+        /// <para>
+        /// <b>판정이 먼저, 결정되지 않았을 때만 페이즈에 진입한다</b>(09-30). 진입을 먼저 하면 탈출로 승리가 확정되는 같은 처리에서
+        /// "최후 생존자 페이즈 진입"이 찍히고 결과 화면에 "최후 생존자 1:30"이 남는다. §6.3 "페이즈 진입과 탈출이 동일 프레임 —
+        /// 탈출 먼저 확정. 도망자가 0명이 되면 페이즈 미진입". 진입 직후의 판정은 진입 전과 같다(생존 1명 · 페이즈 타이머 90초 ≥ 라운드 잔여
+        /// 판정 없음) — 다시 판정하지 않는다.
+        /// </para>
+        /// </summary>
+        public RoundStep Step(in RunnerCensus census)
+        {
+            if (Evaluate(census))
+                return new RoundStep(decided: true, enteredLastSurvivorPhase: false);
+
+            bool entered = census.ShouldEnterLastSurvivorPhase && TryEnterLastSurvivorPhase();
+            return new RoundStep(decided: false, entered);
+        }
+
         /// <summary>
         /// §6.3 판정을 수행하고, 승패가 갈렸으면 결과를 고정한다. 이번에 새로 결정됐을 때만
         /// true — 서버가 전파(SyncVar)와 로깅을 1회만 하도록. 판정식은 Core에 위임한다.
