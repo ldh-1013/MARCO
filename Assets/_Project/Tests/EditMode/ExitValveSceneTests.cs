@@ -195,5 +195,54 @@ namespace Marco.Core.Tests
                 EditorSceneManager.ClosePreviewScene(game);
             }
         }
+
+        // ── 배수구(§6.5-2) ───────────────────────────────────────────────
+
+        /// <summary>
+        /// 배수구 2곳마다 작업 범위(수평 <see cref="InteractionRules.RangeMeters"/>) 안에 설 자리가 있고, 그 자리에서 실제로 잠길 수 있다
+        /// (<c>DrainPoint</c> · 서버와 같은 CanWork). 찾은 자리는 QA 순간이동(F4) 지점으로 출력한다 — 일반 라운드에서
+        /// "배수구 X — 최후 생존자 전용" 안내를 확인하는 자리다(09-30).
+        /// </summary>
+        [Test]
+        public void EveryDrain_HasStandablePointWithinWorkRange_CanWork()
+        {
+            Capsule capsule = ReadCapsule();
+            Scene game = EditorSceneManager.OpenPreviewScene(GameScenePath);
+            List<WaterVolumeBehaviour> water = SceneGeometry.FindAllActive<WaterVolumeBehaviour>(game);
+            foreach (WaterVolumeBehaviour w in water)
+                WaterVolumeRegistry.Register(w);
+
+            try
+            {
+                List<DrainPoint> drains = SceneGeometry.FindAllActive<DrainPoint>(game);
+                Assert.AreEqual(2, drains.Count, $"배수구 2곳 — [{string.Join(", ", drains.ConvertAll(d => d.name))}]");
+
+                List<SceneGeometry.Aabb> solids = SceneGeometry.CollectSolidBoxes(game);
+                var failures = new List<string>();
+                foreach (DrainPoint drain in drains)
+                {
+                    Vector3 at = drain.transform.position;
+                    float maxFloorTop = WaterVolumeRegistry.Sample(at).SurfaceY + 0.05f; // 사람은 수영 바닥에 선다
+                    System.Func<Vector3, bool> canWork = feet =>
+                        UnderwaterWorkSession.CanWork(RoleType.Runner, true, WaterVolumeRegistry.Sample(feet), feet.y, true);
+
+                    if (TryFindStandPoint(solids, capsule, at, maxFloorTop, InteractionRules.RangeMeters, 1.2f,
+                            feet => InteractionRules.DistanceTo(feet, at, underwaterTarget: true), canWork,
+                            out Vector3 point, out string reason))
+                        TestContext.Out.WriteLine(QaPointLine($"배수구 {drain.Id}", point, at) +
+                                                  $" // 수평 {InteractionRules.DistanceTo(point, at, true):0.00} ≤ {InteractionRules.RangeMeters}");
+                    else
+                        failures.Add($"배수구 {drain.Id} {at}: 작업 범위 안에 설 자리가 없다 — {reason}");
+                }
+
+                Assert.IsEmpty(failures, string.Join("\n", failures));
+            }
+            finally
+            {
+                foreach (WaterVolumeBehaviour w in water)
+                    WaterVolumeRegistry.Unregister(w);
+                EditorSceneManager.ClosePreviewScene(game);
+            }
+        }
     }
 }

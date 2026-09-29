@@ -39,7 +39,8 @@ namespace Marco.Presentation.QA
     /// <item><b>F4</b> QA 순간이동(09-27 요청으로 추가) — 미리 정한 QA 지점을 순서대로 돈다(로컬 플레이어, <b>Shift+F4</b>는 역순).
     /// 이동은 소유자 권한(Player <c>NetworkTransform</c> clientAuthoritative)이라 서버 RPC 없이 로컬 배치가 그대로
     /// 동기화된다 — <c>PawnPhaseTeleporter.PlaceExactly</c>와 같은 방식(CharacterController를 끄고 위치 대입).
-    /// 09-29: 밸브 5개의 작업 지점 · 출구 2개의 판정 반경 안 지점을 더했다(좌표는 <c>ExitValveSceneTests</c>의 [QA-POINT] 출력).</item>
+    /// 09-29: 밸브 5개의 작업 지점 · 출구 2개의 판정 반경 안 지점을 더했다(좌표는 <c>ExitValveSceneTests</c>의 [QA-POINT] 출력).
+    /// 09-30: 목록 끝에 메인 풀 배수구 앞 지점(⑬)을 더했다.</item>
     /// <item><b>F5</b> QA 음성 파문(09-29) — 마이크 없이 내 목소리 파문을 속삭임 → 대화 → 고함 순으로 낸다. <b>내 화면 전용</b>
     /// (<c>SelfPulseFeed</c> — 실제 음성의 자기 화면 경로와 같다: 링 · 벽 윤곽 · 목소리 조명). 서버로 보내지 않아
     /// 다른 플레이어 · 판정과 무관하다. 메아리 · 탈출자는 실제 음성과 같이 내지 않는다(<c>WorldPresence</c>).</item>
@@ -95,6 +96,10 @@ namespace Marco.Presentation.QA
             new QaPoint("⑩ 밸브 E — 유아풀(얕은 수중)", 6.20f, -0.85f, 9.00f, 270f),
             new QaPoint("⑪ 출구 정문 — 판정 반경 안(3D 1.28m ≤ 2)", 7.00f, 0.05f, 39.20f, 0f),
             new QaPoint("⑫ 출구 배수로 — 판정 반경 안(3D 1.28m ≤ 2)", 46.00f, 0.05f, 2.80f, 180f),
+
+            // 09-30 배수구(§6.5-2) — ExitValveSceneTests.EveryDrain_…의 [QA-POINT]: 메인 풀 수영 바닥, 배수구 수평 1.2m 앞(작업 범위 2.5 안 ·
+            //   CanWork). 일반 라운드에서 "배수구 메인 풀 — 최후 생존자 전용" 안내를 확인하는 자리다(밸브 B와 4.3m — 밸브 안내와 겹치지 않는다).
+            new QaPoint("⑬ 배수구 메인 풀 — 수영 바닥, 작업 범위 안", 29.80f, -0.85f, 21.00f, 90f),
         };
 
         /// <summary>문자열 재조립 주기(초). 매 프레임 만들 필요가 없다.</summary>
