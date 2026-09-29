@@ -3,6 +3,8 @@ using System;
 using System.Text;
 using Marco.Core.Breath;
 using Marco.Core.Locomotion;
+using Marco.Core.Role;
+using Marco.Core.Sound;
 using Marco.Core.Water;
 using Marco.Presentation.Player;
 using Marco.Presentation.Sound;
@@ -34,9 +36,13 @@ namespace Marco.Presentation.QA
     /// <item><b>F2</b> QA 라이트 — 이 클라이언트에만 방향광 2개를 켠다. 씬의 암전 값(RenderSettings ·
     /// 카메라)은 건드리지 않고 조명을 <b>더하기만</b> 하므로 끄면 그대로 원상태다. 서버 · 다른 플레이어 화면 ·
     /// 게임플레이 판정(숨 게이지 · 파문 · 차폐 레이)과 무관하다.</item>
-    /// <item><b>F4</b> QA 순간이동(09-27 요청으로 추가) — 미리 정한 QA 지점을 순서대로 돈다(로컬 플레이어).
+    /// <item><b>F4</b> QA 순간이동(09-27 요청으로 추가) — 미리 정한 QA 지점을 순서대로 돈다(로컬 플레이어, <b>Shift+F4</b>는 역순).
     /// 이동은 소유자 권한(Player <c>NetworkTransform</c> clientAuthoritative)이라 서버 RPC 없이 로컬 배치가 그대로
-    /// 동기화된다 — <c>PawnPhaseTeleporter.PlaceExactly</c>와 같은 방식(CharacterController를 끄고 위치 대입).</item>
+    /// 동기화된다 — <c>PawnPhaseTeleporter.PlaceExactly</c>와 같은 방식(CharacterController를 끄고 위치 대입).
+    /// 09-29: 밸브 5개의 작업 지점 · 출구 2개의 판정 반경 안 지점을 더했다(좌표는 <c>ExitValveSceneTests</c>의 [QA-POINT] 출력).</item>
+    /// <item><b>F5</b> QA 음성 파문(09-29) — 마이크 없이 내 목소리 파문을 속삭임 → 대화 → 고함 순으로 낸다. <b>내 화면 전용</b>
+    /// (<c>SelfPulseFeed</c> — 실제 음성의 자기 화면 경로와 같다: 링 · 벽 윤곽 · 목소리 조명). 서버로 보내지 않아
+    /// 다른 플레이어 · 판정과 무관하다. 메아리 · 탈출자는 실제 음성과 같이 내지 않는다(<c>WorldPresence</c>).</item>
     /// </list>
     /// 미니맵 · 노클립은 넣지 않는다(검증 대상 동작을 바꾸지 않는 것이 이 도구의 조건).
     /// </summary>
@@ -45,6 +51,10 @@ namespace Marco.Presentation.QA
         private const Key OverlayKey = Key.F3;
         private const Key LightKey = Key.F2;
         private const Key TeleportKey = Key.F4;
+        private const Key VoicePulseKey = Key.F5;
+
+        /// <summary>F5가 도는 목소리 3등급(§5.1).</summary>
+        private static readonly SoundType[] VoiceGrades = { SoundType.Whisper, SoundType.Talk, SoundType.Shout };
 
         private readonly struct QaPoint
         {
@@ -71,6 +81,16 @@ namespace Marco.Presentation.QA
             new QaPoint("③ 기계실 서벽 바깥 — 벽 하나 너머 기계실", 39.5f, 0.05f, 8.5f, 90f),
             new QaPoint("④ 라커룸 1층 — 위층 물탱크실과 겹침", 7f, 0.05f, 26.5f, 0f),
             new QaPoint("⑤ 물탱크실 2층 — 아래층 라커룸과 겹침", 7f, 3.55f, 26.5f, 0f),
+
+            // 09-29 승리 경로 — ExitValveSceneTests [QA-POINT]: 설 수 있음 · 캡슐이 벽과 안 겹침 · 판정 거리 안(수중은 CanWork),
+            //   밸브는 수평 1.2m 앞에서 밸브를 바라본다. 이번 판 활성 밸브는 브리핑에서 확인한다.
+            new QaPoint("⑥ 밸브 A — 기계실", 46.00f, 0.05f, 6.80f, 0f),
+            new QaPoint("⑦ 밸브 B — 메인 풀(수중)", 34.00f, -3.45f, 20.80f, 0f),
+            new QaPoint("⑧ 밸브 C — 물탱크실(2층)", 5.80f, 3.55f, 26.00f, 90f),
+            new QaPoint("⑨ 밸브 D — 약품창고", 17.80f, 0.05f, 36.00f, 90f),
+            new QaPoint("⑩ 밸브 E — 유아풀(얕은 수중)", 6.20f, -0.85f, 9.00f, 270f),
+            new QaPoint("⑪ 출구 정문 — 판정 반경 안(3D 1.28m ≤ 2)", 7.00f, 0.05f, 39.20f, 0f),
+            new QaPoint("⑫ 출구 배수로 — 판정 반경 안(3D 1.28m ≤ 2)", 46.00f, 0.05f, 2.80f, 180f),
         };
 
         /// <summary>문자열 재조립 주기(초). 매 프레임 만들 필요가 없다.</summary>
@@ -102,6 +122,7 @@ namespace Marco.Presentation.QA
         private int _groundMask = ~0;
         private float _nextRefresh;
         private int _qaPointIndex = -1;
+        private int _voiceGradeIndex = -1;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
         private static void ResetForNewSession() => _instance = null;
@@ -116,7 +137,7 @@ namespace Marco.Presentation.QA
             DontDestroyOnLoad(go);
             _instance = go.AddComponent<QaDebugOverlay>();
             Debug.Log($"[QA] 디버그 오버레이 포함 빌드(MARCO_QA_BUILD) — {OverlayKey} 텍스트 오버레이 · {LightKey} QA 라이트(로컬 전용) · " +
-                      $"{TeleportKey} QA 순간이동.");
+                      $"{TeleportKey} QA 순간이동(Shift 역순) · {VoicePulseKey} QA 음성 파문(내 화면 전용).");
         }
 
         private void Awake()
@@ -154,7 +175,14 @@ namespace Marco.Presentation.QA
 
                 if (keyboard[TeleportKey].wasPressedThisFrame)
                 {
-                    TeleportToNextPoint();
+                    bool backward = keyboard.leftShiftKey.isPressed || keyboard.rightShiftKey.isPressed;
+                    TeleportToNextPoint(backward ? -1 : 1);
+                    _nextRefresh = 0f;
+                }
+
+                if (keyboard[VoicePulseKey].wasPressedThisFrame)
+                {
+                    EmitQaVoicePulse();
                     _nextRefresh = 0f;
                 }
             }
@@ -177,7 +205,12 @@ namespace Marco.Presentation.QA
                 _sb.Append("— (").Append(TeleportKey).Append("로 순간이동)");
             else
                 _sb.Append(_qaPointIndex + 1).Append('/').Append(QaPoints.Length).Append(' ')
-                   .Append(QaPoints[_qaPointIndex].Name).Append("  · ").Append(TeleportKey).Append(" 다음");
+                   .Append(QaPoints[_qaPointIndex].Name).Append("  · ").Append(TeleportKey).Append(" 다음 · Shift+")
+                   .Append(TeleportKey).Append(" 이전");
+            _sb.Append('\n');
+            _sb.Append("QA 음성  ").Append(VoicePulseKey).Append(" → ")
+               .Append(_voiceGradeIndex < 0 ? "속삭임" : VoiceGrades[(_voiceGradeIndex + 1) % VoiceGrades.Length].ToString())
+               .Append(" (내 화면 전용)");
             _sb.Append('\n');
 
             FirstPersonController player = LocalPlayerRegistry.Current;
@@ -229,7 +262,7 @@ namespace Marco.Presentation.QA
         /// 다음 QA 지점으로 로컬 플레이어를 옮긴다. <c>PawnPhaseTeleporter.PlaceExactly</c>와 같다 — CharacterController가
         /// 켜져 있으면 위치 대입이 무시될 수 있어 잠깐 끈다. 시선은 yaw만 맞춘다(pitch는 마우스 상태 그대로).
         /// </summary>
-        private void TeleportToNextPoint()
+        private void TeleportToNextPoint(int step)
         {
             FirstPersonController player = LocalPlayerRegistry.Current;
             if (player == null)
@@ -238,7 +271,10 @@ namespace Marco.Presentation.QA
                 return;
             }
 
-            _qaPointIndex = (_qaPointIndex + 1) % QaPoints.Length;
+            // 처음(-1)에서 역순이면 마지막 지점으로.
+            _qaPointIndex = _qaPointIndex < 0 && step < 0
+                ? QaPoints.Length - 1
+                : ((_qaPointIndex + step) % QaPoints.Length + QaPoints.Length) % QaPoints.Length;
             QaPoint point = QaPoints[_qaPointIndex];
 
             var controller = player.GetComponent<CharacterController>();
@@ -253,6 +289,35 @@ namespace Marco.Presentation.QA
 
             Debug.Log($"[QA] 순간이동 {_qaPointIndex + 1}/{QaPoints.Length} {point.Name} → " +
                       $"({point.Feet.x:0.00}, {point.Feet.y:0.00}, {point.Feet.z:0.00}) yaw {point.Yaw:0}");
+        }
+
+        /// <summary>
+        /// F5 — 내 목소리 파문을 다음 등급으로 낸다(속삭임 → 대화 → 고함). 실제 음성의 자기 화면 경로(<see cref="SelfPulseFeed"/>)와
+        /// 같아서 링 · 벽 윤곽 · 목소리 조명이 실제 발화와 똑같이 그려진다. 서버로 보내지 않는다(판정 · 다른 플레이어 무관).
+        /// </summary>
+        private void EmitQaVoicePulse()
+        {
+            FirstPersonController player = LocalPlayerRegistry.Current;
+            if (player == null)
+            {
+                Debug.Log("[QA] 음성 파문 — 로컬 플레이어가 아직 없습니다(스폰 전).");
+                return;
+            }
+
+            _voiceGradeIndex = (_voiceGradeIndex + 1) % VoiceGrades.Length;
+            SoundType type = VoiceGrades[_voiceGradeIndex];
+
+            // 실제 음성과 같은 규칙 — 메아리 · 탈출자는 목소리 파문이 없다(LocalVoicePipeline과 같은 WorldPresence).
+            if (!WorldPresence.CanEmitPulses(player.Role, player.IsEscaped))
+            {
+                Debug.Log($"[QA] 음성 파문 {type} — 내지 않음({player.Role}{(player.IsEscaped ? " · 탈출" : "")}: 목소리 파문 없음).");
+                return;
+            }
+
+            SelfPulseFeed.RaiseFromTable(type, player.transform.position);
+            ServerPulseDriver.TryGetPulseSpec(type, out float radius, out float duration);
+            Debug.Log($"[QA] 음성 파문 {type} {radius:0}m / {duration:0.0}초 — 내 화면 전용(서버로 보내지 않음). " +
+                      $"조명 세기 {VoicePulseLightConfig.PeakIntensityFor(type):0.#}");
         }
 
         /// <summary>발밑 바닥 콜라이더 → 조상의 <c>Zone_</c> / <c>Water_</c> 이름. 없으면 콜라이더 이름만.</summary>

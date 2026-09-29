@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Marco.Core.Objectives;
 using Marco.Core.Role;
@@ -43,14 +44,16 @@ namespace Marco.Core.Tests
         }
 
         /// <summary>
-        /// 대상 주변 격자에서 설 수 있는 지점을 찾는다 — 대상에 가장 가까운 것(판정 반경 안 · 벽과 안 겹침 · 추가 조건).
-        /// 바닥은 대상 높이 + 0.5 이하에서 가장 높은 윗면(2층 · 수중을 구분).
+        /// 대상 주변 격자에서 설 수 있는 지점을 찾는다(판정 반경 안 · 벽과 안 겹침 · 추가 조건). 바닥은 대상 높이 + 0.5 이하에서
+        /// 가장 높은 윗면(2층 · 수중을 구분). 여럿이면 대상과의 <b>수평 거리가 <paramref name="preferredHorizontal"/>에 가장 가까운</b>
+        /// 것 — QA 순간이동(F4)이 대상을 바라보고 설 자리다(밸브 모형 안에 서지 않게).
         /// </summary>
         private static bool TryFindStandPoint(List<SceneGeometry.Aabb> solids, Capsule capsule, Vector3 target, float reach,
-            System.Func<Vector3, float> distance, System.Func<Vector3, bool> extra, out Vector3 best, out string reason)
+            float preferredHorizontal, System.Func<Vector3, float> distance, System.Func<Vector3, bool> extra,
+            out Vector3 best, out string reason)
         {
             best = default;
-            float bestDistance = float.MaxValue;
+            float bestKey = float.MaxValue;
             int standable = 0;
 
             for (float x = target.x - reach; x <= target.x + reach; x += GridStep)
@@ -71,16 +74,27 @@ namespace Marco.Core.Tests
                     if (extra != null && !extra(feet))
                         continue;
 
-                    if (d < bestDistance)
+                    float key = Mathf.Abs(SceneGeometry.DistanceXZ(new SceneGeometry.Aabb(null, target, target), feet) - preferredHorizontal);
+                    if (key < bestKey)
                     {
-                        bestDistance = d;
+                        bestKey = key;
                         best = feet;
                     }
                 }
             }
 
             reason = $"반경 {reach}m 안 설 수 있는 지점 {standable}개" + (extra != null ? " (추가 조건 전 기준)" : string.Empty);
-            return bestDistance < float.MaxValue;
+            return bestKey < float.MaxValue;
+        }
+
+        /// <summary>QA 순간이동 지점 한 줄(QaDebugOverlay.QaPoints에 그대로 붙인다) — 발 높이 = 바닥 + 0.05, 대상을 바라보는 yaw.</summary>
+        private static string QaPointLine(string name, Vector3 feet, Vector3 target)
+        {
+            float yaw = Mathf.Atan2(target.x - feet.x, target.z - feet.z) * Mathf.Rad2Deg;
+            if (yaw < 0f)
+                yaw += 360f;
+            return FormattableString.Invariant(
+                $"[QA-POINT] new QaPoint(\"{name}\", {feet.x:0.00}f, {feet.y + 0.05f:0.00}f, {feet.z:0.00}f, {Mathf.Round(yaw):0}f),");
         }
 
         // ── 출구 ─────────────────────────────────────────────────────────
@@ -103,10 +117,11 @@ namespace Marco.Core.Tests
                     float radius = new SerializedObject(exit).FindProperty("_escapeRadius").floatValue;
                     Vector3 at = exit.transform.position;
 
-                    // EscapePointTrigger와 같은 판정 — 발(transform.position)과 출구 중심의 3D 거리.
-                    if (TryFindStandPoint(solids, capsule, at, radius, feet => Vector3.Distance(feet, at), null,
+                    // EscapePointTrigger와 같은 판정 — 발(transform.position)과 출구 중심의 3D 거리. QA 지점은 중심에서 수평 0.8m(여유).
+                    if (TryFindStandPoint(solids, capsule, at, radius, 0.8f, feet => Vector3.Distance(feet, at), null,
                             out Vector3 point, out string reason))
-                        TestContext.Out.WriteLine($"[QA-POINT] 출구 {exit.name} 중심 {at} 반경 {radius} → 발 ({point.x:0.00}, {point.y:0.00}, {point.z:0.00}) 거리 {Vector3.Distance(point, at):0.00}");
+                        TestContext.Out.WriteLine(QaPointLine($"출구 {exit.name}", point, at) +
+                                                  $" // 3D 거리 {Vector3.Distance(point, at):0.00} ≤ {radius}");
                     else
                         failures.Add($"출구 {exit.name} {at}: 판정 반경 {radius}m 안에 캡슐이 설 자리가 없다 — {reason}");
                 }
@@ -149,9 +164,11 @@ namespace Marco.Core.Tests
                     if (underwater)
                         canWork = feet => UnderwaterWorkSession.CanWork(RoleType.Runner, true, WaterVolumeRegistry.Sample(feet), feet.y, true);
 
-                    if (TryFindStandPoint(solids, capsule, at, range, feet => InteractionRules.DistanceTo(feet, at, underwater), canWork,
+                    // QA 지점은 밸브에서 수평 1.2m — 밸브를 바라보고 선다.
+                    if (TryFindStandPoint(solids, capsule, at, range, 1.2f, feet => InteractionRules.DistanceTo(feet, at, underwater), canWork,
                             out Vector3 point, out string reason))
-                        TestContext.Out.WriteLine($"[QA-POINT] 밸브 {valve.ValveId} {valve.name} {at}{(underwater ? " 수중" : "")} → 발 ({point.x:0.00}, {point.y:0.00}, {point.z:0.00}) 거리 {InteractionRules.DistanceTo(point, at, underwater):0.00}");
+                        TestContext.Out.WriteLine(QaPointLine($"밸브 {valve.ValveId} — {ValveOccupancy.ZoneOf(valve.ValveId)}", point, at) +
+                                                  $" // 판정 거리 {InteractionRules.DistanceTo(point, at, underwater):0.00} ≤ {range}");
                     else
                         failures.Add($"밸브 {valve.ValveId} {at}{(underwater ? "(수중)" : "")}: 상호작용 거리 {range}m 안에 설 자리가 없다 — {reason}");
                 }
