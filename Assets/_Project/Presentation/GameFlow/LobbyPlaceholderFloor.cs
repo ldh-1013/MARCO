@@ -30,6 +30,11 @@ namespace Marco.Presentation.GameFlow
         private Renderer[] _renderers;
         private Collider[] _colliders;
 
+        /// <summary>가장자리 벽(09-29) — 맵 외곽벽과 같은 두께 · 높이.</summary>
+        private const float EdgeWallThickness = 0.2f;
+        private const float EdgeWallHeight = 3.5f;
+        private const string EdgeWallPrefix = "EdgeWall_";
+
         /// <summary>현재 지면으로 작동 중인가(로비 페이즈면 true).</summary>
         private bool _active = true;
         private bool _initialized;
@@ -85,8 +90,66 @@ namespace Marco.Presentation.GameFlow
 
         private void EnsureParts()
         {
+            // 벽을 먼저 세워야 아래 캐시에 들어가 바닥과 함께 켜지고 꺼진다.
+            if (_colliders == null)
+                EnsureEdgeWalls();
+
             _renderers ??= GetComponentsInChildren<Renderer>(includeInactive: true);
             _colliders ??= GetComponentsInChildren<Collider>(includeInactive: true);
+        }
+
+        /// <summary>
+        /// 임시 바닥 네 변 바깥에 벽을 세운다(09-29) — 가장자리에서 걸어 나가면 무한 낙하했다(FloorEdgeSceneTests). 맵 외곽벽과 같은 규칙:
+        /// 바닥 <b>바깥</b>에 서서(안쪽 면 = 가장자리) 스폰 · 로비 슬롯 자리를 바꾸지 않는다. 바닥 BoxCollider의 월드 경계로 계산해 자식으로
+        /// 두므로 바닥과 함께 켜지고 꺼진다. 씬은 바꾸지 않는다(런타임 부품). 이미 있으면 다시 만들지 않는다.
+        /// </summary>
+        private void EnsureEdgeWalls()
+        {
+            if (transform.Find(EdgeWallPrefix + "0") != null)
+                return;
+
+            var box = GetComponent<BoxCollider>();
+            if (box == null)
+                return;
+
+            Vector3 min = Vector3.positiveInfinity, max = Vector3.negativeInfinity;
+            Matrix4x4 m = box.transform.localToWorldMatrix;
+            Vector3 h = box.size * 0.5f;
+            for (int i = 0; i < 8; i++)
+            {
+                Vector3 p = m.MultiplyPoint3x4(box.center + new Vector3(
+                    (i & 1) == 0 ? -h.x : h.x, (i & 2) == 0 ? -h.y : h.y, (i & 4) == 0 ? -h.z : h.z));
+                min = Vector3.Min(min, p);
+                max = Vector3.Max(max, p);
+            }
+
+            float t = EdgeWallThickness;
+            float y = max.y + EdgeWallHeight * 0.5f;
+            float cx = (min.x + max.x) * 0.5f, cz = (min.z + max.z) * 0.5f;
+            float sx = max.x - min.x + t * 2f, sz = max.z - min.z;
+            var renderer = GetComponent<Renderer>();
+            Material material = renderer != null ? renderer.sharedMaterial : null;
+
+            MakeEdgeWall(0, new Vector3(cx, y, min.z - t * 0.5f), new Vector3(sx, EdgeWallHeight, t), material); // 남
+            MakeEdgeWall(1, new Vector3(cx, y, max.z + t * 0.5f), new Vector3(sx, EdgeWallHeight, t), material); // 북
+            MakeEdgeWall(2, new Vector3(min.x - t * 0.5f, y, cz), new Vector3(t, EdgeWallHeight, sz), material); // 서
+            MakeEdgeWall(3, new Vector3(max.x + t * 0.5f, y, cz), new Vector3(t, EdgeWallHeight, sz), material); // 동
+        }
+
+        private void MakeEdgeWall(int index, Vector3 worldCenter, Vector3 worldSize, Material material)
+        {
+            GameObject wall = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            wall.name = EdgeWallPrefix + index;
+            wall.transform.SetParent(transform, worldPositionStays: false);
+            wall.transform.SetPositionAndRotation(worldCenter, Quaternion.identity);
+
+            // 바닥이 늘려진 큐브라 부모 배율을 나눠 월드 크기를 맞춘다(회전 없음 — 임시 바닥은 축 정렬).
+            Vector3 parentScale = transform.lossyScale;
+            wall.transform.localScale = new Vector3(
+                worldSize.x / parentScale.x, worldSize.y / parentScale.y, worldSize.z / parentScale.z);
+
+            if (material != null)
+                wall.GetComponent<Renderer>().sharedMaterial = material;
         }
 
         /// <summary>

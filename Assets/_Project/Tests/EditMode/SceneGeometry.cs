@@ -155,6 +155,87 @@ namespace Marco.Core.Tests
         }
 
         /// <summary>
+        /// 바닥 가장자리 검사 — 각 바닥의 네 변을 0.25m 간격으로 짚어, 가장자리 바로 바깥(0.05m)에
+        /// <b>같은 높이(±<see cref="MaxFloorGap"/>)의 다른 바닥 · 경사로가 이어지거나</b>(연속) 그 자리에 선 캡슐이 <b>벽에 걸리면</b>(막힘)
+        /// 통과. 둘 다 아니면 열린 가장자리 — 걸어 나가면 떨어진다. 열린 구간을 이어 붙여 설명으로 돌려준다.
+        /// </summary>
+        internal static List<string> OpenFloorEdges(List<Aabb> solids, List<int> floorIndices, float capsuleRadius, float capsuleHeight)
+        {
+            const float Step = 0.25f, Outward = 0.05f, CornerInset = 0.1f;
+            var open = new List<string>();
+
+            foreach (int fi in floorIndices)
+            {
+                Aabb f = solids[fi];
+                float top = f.Max.y;
+
+                for (int side = 0; side < 4; side++)
+                {
+                    bool alongX = side < 2; // 0 남(z 최소) · 1 북(z 최대) · 2 서(x 최소) · 3 동(x 최대)
+                    float from = alongX ? f.Min.x : f.Min.z;
+                    float to = alongX ? f.Max.x : f.Max.z;
+                    float runStart = float.NaN, runEnd = float.NaN;
+
+                    for (float t = from + CornerInset; t <= to - CornerInset + 1e-4f; t += Step)
+                    {
+                        Vector3 o;
+                        switch (side)
+                        {
+                            case 0: o = new Vector3(t, top, f.Min.z - Outward); break;
+                            case 1: o = new Vector3(t, top, f.Max.z + Outward); break;
+                            case 2: o = new Vector3(f.Min.x - Outward, top, t); break;
+                            default: o = new Vector3(f.Max.x + Outward, top, t); break;
+                        }
+
+                        bool closed = Continues(solids, fi, o, top) ||
+                                      CapsuleOverlaps(solids, o, capsuleRadius, 0f, capsuleHeight).Count > 0;
+                        if (!closed)
+                        {
+                            if (float.IsNaN(runStart))
+                                runStart = t;
+                            runEnd = t;
+                        }
+                        else if (!float.IsNaN(runStart))
+                        {
+                            open.Add(DescribeEdge(f, side, runStart, runEnd));
+                            runStart = float.NaN;
+                        }
+                    }
+
+                    if (!float.IsNaN(runStart))
+                        open.Add(DescribeEdge(f, side, runStart, runEnd));
+                }
+            }
+
+            return open;
+        }
+
+        private static bool Continues(List<Aabb> solids, int floorIndex, Vector3 o, float top)
+        {
+            for (int i = 0; i < solids.Count; i++)
+            {
+                if (i == floorIndex)
+                    continue;
+
+                Aabb b = solids[i];
+                if (o.x < b.Min.x || o.x > b.Max.x || o.z < b.Min.z || o.z > b.Max.z)
+                    continue;
+                if (Mathf.Abs(b.Max.y - top) <= MaxFloorGap)
+                    return true;
+            }
+
+            return false;
+        }
+
+        private static string DescribeEdge(in Aabb f, int side, float from, float to)
+        {
+            string[] names = { "남(z {0:0.##})", "북(z {0:0.##})", "서(x {0:0.##})", "동(x {0:0.##})" };
+            float fixedValue = side == 0 ? f.Min.z : side == 1 ? f.Max.z : side == 2 ? f.Min.x : f.Max.x;
+            string axis = side < 2 ? "x" : "z";
+            return $"'{f.Path}' 윗면 y {f.Max.y:0.##} {string.Format(names[side], fixedValue)} 변 {axis} {from:0.##}~{to:0.##} 열림";
+        }
+
+        /// <summary>
         /// 이 자리 위 <paramref name="clearance"/> 안에 다른 고체가 덮여 있는가 — 다른 바닥 아래 갇힌 틈(예: 수영 바닥 아래 풀 바닥)은
         /// 걸어서 닿을 수 없는 자리다. 맵의 벽 높이가 3.5m라 정상 천장(2층 바닥 아래면 3.3m)은 걸리지 않는다.
         /// </summary>

@@ -481,6 +481,16 @@ namespace Marco.EditorTools
 
         // ── 순수 헬퍼 (생성기·검증기가 공유) ─────────────────────────────
 
+        /// <summary>
+        /// §10.1 L자 외곽선(반시계, 월드 XZ) — (0,0)~(52,28) 동관 + (0,0)~(40,40) 본관. 외곽벽(09-29)이 이 선 <b>바깥</b>에 선다.
+        /// 반시계라 각 변의 오른쪽이 맵 바깥이다.
+        /// </summary>
+        public static readonly Vector2[] Outline =
+        {
+            new Vector2(0f, 0f), new Vector2(MapWidth, 0f), new Vector2(MapWidth, CutY),
+            new Vector2(CutX, CutY), new Vector2(CutX, MapDepth), new Vector2(0f, MapDepth),
+        };
+
         /// <summary>이 (x, y)가 §10.1 L자 컷으로 잘려나간 맵 바깥인가.</summary>
         public static bool IsOutsideMap(float x, float y)
         {

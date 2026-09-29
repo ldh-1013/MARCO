@@ -42,6 +42,15 @@ namespace Marco.EditorTools
     {
         public const string RootName = "MapV2";
 
+        /// <summary>외곽벽 그룹 이름(09-29).</summary>
+        public const string PerimeterName = "Perimeter";
+
+        /// <summary>계단 난간 그룹 이름(09-29).</summary>
+        public const string StairGuardName = "StairGuards";
+
+        /// <summary>계단 난간 높이 — 캡슐(1.8m)이 넘지 못하는 허리 높이.</summary>
+        private const float StairGuardHeight = 1.2f;
+
         private const string SoundBlockingLayer = PhysicsOcclusionProbe.SoundBlockingLayerName;
         private const string WaterLayer = "Water";
 
@@ -102,7 +111,9 @@ namespace Marco.EditorTools
             BuildZones(root, counts);
             BuildPartition(root, counts);
             BuildStairs(root, counts);
+            BuildStairGuards(root, counts);
             BuildWater(root, counts);
+            BuildPerimeter(root, counts);
             BuildMarkers(root, counts);
             AttachPlanData(root);
             PlaceAnchors(log);
@@ -118,6 +129,158 @@ namespace Marco.EditorTools
                            "Tools/MARCO/맵 v2 배치 검증 을 실행하세요(§10.2-1 · §6.5-3).");
             Debug.Log(log.ToString());
             return root;
+        }
+
+        // ── 가장자리 막기(09-29) ─────────────────────────────────────────
+
+        /// <summary>
+        /// 이미 생성된 맵에 외곽벽 · 계단 난간만 다시 만든다(멱등). 맵 전체 재생성(<c>Setup Everything</c>)은 밸브 NetworkObject를
+        /// 다시 만들어 FishNet Reserialize(수동 단계)가 필요하지만, 이 둘은 NetworkObject가 없는 정적 지형이라 필요 없다.
+        /// <see cref="Generate"/>도 같은 빌더를 부르므로 재생성해도 결과가 같다.
+        /// </summary>
+        public static bool ApplyEdgeClosures(StringBuilder log)
+        {
+            GameObject root = GameObject.Find(RootName);
+            if (root == null)
+            {
+                log.AppendLine($"'{RootName}' 루트가 없다 — 먼저 맵 v2를 생성하세요.");
+                return false;
+            }
+
+            foreach (string group in new[] { PerimeterName, StairGuardName })
+            {
+                Transform old = root.transform.Find(group);
+                if (old != null)
+                    Object.DestroyImmediate(old.gameObject);
+            }
+
+            var counts = new Dictionary<string, int>();
+            BuildStairGuards(root, counts);
+            BuildPerimeter(root, counts);
+            foreach (KeyValuePair<string, int> kv in counts)
+                log.AppendLine($"  {kv.Key}: {kv.Value}개");
+
+            EditorSceneManager.MarkSceneDirty(root.scene);
+            return true;
+        }
+
+        /// <summary>
+        /// 배치모드 진입점 — <c>-executeMethod Marco.EditorTools.MapV2GeneratorTool.ApplyEdgeClosuresBatch</c>.
+        /// Game 씬을 열어 <see cref="ApplyEdgeClosures"/>만 적용하고 저장한 뒤 종료한다(성공 0 / 실패 1).
+        /// </summary>
+        public static void ApplyEdgeClosuresBatch()
+        {
+            var log = new StringBuilder();
+            log.AppendLine("=== 맵 v2 가장자리 막기(외곽벽 · 계단 난간) ===");
+
+            UnityEngine.SceneManagement.Scene scene = EditorSceneManager.OpenScene("Assets/Scenes/Game.unity", OpenSceneMode.Single);
+            bool ok = ApplyEdgeClosures(log) && EditorSceneManager.SaveScene(scene);
+            log.AppendLine(ok ? "완료 — Game.unity 저장" : "실패 — 저장하지 않음");
+            Debug.Log(log.ToString());
+            EditorApplication.Exit(ok ? 0 : 1);
+        }
+
+        /// <summary>
+        /// 맵 외곽벽(09-29) — 구역 벽이 없는 복도 경계(맵 가장자리)에서 걸어 나가면 맵 밖으로 떨어졌다(FloorEdgeSceneTests).
+        /// L자 외곽선 <b>바깥</b>에 세운다(안쪽 면 = 외곽선) — 안쪽 지형 · 스폰 · 출구 판정 거리를 바꾸지 않는다.
+        ///
+        /// <para>
+        /// <b>물리 전용</b>(Default 레이어, SoundBlocking 자식 없음): 맵 밖 공간이라 §5.6 차폐 · 벽 윤곽 리빌 · §10.2-1 배치 검증을
+        /// 바꾸지 않는다. 렌더러는 둔다 — 목소리 조명이 비추면 벽면이 보인다(보이지 않는 벽이 되지 않게).
+        /// </para>
+        /// </summary>
+        private static void BuildPerimeter(GameObject root, Dictionary<string, int> counts)
+        {
+            var group = Child(root, PerimeterName);
+            Vector2[] outline = MapV2Layout.Outline;
+            float t = MapV2Layout.WallThickness;
+            float bottom = -MapV2Layout.FloorThickness;
+            float top = MapV2Layout.WallHeight;
+
+            for (int i = 0; i < outline.Length; i++)
+            {
+                Vector2 a = outline[i];
+                Vector2 b = outline[(i + 1) % outline.Length];
+                Vector2 dir = (b - a).normalized;
+                var outward = new Vector2(dir.y, -dir.x); // 반시계 외곽선의 오른쪽 = 바깥
+                Vector2 mid = (a + b) * 0.5f + outward * (t * 0.5f);
+                float length = Vector2.Distance(a, b);
+                bool alongX = Mathf.Abs(dir.x) > 0.5f;
+
+                var size = alongX ? new Vector3(length, top - bottom, t) : new Vector3(t, top - bottom, length);
+                MakeCube(group, $"Perimeter_{i}", new Vector3(mid.x, (top + bottom) * 0.5f, mid.y), size);
+            }
+
+            Bump(counts, "외곽벽(물리 전용)", outline.Length);
+        }
+
+        /// <summary>
+        /// 계단 난간(09-29) — 2층 문이 계단 상단보다 넓으면 겹치지 않는 구간이 3.5m 아래로 열린다. 관람석 동문(z 17~19)은
+        /// 동 계단 상단(z ≥ 18)과 절반만 겹쳐 z 17~18이 열려 있었다(FloorEdgeSceneTests). 문 좌표(GAP-80 잠정 — §10.2-1 검증을
+        /// 통과한 값)는 그대로 두고, 겹치지 않는 구간만 <b>물리 전용 난간</b>(높이 1.2m)으로 막는다 — 소리 · 윤곽 · 검증 무변경.
+        /// </summary>
+        private static void BuildStairGuards(GameObject root, Dictionary<string, int> counts)
+        {
+            var group = Child(root, StairGuardName);
+            float t = MapV2Layout.WallThickness;
+            int made = 0;
+
+            for (int s = 0; s < MapV2Layout.Stairs.Length; s++)
+            {
+                MapV2Layout.Stair st = MapV2Layout.Stairs[s];
+                for (int d = 0; d < MapV2Layout.Doors.Length; d++)
+                {
+                    MapV2Layout.Door door = MapV2Layout.Doors[d];
+                    if (Vector2.Distance(door.Center, st.Top) > 1f || !TryFindUpperZone(door.Zone, out MapV2Layout.Zone zone))
+                        continue;
+
+                    // 문이 놓인 변 — 서 · 동 변이면 개구부는 z(= Rect y) 방향으로 뻗는다.
+                    bool onVerticalWall = Mathf.Approximately(door.Center.x, zone.Area.xMin) ||
+                                          Mathf.Approximately(door.Center.x, zone.Area.xMax);
+                    float along = onVerticalWall ? door.Center.y : door.Center.x;
+                    float openFrom = along - door.Width * 0.5f, openTo = along + door.Width * 0.5f;
+                    float coverFrom = onVerticalWall ? st.Footprint.yMin : st.Footprint.xMin;
+                    float coverTo = onVerticalWall ? st.Footprint.yMax : st.Footprint.xMax;
+
+                    // 개구부에서 계단 발자국이 덮지 않는 구간(양쪽 끝 최대 2개).
+                    var gaps = new List<(float From, float To)>();
+                    if (coverFrom > openFrom) gaps.Add((openFrom, Mathf.Min(openTo, coverFrom)));
+                    if (coverTo < openTo) gaps.Add((Mathf.Max(openFrom, coverTo), openTo));
+
+                    foreach ((float from, float to) in gaps)
+                    {
+                        if (to - from < 0.05f)
+                            continue;
+
+                        float mid = (from + to) * 0.5f;
+                        float y = MapV2Layout.UpperFloorY + StairGuardHeight * 0.5f;
+                        Vector3 center = onVerticalWall ? new Vector3(door.Center.x, y, mid) : new Vector3(mid, y, door.Center.y);
+                        Vector3 size = onVerticalWall
+                            ? new Vector3(t, StairGuardHeight, to - from)
+                            : new Vector3(to - from, StairGuardHeight, t);
+
+                        MakeCube(group, $"StairGuard_{st.Name}_{made}", center, size);
+                        made++;
+                    }
+                }
+            }
+
+            Bump(counts, "계단 난간(물리 전용)", made);
+        }
+
+        private static bool TryFindUpperZone(string name, out MapV2Layout.Zone zone)
+        {
+            for (int i = 0; i < MapV2Layout.Zones.Length; i++)
+            {
+                if (MapV2Layout.Zones[i].Name == name && MapV2Layout.Zones[i].IsUpperFloor)
+                {
+                    zone = MapV2Layout.Zones[i];
+                    return true;
+                }
+            }
+
+            zone = default;
+            return false;
         }
 
         // ── 사전 점검 ────────────────────────────────────────────────────
