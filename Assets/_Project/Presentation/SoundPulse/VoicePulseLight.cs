@@ -16,14 +16,20 @@ namespace Marco.Presentation.Sound
         /// <summary>
         /// <b>대화</b>(9m) 파문 링 시작 순간의 라이트 세기(프로토타입 값 — 튜닝 대상). URP 포인트 라이트는 1/d² 감쇠라 벽에 닿는 조도는
         /// 세기 ÷ 거리²다. 09-27에는 40으로 잡았으나 09-30 실기에서 2m 앞 벽이 회백색(조도 10)으로 과노출이라 18로 낮췄다
-        /// (2m 벽 조도 4.5, 바닥 알베도 sRGB 0.1 · 벽 0.24 기준으로 sRGB ≈ 0.5). 최종값은 실기 F5 · F6/F7로 정한다.
+        /// (2m 벽 조도 4.5). 09-30 실기(2m 벽 앞 비교, F5 · F6/F7)에서 최종 14로 정했다.
         /// </summary>
-        public const float TalkPeakIntensity = 18f;
+        public const float TalkPeakIntensity = 14f;
 
-        /// <summary>속삭임(4m) 세기 — 기본값은 <see cref="DerivedPeak"/>(대화 기준 × 4 ÷ 9 = 8). 튜닝하면 이 줄만 숫자로 바꾼다.</summary>
+        /// <summary>
+        /// 유도 세기의 상한 — 반경 비례 유도는 고함(22m)을 대화의 2.4배로 올려 가까운 벽이 하얗게 날아갔다(09-30 실기).
+        /// 상한은 이 상수 한 곳이다. QA 배율(F6/F7)은 상한을 적용한 기준값 위에 곱한다(튜닝용이라 상한을 넘어 볼 수 있어야 한다).
+        /// </summary>
+        public const float MaxPeakIntensity = 28f;
+
+        /// <summary>속삭임(4m) 세기 — 기본값은 <see cref="DerivedPeak"/>(대화 기준 × 4 ÷ 9 ≈ 6.2). 튜닝하면 이 줄만 숫자로 바꾼다.</summary>
         public static readonly float WhisperPeakIntensity = DerivedPeak(SoundType.Whisper);
 
-        /// <summary>고함(22m) 세기 — 기본값은 <see cref="DerivedPeak"/>(대화 기준 × 22 ÷ 9 = 44). 튜닝하면 이 줄만 숫자로 바꾼다.</summary>
+        /// <summary>고함(22m) 세기 — 기본값은 <see cref="DerivedPeak"/>(대화 기준 × 22 ÷ 9 ≈ 34.2 → 상한 28). 튜닝하면 이 줄만 숫자로 바꾼다.</summary>
         public static readonly float ShoutPeakIntensity = DerivedPeak(SoundType.Shout);
 
         /// <summary>
@@ -77,8 +83,9 @@ namespace Marco.Presentation.Sound
         /// <summary>
         /// 기본값 유도 — <b>대화 기준 × (반경 ÷ 대화 반경)</b>(반경에 1제곱 비례). 처음(09-29)에는 제곱 비례였다 — 각 등급이 자기 반경의 같은
         /// 비율 거리에서 같은 밝기가 되도록. 그러나 <b>1/d² 감쇠와 겹쳐</b> 같은 벽(2m)에서 고함이 대화의 6배(조도 ≈ 60 vs 10)가 되어
-        /// 완전 백색으로 날아갔고 속삭임은 대화 옆에서 묻혔다(09-30 실기). 1제곱이면 같은 벽에서 세 등급이 8 : 18 : 44 = 1 : 2.25 : 5.5로,
-        /// 큰 소리가 더 밝되 넘치지 않는다. 반경은 §5.1 표(<see cref="ServerPulseDriver.TryGetPulseSpec"/>)에서 읽는다.
+        /// 완전 백색으로 날아갔고 속삭임은 대화 옆에서 묻혔다(09-30 실기). 1제곱에 상한 <see cref="MaxPeakIntensity"/>(28)를 둬
+        /// 최종 6.2 : 14 : 28(고함 유도값 34.2는 상한에서 멈춘다 — 가까운 벽이 하얗게 날아가던 것, 09-30 실기 결정).
+        /// 반경은 §5.1 표(<see cref="ServerPulseDriver.TryGetPulseSpec"/>)에서 읽는다.
         /// </summary>
         public static float DerivedPeak(SoundType type)
         {
@@ -86,7 +93,7 @@ namespace Marco.Presentation.Sound
                 || !ServerPulseDriver.TryGetPulseSpec(type, out float radius, out _))
                 return TalkPeakIntensity;
 
-            return TalkPeakIntensity * (radius / talkRadius);
+            return Mathf.Min(TalkPeakIntensity * (radius / talkRadius), MaxPeakIntensity);
         }
 
         /// <summary>동시에 켜지는 조명 리빌 상한. 초과 시 가장 오래된 것부터 회수한다(그림자 포인트 라이트는 6면 렌더라 비싸다).</summary>

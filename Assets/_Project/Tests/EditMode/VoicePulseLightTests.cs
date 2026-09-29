@@ -18,7 +18,8 @@ namespace Marco.Core.Tests
         [Test]
         public void Config_PrototypeValues()
         {
-            Assert.AreEqual(18f, VoicePulseLightConfig.TalkPeakIntensity, Eps, "프로토타입 값 — 튜닝하면 이 단언도 함께 바꾼다");
+            Assert.AreEqual(14f, VoicePulseLightConfig.TalkPeakIntensity, Eps, "09-30 실기 결정값 — 바꾸면 이 단언도 함께 바꾼다");
+            Assert.AreEqual(28f, VoicePulseLightConfig.MaxPeakIntensity, Eps, "09-30 실기 결정 상한");
             Assert.AreEqual(2, VoicePulseLightConfig.MaxConcurrent, "동시 조명 상한 2");
             Assert.IsFalse(VoicePulseLightConfig.LightOthersVoicePulses, "기본은 자기 목소리만");
         }
@@ -33,19 +34,27 @@ namespace Marco.Core.Tests
         [TestCase(SoundType.Whisper, 4f)]
         [TestCase(SoundType.Talk, 9f)]
         [TestCase(SoundType.Shout, 22f)]
-        public void PeakIntensity_DefaultsDerivedFromTalk_ByRadiusRatio(SoundType type, float radius)
+        public void PeakIntensity_DefaultsDerivedFromTalk_ByRadiusRatio_CappedAt28(SoundType type, float radius)
         {
-            float expected = VoicePulseLightConfig.TalkPeakIntensity * (radius / 9f);
+            float expected = Mathf.Min(VoicePulseLightConfig.TalkPeakIntensity * (radius / 9f), VoicePulseLightConfig.MaxPeakIntensity);
             Assert.AreEqual(expected, VoicePulseLightConfig.PeakIntensityFor(type), 1e-3f);
+        }
+
+        [Test]
+        public void PeakIntensity_ShoutIsCapped_NotRadiusProportional()
+        {
+            // 14 × 22/9 ≈ 34.2 — 상한 28에서 멈춘다(가까운 벽에서 고함이 하얗게 날아가던 것, 09-30 실기).
+            Assert.Greater(VoicePulseLightConfig.TalkPeakIntensity * 22f / 9f, VoicePulseLightConfig.MaxPeakIntensity);
+            Assert.AreEqual(VoicePulseLightConfig.MaxPeakIntensity, VoicePulseLightConfig.ShoutPeakIntensity, 1e-3f);
         }
 
         [Test]
         public void PeakIntensity_PinnedDefaults()
         {
-            // 18 × 4/9 = 8 · 18 × 22/9 = 44 — 기본값이 유도식에서 벗어나면(한쪽만 튜닝) 여기서 드러난다.
-            Assert.AreEqual(8f, VoicePulseLightConfig.WhisperPeakIntensity, 1e-3f);
-            Assert.AreEqual(18f, VoicePulseLightConfig.TalkPeakIntensity, Eps);
-            Assert.AreEqual(44f, VoicePulseLightConfig.ShoutPeakIntensity, 1e-3f);
+            // 09-30 실기 결정: 대화 14 · 속삭임 14 × 4/9 ≈ 6.22 · 고함 min(14 × 22/9 ≈ 34.2, 상한 28) = 28.
+            Assert.AreEqual(6.222f, VoicePulseLightConfig.WhisperPeakIntensity, 1e-3f);
+            Assert.AreEqual(14f, VoicePulseLightConfig.TalkPeakIntensity, Eps);
+            Assert.AreEqual(28f, VoicePulseLightConfig.ShoutPeakIntensity, 1e-3f);
         }
 
         [Test]
@@ -104,10 +113,10 @@ namespace Marco.Core.Tests
         [Test]
         public void QaSummary_ShowsMultiplierAndAllThreeValues()
         {
-            Assert.AreEqual("음성 조명 ×1.00 — 속삭임 8 · 대화 18 · 고함 44", VoicePulseLightConfig.FormatQaSummary());
+            Assert.AreEqual("음성 조명 ×1.00 — 속삭임 6.2 · 대화 14 · 고함 28", VoicePulseLightConfig.FormatQaSummary());
 
             VoicePulseLightConfig.AdjustQaMultiplier(+1);
-            Assert.AreEqual("음성 조명 ×1.25 — 속삭임 10 · 대화 22.5 · 고함 55", VoicePulseLightConfig.FormatQaSummary());
+            Assert.AreEqual("음성 조명 ×1.25 — 속삭임 7.8 · 대화 17.5 · 고함 35", VoicePulseLightConfig.FormatQaSummary());
         }
 
         [Test]
@@ -143,8 +152,8 @@ namespace Marco.Core.Tests
 
         // ── 시간 규칙 ────────────────────────────────────────────────
 
-        [TestCase(0f, 0f, 18f)]
-        [TestCase(0.5f, 4.5f, 9f)]
+        [TestCase(0f, 0f, 14f)]
+        [TestCase(0.5f, 4.5f, 7f)]
         [TestCase(1f, 9f, 0f)]
         public void RangeAndIntensity_FollowRing(float progress, float expectedRange, float expectedIntensity)
         {
