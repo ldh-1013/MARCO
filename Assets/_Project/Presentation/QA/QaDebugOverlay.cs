@@ -43,6 +43,8 @@ namespace Marco.Presentation.QA
     /// <item><b>F5</b> QA 음성 파문(09-29) — 마이크 없이 내 목소리 파문을 속삭임 → 대화 → 고함 순으로 낸다. <b>내 화면 전용</b>
     /// (<c>SelfPulseFeed</c> — 실제 음성의 자기 화면 경로와 같다: 링 · 벽 윤곽 · 목소리 조명). 서버로 보내지 않아
     /// 다른 플레이어 · 판정과 무관하다. 메아리 · 탈출자는 실제 음성과 같이 내지 않는다(<c>WorldPresence</c>).</item>
+    /// <item><b>F6 / F7</b> 음성 조명 전체 배율 ×0.8 / ×1.25(09-30) — 속삭임 · 대화 · 고함 세 값을 한꺼번에 어둡히거나 밝힌다.
+    /// 실기에서 <c>F5</c>로 확인하며 최종값을 정하는 도구다. 오버레이(<c>F3</c>)에 현재 배율과 세 값이 나온다. 내 화면 전용.</item>
     /// </list>
     /// 미니맵 · 노클립은 넣지 않는다(검증 대상 동작을 바꾸지 않는 것이 이 도구의 조건).
     /// </summary>
@@ -52,6 +54,8 @@ namespace Marco.Presentation.QA
         private const Key LightKey = Key.F2;
         private const Key TeleportKey = Key.F4;
         private const Key VoicePulseKey = Key.F5;
+        private const Key LightDimKey = Key.F6;
+        private const Key LightBrightKey = Key.F7;
 
         /// <summary>F5가 도는 목소리 3등급(§5.1).</summary>
         private static readonly SoundType[] VoiceGrades = { SoundType.Whisper, SoundType.Talk, SoundType.Shout };
@@ -185,6 +189,13 @@ namespace Marco.Presentation.QA
                     EmitQaVoicePulse();
                     _nextRefresh = 0f;
                 }
+
+                if (keyboard[LightDimKey].wasPressedThisFrame || keyboard[LightBrightKey].wasPressedThisFrame)
+                {
+                    VoicePulseLightConfig.AdjustQaMultiplier(keyboard[LightBrightKey].wasPressedThisFrame ? 1 : -1);
+                    Debug.Log($"[QA] {VoicePulseLightConfig.FormatQaSummary()} (내 화면 전용 — {VoicePulseKey}로 확인).");
+                    _nextRefresh = 0f;
+                }
             }
 
             if (!_overlayRoot.activeSelf || Time.unscaledTime < _nextRefresh)
@@ -211,6 +222,9 @@ namespace Marco.Presentation.QA
             _sb.Append("QA 음성  ").Append(VoicePulseKey).Append(" → ")
                .Append(_voiceGradeIndex < 0 ? "속삭임" : VoiceGrades[(_voiceGradeIndex + 1) % VoiceGrades.Length].ToString())
                .Append(" (내 화면 전용)");
+            _sb.Append('\n');
+            _sb.Append(VoicePulseLightConfig.FormatQaSummary()).Append("  · ").Append(LightDimKey).Append(" ×0.8 · ")
+               .Append(LightBrightKey).Append(" ×1.25");
             _sb.Append('\n');
 
             FirstPersonController player = LocalPlayerRegistry.Current;

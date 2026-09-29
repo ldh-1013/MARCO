@@ -18,39 +18,117 @@ namespace Marco.Core.Tests
         [Test]
         public void Config_PrototypeValues()
         {
-            Assert.AreEqual(40f, VoicePulseLightConfig.TalkPeakIntensity, Eps, "프로토타입 값 — 튜닝하면 이 단언도 함께 바꾼다");
+            Assert.AreEqual(18f, VoicePulseLightConfig.TalkPeakIntensity, Eps, "프로토타입 값 — 튜닝하면 이 단언도 함께 바꾼다");
             Assert.AreEqual(2, VoicePulseLightConfig.MaxConcurrent, "동시 조명 상한 2");
             Assert.IsFalse(VoicePulseLightConfig.LightOthersVoicePulses, "기본은 자기 목소리만");
         }
 
-        // ── 등급별 세기: 대화 기준 × (반경 ÷ 대화 반경)² ──────────────────
+        // ── 등급별 세기: 대화 기준 × (반경 ÷ 대화 반경) — 반경에 1제곱 비례 ─────────────
+        // (09-30 실기: 제곱 비례 × 1/d² 감쇠가 겹쳐 2m 벽에서 대화 10 · 고함 ≈ 60이 됐다 — 대화는 회백색, 고함은 완전 백색, 속삭임은 안 보임.)
+
+        [SetUp]
+        [TearDown]
+        public void ResetQa() => VoicePulseLightConfig.ResetQaMultiplier();
 
         [TestCase(SoundType.Whisper, 4f)]
         [TestCase(SoundType.Talk, 9f)]
         [TestCase(SoundType.Shout, 22f)]
-        public void PeakIntensity_DefaultsDerivedFromTalk_ByRadiusRatioSquared(SoundType type, float radius)
+        public void PeakIntensity_DefaultsDerivedFromTalk_ByRadiusRatio(SoundType type, float radius)
         {
-            float expected = VoicePulseLightConfig.TalkPeakIntensity * (radius / 9f) * (radius / 9f);
+            float expected = VoicePulseLightConfig.TalkPeakIntensity * (radius / 9f);
             Assert.AreEqual(expected, VoicePulseLightConfig.PeakIntensityFor(type), 1e-3f);
         }
 
         [Test]
         public void PeakIntensity_PinnedDefaults()
         {
-            // 40 × (4/9)² = 7.901 · 40 × (22/9)² = 239.012 — 기본값이 유도식에서 벗어나면(한쪽만 튜닝) 여기서 드러난다.
-            Assert.AreEqual(7.901f, VoicePulseLightConfig.WhisperPeakIntensity, 1e-3f);
-            Assert.AreEqual(40f, VoicePulseLightConfig.TalkPeakIntensity, Eps);
-            Assert.AreEqual(239.012f, VoicePulseLightConfig.ShoutPeakIntensity, 1e-3f);
+            // 18 × 4/9 = 8 · 18 × 22/9 = 44 — 기본값이 유도식에서 벗어나면(한쪽만 튜닝) 여기서 드러난다.
+            Assert.AreEqual(8f, VoicePulseLightConfig.WhisperPeakIntensity, 1e-3f);
+            Assert.AreEqual(18f, VoicePulseLightConfig.TalkPeakIntensity, Eps);
+            Assert.AreEqual(44f, VoicePulseLightConfig.ShoutPeakIntensity, 1e-3f);
         }
 
         [Test]
-        public void PeakIntensity_SameBrightnessAtSameFractionOfRadius()
+        public void PeakIntensity_AtTwoMetreWall_IsNotBlownOut()
         {
-            // 1/d² 감쇠 — 반경의 40% 거리에서 세 등급이 같은 조도(세기 ÷ 거리²)가 된다는 것이 유도식의 뜻이다.
-            float Illuminance(SoundType t, float r) => VoicePulseLightConfig.PeakIntensityFor(t) / ((0.4f * r) * (0.4f * r));
-            float talk = Illuminance(SoundType.Talk, 9f);
-            Assert.AreEqual(talk, Illuminance(SoundType.Whisper, 4f), 1e-3f);
-            Assert.AreEqual(talk, Illuminance(SoundType.Shout, 22f), 1e-3f);
+            // 09-30 실기 재현: ⑫ 배수로 출구에서 약 2m 앞 벽. 1/d² 감쇠라 벽에 닿는 조도 = 세기 ÷ 4.
+            float Wall(SoundType t) => VoicePulseLightConfig.PeakIntensityFor(t) / (2f * 2f);
+            Assert.Less(Wall(SoundType.Shout), 12f, "이전 값은 ≈ 60(완전 백색) — 대화의 3배를 넘지 않게");
+            Assert.Less(Wall(SoundType.Talk), 5f, "이전 값은 10(회백색)");
+            Assert.Greater(Wall(SoundType.Whisper), 1f, "이전 값은 ≈ 2였지만 대화(10) 옆에서 묻혔다 — 대화와의 비가 1:2.25이면 구분된다");
+            Assert.Less(Wall(SoundType.Whisper), Wall(SoundType.Talk));
+            Assert.Less(Wall(SoundType.Talk), Wall(SoundType.Shout));
+        }
+
+        // ── QA 배율(F6/F7) ───────────────────────────────────────────────
+
+        [Test]
+        public void QaMultiplier_DefaultsToOne_AndScalesAllThreeGrades()
+        {
+            Assert.AreEqual(1f, VoicePulseLightConfig.QaMultiplier, Eps);
+
+            float bright = VoicePulseLightConfig.AdjustQaMultiplier(+1);
+            Assert.AreEqual(1.25f, bright, Eps, "F7 = ×1.25");
+            foreach (SoundType t in new[] { SoundType.Whisper, SoundType.Talk, SoundType.Shout })
+                Assert.AreEqual(VoicePulseLightConfig.BasePeakIntensityFor(t) * 1.25f, VoicePulseLightConfig.PeakIntensityFor(t), 1e-3f,
+                    $"{t} — 세 값이 함께 움직인다");
+
+            float dim = VoicePulseLightConfig.AdjustQaMultiplier(-2);
+            Assert.AreEqual(0.8f, dim, Eps, "F6 = ×0.8");
+        }
+
+        [Test]
+        public void QaMultiplier_UpThenDown_ReturnsToExactlyOne()
+        {
+            for (int i = 0; i < 5; i++)
+                VoicePulseLightConfig.AdjustQaMultiplier(+1);
+            for (int i = 0; i < 5; i++)
+                VoicePulseLightConfig.AdjustQaMultiplier(-1);
+
+            Assert.AreEqual(1f, VoicePulseLightConfig.QaMultiplier, 0f, "부동소수 누적 오차 없이 정확히 1");
+        }
+
+        [Test]
+        public void QaMultiplier_StopsAtLimits()
+        {
+            for (int i = 0; i < 40; i++)
+                VoicePulseLightConfig.AdjustQaMultiplier(+1);
+            float max = VoicePulseLightConfig.QaMultiplier;
+            Assert.AreEqual(Mathf.Pow(VoicePulseLightConfig.QaStepFactor, VoicePulseLightConfig.QaStepLimit), max, 1e-3f);
+
+            for (int i = 0; i < 80; i++)
+                VoicePulseLightConfig.AdjustQaMultiplier(-1);
+            Assert.AreEqual(1f / max, VoicePulseLightConfig.QaMultiplier, 1e-3f, "대칭 범위");
+        }
+
+        [Test]
+        public void QaSummary_ShowsMultiplierAndAllThreeValues()
+        {
+            Assert.AreEqual("음성 조명 ×1.00 — 속삭임 8 · 대화 18 · 고함 44", VoicePulseLightConfig.FormatQaSummary());
+
+            VoicePulseLightConfig.AdjustQaMultiplier(+1);
+            Assert.AreEqual("음성 조명 ×1.25 — 속삭임 10 · 대화 22.5 · 고함 55", VoicePulseLightConfig.FormatQaSummary());
+        }
+
+        [Test]
+        public void VoicePulseLighting_AppliesQaMultiplier_ToTheLightsIntensity()
+        {
+            var root = new GameObject("VoiceLightRoot");
+            try
+            {
+                VoicePulseLightConfig.AdjustQaMultiplier(+1);
+                var lighting = new VoicePulseLighting(root.transform);
+                lighting.Emit(SoundType.Talk, isLocalSource: true, Vector3.zero, radius: 9f, duration: 1.2f, now: 10f);
+                lighting.Tick(10f); // 진행도 0 — 세기 = 피크
+
+                Light light = root.GetComponentInChildren<Light>();
+                Assert.AreEqual(VoicePulseLightConfig.TalkPeakIntensity * 1.25f, light.intensity, 1e-3f,
+                    "실제 조명 컴포넌트가 QA 배율이 적용된 세기를 쓴다");
+            }
+            finally
+            {
+                Object.DestroyImmediate(root);
+            }
         }
 
         [Test]
@@ -65,8 +143,8 @@ namespace Marco.Core.Tests
 
         // ── 시간 규칙 ────────────────────────────────────────────────
 
-        [TestCase(0f, 0f, 40f)]
-        [TestCase(0.5f, 4.5f, 20f)]
+        [TestCase(0f, 0f, 18f)]
+        [TestCase(0.5f, 4.5f, 9f)]
         [TestCase(1f, 9f, 0f)]
         public void RangeAndIntensity_FollowRing(float progress, float expectedRange, float expectedIntensity)
         {

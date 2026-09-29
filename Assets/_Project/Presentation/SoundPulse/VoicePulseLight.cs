@@ -14,20 +14,22 @@ namespace Marco.Presentation.Sound
     public static class VoicePulseLightConfig
     {
         /// <summary>
-        /// <b>대화</b>(9m) 파문 링 시작 순간의 라이트 세기(프로토타입 값 — 튜닝 대상). URP 포인트 라이트는 1/d² 감쇠라, 바닥 알베도
-        /// sRGB 0.1(선형 ≈ 0.01) · 벽 0.24(선형 ≈ 0.047) 기준으로 대화 파문에서 3~4m 벽이 보이게 잡은 값이다.
-        /// 1.5 수준이면 1~2m 밖이 거의 검게 남는다.
+        /// <b>대화</b>(9m) 파문 링 시작 순간의 라이트 세기(프로토타입 값 — 튜닝 대상). URP 포인트 라이트는 1/d² 감쇠라 벽에 닿는 조도는
+        /// 세기 ÷ 거리²다. 09-27에는 40으로 잡았으나 09-30 실기에서 2m 앞 벽이 회백색(조도 10)으로 과노출이라 18로 낮췄다
+        /// (2m 벽 조도 4.5, 바닥 알베도 sRGB 0.1 · 벽 0.24 기준으로 sRGB ≈ 0.5). 최종값은 실기 F5 · F6/F7로 정한다.
         /// </summary>
-        public const float TalkPeakIntensity = 40f;
+        public const float TalkPeakIntensity = 18f;
 
-        /// <summary>속삭임(4m) 세기 — 기본값은 <see cref="DerivedPeak"/>(대화 기준 × (4 ÷ 9)² ≈ 7.9). 튜닝하면 이 줄만 숫자로 바꾼다.</summary>
+        /// <summary>속삭임(4m) 세기 — 기본값은 <see cref="DerivedPeak"/>(대화 기준 × 4 ÷ 9 = 8). 튜닝하면 이 줄만 숫자로 바꾼다.</summary>
         public static readonly float WhisperPeakIntensity = DerivedPeak(SoundType.Whisper);
 
-        /// <summary>고함(22m) 세기 — 기본값은 <see cref="DerivedPeak"/>(대화 기준 × (22 ÷ 9)² ≈ 239). 튜닝하면 이 줄만 숫자로 바꾼다.</summary>
+        /// <summary>고함(22m) 세기 — 기본값은 <see cref="DerivedPeak"/>(대화 기준 × 22 ÷ 9 = 44). 튜닝하면 이 줄만 숫자로 바꾼다.</summary>
         public static readonly float ShoutPeakIntensity = DerivedPeak(SoundType.Shout);
 
-        /// <summary>등급별 세기. 목소리가 아니면 대화 값(조명은 목소리에만 켜지므로 쓰이지 않는다).</summary>
-        public static float PeakIntensityFor(SoundType type)
+        /// <summary>
+        /// 등급별 기준 세기(<b>QA 배율 적용 전</b>). 목소리가 아니면 대화 값(조명은 목소리에만 켜지므로 쓰이지 않는다).
+        /// </summary>
+        public static float BasePeakIntensityFor(SoundType type)
         {
             switch (type)
             {
@@ -37,9 +39,46 @@ namespace Marco.Presentation.Sound
             }
         }
 
+        /// <summary>실제로 쓰는 등급별 세기 = 기준 세기 × QA 배율(<see cref="QaMultiplier"/>, 기본 1).</summary>
+        public static float PeakIntensityFor(SoundType type) => BasePeakIntensityFor(type) * QaMultiplier;
+
+        // ── QA 배율(09-30) — 실기에서 세 등급을 한꺼번에 밝히거나 어둡히며 최종값을 정한다 ─────────
+        // 배율은 정수 단계의 거듭제곱(1.25^n)이라 F6/F7을 번갈아 눌러도 1.00으로 정확히 돌아온다(0.8 × 1.25 부동소수 오차 없음).
+        // 기본 1이고 QA 빌드의 F6/F7만 바꾼다 — 릴리즈에는 손대는 곳이 없다.
+
+        /// <summary>한 단계의 배율(F7 = ×1.25, F6 = ×0.8 = 1 ÷ 1.25).</summary>
+        public const float QaStepFactor = 1.25f;
+
+        /// <summary>단계 범위 — 1.25^±8 ≈ ×0.17 ~ ×5.96.</summary>
+        public const int QaStepLimit = 8;
+
+        private static int _qaStep;
+
+        /// <summary>현재 QA 배율(기본 1).</summary>
+        public static float QaMultiplier => _qaStep == 0 ? 1f : Mathf.Pow(QaStepFactor, _qaStep);
+
+        /// <summary>배율을 <paramref name="steps"/>단계 올리거나(+) 내린다(−). 범위를 넘으면 끝에서 멈춘다. 바뀐 배율을 돌려준다.</summary>
+        public static float AdjustQaMultiplier(int steps)
+        {
+            _qaStep = Mathf.Clamp(_qaStep + steps, -QaStepLimit, QaStepLimit);
+            return QaMultiplier;
+        }
+
+        public static void ResetQaMultiplier() => _qaStep = 0;
+
+        /// <summary>오버레이 한 줄 — 현재 배율과 (배율 적용 후) 세 등급 값.</summary>
+        public static string FormatQaSummary() =>
+            System.FormattableString.Invariant(
+                $"음성 조명 ×{QaMultiplier:0.00} — 속삭임 {PeakIntensityFor(SoundType.Whisper):0.#} · 대화 {PeakIntensityFor(SoundType.Talk):0.#} · 고함 {PeakIntensityFor(SoundType.Shout):0.#}");
+
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        private static void ResetForNewSession() => _qaStep = 0;
+
         /// <summary>
-        /// 기본값 유도 — <b>대화 기준 × (반경 ÷ 대화 반경)²</b>. 포인트 라이트는 1/d² 감쇠라, 이렇게 두면 각 등급이 자기 반경의
-        /// 같은 비율 거리(예: 반경의 40%)에서 대화와 같은 밝기가 된다. 반경은 §5.1 표(<see cref="ServerPulseDriver.TryGetPulseSpec"/>)에서 읽는다.
+        /// 기본값 유도 — <b>대화 기준 × (반경 ÷ 대화 반경)</b>(반경에 1제곱 비례). 처음(09-29)에는 제곱 비례였다 — 각 등급이 자기 반경의 같은
+        /// 비율 거리에서 같은 밝기가 되도록. 그러나 <b>1/d² 감쇠와 겹쳐</b> 같은 벽(2m)에서 고함이 대화의 6배(조도 ≈ 60 vs 10)가 되어
+        /// 완전 백색으로 날아갔고 속삭임은 대화 옆에서 묻혔다(09-30 실기). 1제곱이면 같은 벽에서 세 등급이 8 : 18 : 44 = 1 : 2.25 : 5.5로,
+        /// 큰 소리가 더 밝되 넘치지 않는다. 반경은 §5.1 표(<see cref="ServerPulseDriver.TryGetPulseSpec"/>)에서 읽는다.
         /// </summary>
         public static float DerivedPeak(SoundType type)
         {
@@ -47,8 +86,7 @@ namespace Marco.Presentation.Sound
                 || !ServerPulseDriver.TryGetPulseSpec(type, out float radius, out _))
                 return TalkPeakIntensity;
 
-            float ratio = radius / talkRadius;
-            return TalkPeakIntensity * ratio * ratio;
+            return TalkPeakIntensity * (radius / talkRadius);
         }
 
         /// <summary>동시에 켜지는 조명 리빌 상한. 초과 시 가장 오래된 것부터 회수한다(그림자 포인트 라이트는 6면 렌더라 비싸다).</summary>
