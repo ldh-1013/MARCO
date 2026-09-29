@@ -31,7 +31,7 @@ namespace Marco.Presentation.Objectives
         [SerializeField] private bool _logCoordinatorBinding = true;
 
         private bool _gateClosedHintShown;
-        private bool _wasInside;
+        private readonly Core.Objectives.EscapeAttemptScheduler _scheduler = new Core.Objectives.EscapeAttemptScheduler();
         private bool _bindLogged;
         private bool _bindFailureLogged;
 
@@ -130,30 +130,30 @@ namespace Marco.Presentation.Objectives
 
             bool inside = Vector3.Distance(player.transform.position, transform.position) <= _escapeRadius;
 
-            // 범위에 "들어온 순간"에만 시도한다 — 서 있는 동안 매 프레임 시도하지 않도록.
-            if (inside && !_wasInside)
-                TryEscape(player);
+            // 언제 요청을 보낼지는 Core 규칙이 정한다(EscapeAttemptScheduler).
+            bool inProgress = _roundCoordinator.CurrentPhase == Core.GameFlow.GameFlowState.InGame
+                              && _roundCoordinator.Result == Core.Objectives.RoundResult.InProgress;
+            Core.Objectives.EscapeAttemptDecision decision = _scheduler.Tick(
+                inside, _roundCoordinator.IsEscapeGateOpen, alreadyEscaped: false, inProgress, Time.time);
 
-            _wasInside = inside;
+            if (decision == Core.Objectives.EscapeAttemptDecision.BlockedByGate)
+                ShowGateClosedHint();
+            else if (decision == Core.Objectives.EscapeAttemptDecision.Request)
+                _roundCoordinator.RequestEscape(player.PlayerId, player.Role);
         }
 
-        private void TryEscape(FirstPersonController player)
+        /// <summary>
+        /// 게이트 개방 전엔 요청 자체를 보내지 않는다(클라 사전 필터로 RPC 낭비 방지). 서버는 이와 무관하게 다시
+        /// 재검증한다(§5.3) — 안전성은 서버가 보장한다. 네트워크면 서버에 요청만 보내고, 로컬이면 즉시 집계한다 —
+        /// 어느 경로인지는 RoundCoordinator가 라우팅한다(§15.2 경계 유지).
+        /// </summary>
+        private void ShowGateClosedHint()
         {
-            // 게이트 개방 전엔 요청 자체를 보내지 않는다(클라 사전 필터로 RPC 낭비 방지).
-            // 서버는 이와 무관하게 다시 재검증한다(§5.3) — 안전성은 서버가 보장한다.
-            if (!_roundCoordinator.IsEscapeGateOpen)
-            {
-                if (_logGateClosedHint && !_gateClosedHintShown)
-                {
-                    _gateClosedHintShown = true;
-                    Debug.Log("[Escape] 배수로 게이트가 아직 닫혀 있다 — 밸브 3개를 모두 열어야 탈출할 수 있다 (§6.1)");
-                }
+            if (!_logGateClosedHint || _gateClosedHintShown)
                 return;
-            }
 
-            // 네트워크면 서버에 요청만 보내고(서버가 재검증·확정·전파), 로컬이면 즉시 집계한다.
-            // 어느 경로인지는 RoundCoordinator가 라우팅한다(§15.2 경계 유지).
-            _roundCoordinator.RequestEscape(player.PlayerId, player.Role);
+            _gateClosedHintShown = true;
+            Debug.Log("[Escape] 배수로 게이트가 아직 닫혀 있다 — 밸브 3개를 모두 열어야 탈출할 수 있다 (§6.1)");
         }
     }
 }

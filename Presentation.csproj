@@ -81,6 +81,7 @@
     <Compile Include="Assets\_Project\Presentation\SoundPulse\LocalPulsePipelineBehaviour.cs" />
     <Compile Include="Assets\_Project\Presentation\Tagging\TaggableRunner.cs" />
     <Compile Include="Assets\_Project\Presentation\GameFlow\PawnPhaseTeleporter.cs" />
+    <Compile Include="Assets\_Project\Presentation\Objectives\ValveRegistry.cs" />
     <Compile Include="Assets\_Project\Presentation\SoundPulse\PhysicsOcclusionProbe.cs" />
     <Compile Include="Assets\_Project\Presentation\Objectives\ValveBehaviour.cs" />
     <Compile Include="Assets\_Project\Presentation\GameFlow\SpawnAnchor.cs" />

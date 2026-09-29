@@ -101,6 +101,11 @@ namespace Marco.Presentation.Objectives
             _bridge = GetComponent<IValveNetworkBridge>();
         }
 
+        // 맵이 나중에 로드돼도 소비자(ValveInteractor · ValveObjectiveTracker)가 찾도록 스스로 등록한다(09-29).
+        private void OnEnable() => ValveRegistry.Register(this);
+
+        private void OnDisable() => ValveRegistry.Unregister(this);
+
         /// <summary>
         /// 새 라운드를 위해 밸브를 닫힌 초기 상태로 되돌린다(스프린트 17 재시작 골격).
         ///

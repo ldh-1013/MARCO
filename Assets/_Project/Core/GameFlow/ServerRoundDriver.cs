@@ -65,6 +65,9 @@ namespace Marco.Core.GameFlow
         /// <b>서버 측 값으로</b> 재확인한다. 게이트 개방 여부는 서버 권위 밸브 상태
         /// (<see cref="IEscapeGateState.IsGateOpen"/>)에서 온다.
         /// </summary>
+        /// <summary>이 러너의 탈출이 이미 확정됐는가 — 출구 트리거의 재시도(0.5초 간격)를 서버가 조용히 무시할 때 쓴다.</summary>
+        public bool HasEscaped(ulong playerId) => _escaped.Contains(playerId);
+
         public bool TryRegisterEscape(ulong playerId, RoleType role, bool gateOpen)
         {
             if (IsDecided)

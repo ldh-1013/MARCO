@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using Marco.Core.Net;
@@ -37,7 +38,6 @@ namespace Marco.Presentation.Objectives
         [SerializeField] private float _progressLogInterval = 0.5f;
 
         private ValveInteractionController _controller;
-        private ValveBehaviour[] _valves;
         private float _lastProgressLogTime;
         private ValveInteractionEvent _lastEvent = ValveInteractionEvent.None;
 
@@ -55,7 +55,8 @@ namespace Marco.Presentation.Objectives
                 _pulsePipeline = FindAnyObjectByType<LocalPulsePipelineBehaviour>();
 
             _controller = new ValveInteractionController(_interactionRange);
-            _valves = FindObjectsByType<ValveBehaviour>();
+
+            // 밸브 목록은 캐시하지 않는다 — 맵은 캐릭터보다 나중에 로드된다(ValveRegistry, 09-29).
 
             if (_player == null)
             {
@@ -64,8 +65,6 @@ namespace Marco.Presentation.Objectives
                 return;
             }
 
-            if (_valves.Length == 0)
-                Debug.LogWarning("[Valve] 씬에 ValveBehaviour가 없습니다 — 상호작용할 밸브가 없습니다.");
         }
 
         private void Update()
@@ -184,14 +183,16 @@ namespace Marco.Presentation.Objectives
         }
 
         /// <summary>범위 제한은 컨트롤러가 하므로 여기서는 최근접 하나만 고른다.</summary>
-        private ValveBehaviour FindNearestValve(Vector3 playerPosition)
+        /// <summary>이 위치에서 가장 가까운 밸브(수중 밸브는 수평 거리). 없으면 null.</summary>
+        public ValveBehaviour FindNearestValve(Vector3 playerPosition)
         {
             ValveBehaviour nearest = null;
             float nearestSqr = float.MaxValue;
 
-            for (int i = 0; i < _valves.Length; i++)
+            IReadOnlyList<ValveBehaviour> valves = ValveRegistry.All;
+            for (int i = 0; i < valves.Count; i++)
             {
-                ValveBehaviour valve = _valves[i];
+                ValveBehaviour valve = valves[i];
                 if (valve == null)
                     continue;
 

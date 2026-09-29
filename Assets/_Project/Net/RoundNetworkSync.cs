@@ -29,7 +29,7 @@ namespace Marco.Net
     /// - 리매치 투표: <see cref="RematchVoteDriver"/>(Core, 순수 — §12.5, GAP-27 해소)
     /// - 라운드 판정: <see cref="ServerRoundDriver"/>(스프린트 12 그대로 — 판정 로직 무변경)
     ///
-    /// **판정 입력의 출처**(스프린트 12): 밸브 게이트 = <see cref="EscapeGateRegistry"/>,
+    /// **판정 입력의 출처**(스프린트 12 · 09-29 개정): 밸브 게이트 = 서버의 <see cref="RoundObjective"/>(SyncVar로 공개),
     /// 전원 태그 = <see cref="TagTargetRegistry"/>, 탈출 = <see cref="ServerSubmitEscape"/>,
     /// 타이머 = 이 컴포넌트. 준비 인원 = <c>ReadyNetworkSync.Spawned</c>(스프린트 18).
     ///
@@ -129,6 +129,13 @@ namespace Marco.Net
 
         /// <summary>§6.5-2 배수구 감쇠 중(§12.4 HUD 색 구분).</summary>
         private readonly SyncVar<bool> _drainDecaying = new();
+
+        // 이번 판 목표 수치(09-29) — 서버가 라운드 시작 때 확정하고 게이트는 서버만 판정한다. 클라이언트는 이 값을 읽는다
+        // (ObjectiveRegistry → ValveObjectiveTracker · HUD · 브리핑 · 출구 사전 필터). 피어마다 따로 계산하지 않는다.
+        private readonly SyncVar<int> _activeValves = new();
+        private readonly SyncVar<int> _requiredOpen = new();
+        private readonly SyncVar<bool> _gateOpen = new();
+        private readonly RoundObjective _objective = new RoundObjective();
 
         /// <summary>§6.5-2 이번 페이즈의 배수구(서버 전용). 없으면 null.</summary>
         private DrainHatch _drain;
@@ -439,6 +446,8 @@ namespace Marco.Net
             if (_remaining.Value != _driver.RemainingSeconds)
                 _remaining.Value = _driver.RemainingSeconds;
 
+            ServerTickGate();
+
             // §6.2-1 종반 압박 — 이 호출부가 없으면 술래 이속 +5%도 출구 파문도 영영 안 걸린다.
             TickEndgamePressure(_driver.RemainingSeconds);
 
@@ -552,10 +561,48 @@ namespace Marco.Net
                 valve.ServerSetActive(isActive);
             }
 
+            // §6.2 요구 개방 수는 **같은 총원으로 여기서 한 번** 확정한다 — 라운드 중 인원이 바뀌어도 이 판에서는 변하지 않는다.
+            _objective.BeginRound(totalPlayers, active.Count);
+            ServerPublishObjective();
+
             Debug.Log($"[RoundNet:Server] §6.1-0 활성 밸브 {active.Count}개 " +
-                      $"({string.Join(", ", active)}) / 요구 개방 {ValveRoster.RequiredOpenCount(totalPlayers)}개 " +
+                      $"({string.Join(", ", active)}) / 요구 개방 {_objective.RequiredOpen}개 " +
                       $"· 총원 {totalPlayers} · seed={seed}");
         }
+
+        /// <summary>서버 목표 수치를 SyncVar와 레지스트리(호스트)에 공개한다. 서버 전용.</summary>
+        private void ServerPublishObjective()
+        {
+            if (_activeValves.Value != _objective.ActiveValves)
+                _activeValves.Value = _objective.ActiveValves;
+            if (_requiredOpen.Value != _objective.RequiredOpen)
+                _requiredOpen.Value = _objective.RequiredOpen;
+            if (_gateOpen.Value != _objective.GateOpen)
+                _gateOpen.Value = _objective.GateOpen;
+
+            ObjectiveRegistry.Publish(_objective.Publication);
+        }
+
+        /// <summary>서버 게이트 판정 — 지금 동시에 열린 밸브 수로 래치를 갱신한다(역류로 줄어도 닫히지 않는다). 서버 전용.</summary>
+        private void ServerTickGate()
+        {
+            int opened = CountOpenValves();
+            if (!_objective.Tick(opened))
+                return;
+
+            ServerPublishObjective();
+            Debug.Log($"[RoundNet:Server] §6.1-2 게이트 개방 — 동시 개방 {opened}/{_objective.RequiredOpen} (래치, 역류로 닫혀도 유지)");
+        }
+
+        /// <summary>순수 클라이언트: 목표 수치 SyncVar가 바뀌면 레지스트리를 다시 채운다(늦은 접속자도 같은 값).</summary>
+        private void OnClientObjective()
+        {
+            ObjectiveRegistry.Publish(new ObjectivePublication(true, _activeValves.Value, _requiredOpen.Value, _gateOpen.Value));
+        }
+
+        private void OnObjectiveInt(int prev, int next, bool asServer) => OnClientObjective();
+
+        private void OnObjectiveBool(bool prev, bool next, bool asServer) => OnClientObjective();
 
         /// <summary>
         /// §6.2-1 종반 압박이 걸렸는가(전 피어 공유). 이동 시뮬레이터가 술래 속도를
@@ -691,6 +738,10 @@ namespace Marco.Net
                 return;
             }
 
+            // 출구 트리거는 범위 안에서 0.5초마다 재시도한다(09-29) — 이미 확정된 러너의 재요청은 조용히 무시한다.
+            if (_driver.HasEscaped(playerId))
+                return;
+
             bool gateOpen = CurrentGateOpen();
             if (!_driver.TryRegisterEscape(playerId, role, gateOpen))
             {
@@ -707,9 +758,8 @@ namespace Marco.Net
         /// <summary>서버 판정을 1회 수행하고, 새로 결정되면 결과 전파 + RoundEnd 페이즈 진입. 서버 전용.</summary>
         private void EvaluateAndPush()
         {
-            IEscapeGateState gate = EscapeGateRegistry.Current;
-            int opened = gate != null ? gate.OpenedValves : 0;
-            int required = gate != null ? gate.RequiredOpenValves : 0;
+            int opened = CountOpenValves();
+            int required = _objective.RequiredOpen;
             int tagged = ServerRoundDriver.TaggedCount(TagTargetRegistry.Targets);
 
             // §6.3 [v0.4] 판정 입력이 "밸브 개방 수"에서 **도망자 인구**로 바뀌었다 —
@@ -789,8 +839,7 @@ namespace Marco.Net
             _lastSurvivorPhase.Value = true;
             _phaseEntryRoundRemaining.Value = _driver.RemainingSeconds;
 
-            IEscapeGateState gate = EscapeGateRegistry.Current;
-            bool gateOpen = gate != null && gate.IsGateOpen;
+            bool gateOpen = _objective.GateOpen;
 
             // §6.5-2 "게이트 개방 상태 — 활성화하지 않는다(기존 출구를 쓰면 된다)".
             if (!DrainSelection.ShouldActivate(gateOpen))
@@ -806,8 +855,8 @@ namespace Marco.Net
             DrainId chosen = DrainSelection.Choose(seed);
 
             // §6.5-2 T = 14 − (동시 개방 밸브 수 × 3). **페이즈 진입 시점에 1회 확정한다 — GAP-87.**
-            //   블록 2-E가 공개한 "현재 동시 개방 수"를 새로 세지 않고 그대로 읽는다.
-            int openValves = gate != null ? gate.OpenedValves : 0;
+            //   서버가 게이트 판정에 쓰는 것과 같은 셈(현재 Open 상태 밸브 수)을 쓴다.
+            int openValves = CountOpenValves();
             float workSeconds = DrainConfig.WorkSeconds(openValves);
 
             _drain = new DrainHatch(chosen, workSeconds);
@@ -1031,10 +1080,20 @@ namespace Marco.Net
             return p != null ? p.EffectiveRole : RoleType.Echo;
         }
 
-        private bool CurrentGateOpen()
+        /// <summary>서버 게이트 래치(09-29 — 서버만 판정한다).</summary>
+        private bool CurrentGateOpen() => _objective.GateOpen;
+
+        private static int CountOpenValves()
         {
-            IEscapeGateState gate = EscapeGateRegistry.Current;
-            return gate != null && gate.IsGateOpen;
+            int opened = 0;
+            List<ValveNetworkSync> valves = ValveNetworkSync.Spawned;
+            for (int i = 0; i < valves.Count; i++)
+            {
+                if (valves[i] != null && valves[i].State == ValveState.Open)
+                    opened++;
+            }
+
+            return opened;
         }
 
         // ── 서버: 리매치 투표 (스프린트 18 — GAP-27 해소) ─────────────────
@@ -1115,6 +1174,8 @@ namespace Marco.Net
             Core.Net.RoundStateRegistry.PublishFromServer(_totalPlayers.Value, false, false);
             _driver = null;
             _vote = null;
+            _objective.Reset();
+            ServerPublishObjective();
             _remaining.Value = _roundDurationSeconds;
             _escaped.Value = 0;
             _result.Value = RoundResult.InProgress;
@@ -1384,9 +1445,13 @@ namespace Marco.Net
             _endgamePressure.OnChange += OnRoundStateBool;
             _lastSurvivorPhase.OnChange += OnRoundStateBool;
             _totalPlayers.OnChange += OnRoundStateInt;
+            _activeValves.OnChange += OnObjectiveInt;
+            _requiredOpen.OnChange += OnObjectiveInt;
+            _gateOpen.OnChange += OnObjectiveBool;
 
             // 늦게 접속한 클라이언트도 현재값을 바로 받게 한다(§13.3).
             OnClientRoundState();
+            OnClientObjective();
         }
 
         public override void OnStopNetwork()
@@ -1398,6 +1463,10 @@ namespace Marco.Net
             _endgamePressure.OnChange -= OnRoundStateBool;
             _lastSurvivorPhase.OnChange -= OnRoundStateBool;
             _totalPlayers.OnChange -= OnRoundStateInt;
+            _activeValves.OnChange -= OnObjectiveInt;
+            _requiredOpen.OnChange -= OnObjectiveInt;
+            _gateOpen.OnChange -= OnObjectiveBool;
+            ObjectiveRegistry.Clear();
 
             // 세션이 끝나면 종반 압박이 다음 판에 새지 않게 비운다(더블체크 2).
             Core.Net.RoundStateRegistry.ResetForNewSession();

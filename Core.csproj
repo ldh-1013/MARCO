@@ -58,8 +58,10 @@
     <Compile Include="Assets\_Project\Core\Objectives\EscapeGateRegistry.cs" />
     <Compile Include="Assets\_Project\Core\Objectives\InteractionRules.cs" />
     <Compile Include="Assets\_Project\Core\Locomotion\LocomotionConfig.cs" />
+    <Compile Include="Assets\_Project\Core\Objectives\EscapeAttemptScheduler.cs" />
     <Compile Include="Assets\_Project\Core\SoundPulse\ActivePulseTracker.cs" />
     <Compile Include="Assets\_Project\Core\Role\RoleAssigner.cs" />
+    <Compile Include="Assets\_Project\Core\Objectives\RoundObjective.cs" />
     <Compile Include="Assets\_Project\Core\Net\IValveNetworkBridge.cs" />
     <Compile Include="Assets\_Project\Core\SoundPulse\SoundPulseResolver.cs" />
     <Compile Include="Assets\_Project\Core\GameFlow\SpawnPlacementRules.cs" />

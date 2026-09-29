@@ -60,6 +60,7 @@
     <Compile Include="Assets\_Project\Tests\EditMode\TagTargetRegistryTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\AwardTallyTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\SeekerIsolationTests.cs" />
+    <Compile Include="Assets\_Project\Tests\EditMode\VictoryPathTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\SpawnRingTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\ServerPulseDriverTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\GameSettingsTests.cs" />
@@ -74,11 +75,13 @@
     <Compile Include="Assets\_Project\Tests\EditMode\SpawnPointSceneTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\ServerLobbyDriverTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\ValveInteractionControllerTests.cs" />
+    <Compile Include="Assets\_Project\Tests\EditMode\VictoryFlowTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\ValveTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\UnderwaterWorkSessionTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\SoundPulseResolverTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\RoundStartSequencerTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\BreathGaugeTests.cs" />
+    <Compile Include="Assets\_Project\Tests\EditMode\SceneGeometry.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\RoleAssignerTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\PrototypeScenarioTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\SpawnAnchorRegistryTests.cs" />
@@ -94,6 +97,7 @@
     <Compile Include="Assets\_Project\Tests\EditMode\PulseWallRevealTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\SonarAfterglowClickerTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\PulseVisualRegistryTests.cs" />
+    <Compile Include="Assets\_Project\Tests\EditMode\ExitValveSceneTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\LocomotionSimulatorTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\SprintStealthCampingTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\FallRecoveryTests.cs" />

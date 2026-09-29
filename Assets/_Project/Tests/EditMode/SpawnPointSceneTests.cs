@@ -31,25 +31,6 @@ namespace Marco.Core.Tests
         private const string LobbyScenePath = "Assets/Scenes/Lobby.unity";
         private const string PlayerPrefabPath = "Assets/_Project/Prefabs/Player.prefab";
 
-        /// <summary>발밑 바닥 윗면과 발 높이의 허용 차(요청 기준 ≤ 0.5m).</summary>
-        private const float MaxFloorGap = 0.5f;
-
-        /// <summary>바닥에 발이 닿는 자리(윗면)는 벽 겹침 판정에서 뺀다 — 이 높이 아래의 콜라이더는 바닥이다.</summary>
-        private const float FloorClearance = 0.02f;
-
-        private readonly struct Aabb
-        {
-            public readonly string Path;
-            public readonly Vector3 Min, Max;
-
-            public Aabb(string path, Vector3 min, Vector3 max)
-            {
-                Path = path;
-                Min = min;
-                Max = max;
-            }
-        }
-
         private struct SpawnConfig
         {
             public float Radius;
@@ -70,11 +51,11 @@ namespace Marco.Core.Tests
             Scene game = EditorSceneManager.OpenPreviewScene(GameScenePath);
             try
             {
-                List<Aabb> solids = CollectSolidBoxes(game);
+                List<SceneGeometry.Aabb> solids = SceneGeometry.CollectSolidBoxes(game);
                 Assert.Greater(solids.Count, 0, "Game 씬에 고체 BoxCollider가 없다");
 
-                SpawnAnchor anchor = FindInScene<SpawnAnchor>(game);
-                SeekerIsolationAnchor isolation = FindInScene<SeekerIsolationAnchor>(game);
+                SpawnAnchor anchor = SceneGeometry.FindInScene<SpawnAnchor>(game);
+                SeekerIsolationAnchor isolation = SceneGeometry.FindInScene<SeekerIsolationAnchor>(game);
                 Assert.IsNotNull(anchor, "Game 씬에 SpawnAnchor가 없다");
                 Assert.IsNotNull(isolation, "Game 씬에 SeekerIsolationAnchor가 없다");
 
@@ -96,21 +77,12 @@ namespace Marco.Core.Tests
                     string where = $"{name} ({feet.x:0.00}, {feet.y:0.00}, {feet.z:0.00})";
 
                     // (a) 바닥 — 캡슐 반지름만큼 안쪽까지 XZ가 덮이고, 윗면이 발에서 0.5m 이내.
-                    if (!HasFloorUnder(solids, feet, capsuleRadius, out string floorNote))
-                        failures.Add($"(a) {where}: 발밑 바닥 없음 — 반지름 {capsuleRadius}m 안쪽까지 덮고 높이 차 ≤ {MaxFloorGap}m인 바닥이 없다. {floorNote}");
+                    if (!SceneGeometry.HasFloorUnder(solids, feet, capsuleRadius, out string floorNote))
+                        failures.Add($"(a) {where}: 발밑 바닥 없음 — 반지름 {capsuleRadius}m 안쪽까지 덮고 높이 차 ≤ {SceneGeometry.MaxFloorGap}m인 바닥이 없다. {floorNote}");
 
                     // (b) 벽 — 캡슐(발 위 바닥 윗면부터 머리까지)이 고체와 겹치지 않는다.
-                    foreach (Aabb box in solids)
-                    {
-                        if (box.Max.y <= feet.y + FloorClearance)
-                            continue; // 발밑 바닥
-                        if (box.Min.y >= feet.y + capsuleTop || box.Max.y <= feet.y + capsuleBottom)
-                            continue; // 캡슐 높이 밖
-                        float d = DistanceXZ(box, feet);
-                        if (d < capsuleRadius)
-                            failures.Add($"(b) {where}: 캡슐이 '{box.Path}'과 겹친다 — 수평 거리 {d:0.00}m < 반지름 {capsuleRadius}m " +
-                                         $"(x {box.Min.x:0.##}~{box.Max.x:0.##}, z {box.Min.z:0.##}~{box.Max.z:0.##}, y {box.Min.y:0.##}~{box.Max.y:0.##})");
-                    }
+                    foreach (string hit in SceneGeometry.CapsuleOverlaps(solids, feet, capsuleRadius, capsuleBottom, capsuleTop))
+                        failures.Add($"(b) {where}: 캡슐이 {hit}과 겹친다");
 
                     // (c) 슬롯끼리 — 캡슐이 서로 겹치지 않는다(술래 격리 지점 포함).
                     for (int j = i + 1; j < points.Count; j++)
@@ -156,7 +128,7 @@ namespace Marco.Core.Tests
             Scene lobby = EditorSceneManager.OpenPreviewScene(LobbyScenePath);
             try
             {
-                PawnPhaseTeleporter teleporter = FindInScene<PawnPhaseTeleporter>(lobby);
+                PawnPhaseTeleporter teleporter = SceneGeometry.FindInScene<PawnPhaseTeleporter>(lobby);
                 Assert.IsNotNull(teleporter, "Lobby 씬에 PawnPhaseTeleporter가 없다");
                 var so = new SerializedObject(teleporter);
                 return new SpawnConfig
@@ -170,92 +142,6 @@ namespace Marco.Core.Tests
             {
                 EditorSceneManager.ClosePreviewScene(lobby);
             }
-        }
-
-        private static T FindInScene<T>(Scene scene) where T : Component
-        {
-            foreach (GameObject root in scene.GetRootGameObjects())
-            {
-                T found = root.GetComponentInChildren<T>(includeInactive: false);
-                if (found != null)
-                    return found;
-            }
-
-            return null;
-        }
-
-        /// <summary>활성 · 고체(트리거 아님) BoxCollider의 월드 AABB. 캐릭터 컨트롤러는 트리거와 부딪히지 않는다.</summary>
-        private static List<Aabb> CollectSolidBoxes(Scene scene)
-        {
-            var result = new List<Aabb>();
-            foreach (GameObject root in scene.GetRootGameObjects())
-            {
-                foreach (BoxCollider box in root.GetComponentsInChildren<BoxCollider>(includeInactive: false))
-                {
-                    if (!box.enabled || box.isTrigger)
-                        continue;
-
-                    Matrix4x4 m = box.transform.localToWorldMatrix;
-                    Vector3 h = box.size * 0.5f;
-                    Vector3 min = Vector3.positiveInfinity, max = Vector3.negativeInfinity;
-                    for (int i = 0; i < 8; i++)
-                    {
-                        Vector3 local = box.center + new Vector3(
-                            (i & 1) == 0 ? -h.x : h.x, (i & 2) == 0 ? -h.y : h.y, (i & 4) == 0 ? -h.z : h.z);
-                        Vector3 p = m.MultiplyPoint3x4(local);
-                        min = Vector3.Min(min, p);
-                        max = Vector3.Max(max, p);
-                    }
-
-                    result.Add(new Aabb(PathOf(box.transform), min, max));
-                }
-            }
-
-            return result;
-        }
-
-        private static bool HasFloorUnder(List<Aabb> solids, Vector3 feet, float inset, out string note)
-        {
-            string nearest = "바닥 후보 없음";
-            foreach (Aabb box in solids)
-            {
-                float gap = feet.y - box.Max.y;
-                if (gap < -FloorClearance || gap > MaxFloorGap)
-                    continue; // 발보다 위(벽 등)이거나 너무 아래
-
-                bool inside = feet.x >= box.Min.x + inset && feet.x <= box.Max.x - inset
-                           && feet.z >= box.Min.z + inset && feet.z <= box.Max.z - inset;
-                if (inside)
-                {
-                    note = null;
-                    return true;
-                }
-
-                if (feet.x >= box.Min.x && feet.x <= box.Max.x && feet.z >= box.Min.z && feet.z <= box.Max.z)
-                    nearest = $"'{box.Path}'(x {box.Min.x:0.##}~{box.Max.x:0.##}, z {box.Min.z:0.##}~{box.Max.z:0.##}) 가장자리에 걸림";
-            }
-
-            note = nearest;
-            return false;
-        }
-
-        private static float DistanceXZ(in Aabb box, Vector3 p)
-        {
-            float dx = Mathf.Max(box.Min.x - p.x, 0f, p.x - box.Max.x);
-            float dz = Mathf.Max(box.Min.z - p.z, 0f, p.z - box.Max.z);
-            return Mathf.Sqrt(dx * dx + dz * dz);
-        }
-
-        private static string PathOf(Transform t)
-        {
-            string s = t.name;
-            for (int i = 0; i < 2 && t.parent != null; i++)
-            {
-                t = t.parent;
-                s = t.name + "/" + s;
-            }
-
-            return s;
         }
     }
 }

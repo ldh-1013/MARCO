@@ -25,14 +25,15 @@ namespace Marco.Presentation.Objectives
         [Tooltip("총원(§6.2 요구 개방 수 유도용). 0이면 씬의 역할 수를 못 알므로 5인 기준을 쓴다.")]
         [SerializeField] private int _totalPlayersOverride;
 
-        private ValveBehaviour[] _valves;
         private int _lastOpenedCount = -1;
 
         /// <summary>
         /// §6.1-0 이번 라운드 <b>활성</b> 밸브 수. 배치 수(5)가 아니다 —
         /// HUD 슬롯 개수이자 게이트 판정의 모집단이다.
         /// </summary>
-        public int TotalValves => _totalValvesOverride > 0 ? _totalValvesOverride : CountActive();
+        public int TotalValves => _totalValvesOverride > 0
+            ? _totalValvesOverride
+            : ObjectiveView.ActiveValves(ObjectiveRegistry.Current, CountActive());
 
         /// <summary>
         /// <b>현재 동시에 Open인</b> 밸브 수. §6.1-2 역류로 <b>줄어든다</b> —
@@ -44,8 +45,31 @@ namespace Marco.Presentation.Objectives
         /// §6.2 게이트가 열리는 데 필요한 동시 개방 수(2 또는 3).
         /// <b>3을 하드코딩하지 않는다</b> — 총원에서 유도한다.
         /// </summary>
-        public int RequiredOpenCount => ValveRoster.RequiredOpenCount(
-            _totalPlayersOverride > 0 ? _totalPlayersOverride : DefaultTotalPlayers);
+        public int RequiredOpenCount
+        {
+            get
+            {
+                int required = ObjectiveView.RequiredOpen(ObjectiveRegistry.Current, _totalPlayersOverride, out bool usedFallback);
+                if (usedFallback && IsNetworkMode() && !_fallbackErrorLogged)
+                {
+                    // 5인 폴백은 오프라인 스모크 리그 전용이다(09-29) — 네트워크에서 쓰면 HUD · 게이트가 서버와 어긋난다.
+                    _fallbackErrorLogged = true;
+                    Debug.LogError($"[Valve] 네트워크 모드인데 서버 목표 수치가 공개되지 않아 {ObjectiveView.OfflineFallbackPlayers}인 폴백" +
+                                   $"(요구 {required})을 쓴다 — RoundNetworkSync가 스폰됐는지 확인하라.");
+                }
+
+                return required;
+            }
+        }
+
+        private bool _fallbackErrorLogged;
+
+        /// <summary>접속이 시작됐는가(호스트 · 클라이언트). 오프라인 스모크 리그는 false.</summary>
+        private static bool IsNetworkMode()
+        {
+            Marco.Core.Net.IConnectionService connection = Marco.Core.Net.ConnectionServiceRegistry.Current;
+            return connection != null && connection.HasStarted;
+        }
 
         /// <summary>§6.2 권장 구성(5인). 총원을 모를 때의 폴백이다.</summary>
         private const int DefaultTotalPlayers = 5;
@@ -55,7 +79,7 @@ namespace Marco.Presentation.Objectives
         /// *"출구 바로 앞에서 문이 닫히는 연출은 극적이지만 억울함이 재미를 넘어선다"*.
         /// 라운드 초기화(<see cref="Rescan"/>)에서만 풀린다.
         /// </summary>
-        public bool IsEscapeGateOpen => _latch.IsOpen;
+        public bool IsEscapeGateOpen => ObjectiveView.GateOpen(ObjectiveRegistry.Current, _latch.IsOpen);
 
         /// <summary>§6.1-2 latch 규칙(Core). 라운드 번호가 바뀌면 풀린다 — 리매치 결함 수정(블록 7).</summary>
         private readonly EscapeGateLatch _latch = new EscapeGateLatch();
@@ -66,7 +90,7 @@ namespace Marco.Presentation.Objectives
         /// 씬에서 찾은 밸브 목록(읽기 전용 용도). 스프린트 16 HUD가 밸브별 상태·진행률을
         /// 표시하려고 읽는다 — 집계기가 이미 찾아둔 배열을 재사용해 중복 탐색을 피한다.
         /// </summary>
-        public ValveBehaviour[] Valves => _valves ?? System.Array.Empty<ValveBehaviour>();
+        public ValveBehaviour[] Valves => ValveRegistry.Snapshot;
 
         // ── IEscapeGateState (스프린트 12: 서버 라운드 판정기가 읽는 게이트 상태) ──
         int IEscapeGateState.OpenedValves => OpenedCount;
@@ -90,7 +114,6 @@ namespace Marco.Presentation.Objectives
         /// </summary>
         public void Rescan()
         {
-            _valves = FindObjectsByType<ValveBehaviour>();
             OpenedCount = 0;
             _lastOpenedCount = -1; // 다음 Update에서 로그를 한 번 다시 찍게 한다
 
@@ -147,15 +170,13 @@ namespace Marco.Presentation.Objectives
         }
 
         /// <summary>§6.1-0 이번 라운드 활성 밸브 수. 비활성은 상호작용 불가라 모집단에서 뺀다.</summary>
-        private int CountActive()
+        private static int CountActive()
         {
-            if (_valves == null)
-                return 0;
-
+            ValveBehaviour[] valves = ValveRegistry.Snapshot;
             int active = 0;
-            for (int i = 0; i < _valves.Length; i++)
+            for (int i = 0; i < valves.Length; i++)
             {
-                if (_valves[i] != null && _valves[i].IsActiveThisRound)
+                if (valves[i] != null && valves[i].IsActiveThisRound)
                     active++;
             }
 
@@ -166,12 +187,13 @@ namespace Marco.Presentation.Objectives
         /// <b>현재 Open 상태인</b> 밸브 수. 상태를 직접 읽으므로 역류로 Open이 풀리면
         /// 다음 프레임에 자동으로 줄어든다 — 증가만 하는 카운터가 아니다.
         /// </summary>
-        private int CountOpened()
+        private static int CountOpened()
         {
+            ValveBehaviour[] valves = ValveRegistry.Snapshot;
             int opened = 0;
-            for (int i = 0; i < _valves.Length; i++)
+            for (int i = 0; i < valves.Length; i++)
             {
-                if (_valves[i] != null && _valves[i].IsOpen)
+                if (valves[i] != null && valves[i].IsOpen)
                     opened++;
             }
             return opened;
