@@ -34,13 +34,44 @@ namespace Marco.Presentation.QA
     /// <item><b>F2</b> QA 라이트 — 이 클라이언트에만 방향광 2개를 켠다. 씬의 암전 값(RenderSettings ·
     /// 카메라)은 건드리지 않고 조명을 <b>더하기만</b> 하므로 끄면 그대로 원상태다. 서버 · 다른 플레이어 화면 ·
     /// 게임플레이 판정(숨 게이지 · 파문 · 차폐 레이)과 무관하다.</item>
+    /// <item><b>F4</b> QA 순간이동(09-27 요청으로 추가) — 미리 정한 QA 지점을 순서대로 돈다(로컬 플레이어).
+    /// 이동은 소유자 권한(Player <c>NetworkTransform</c> clientAuthoritative)이라 서버 RPC 없이 로컬 배치가 그대로
+    /// 동기화된다 — <c>PawnPhaseTeleporter.PlaceExactly</c>와 같은 방식(CharacterController를 끄고 위치 대입).</item>
     /// </list>
-    /// 미니맵 · 텔레포트 · 노클립은 넣지 않는다(검증 대상 동작을 바꾸지 않는 것이 이 도구의 조건).
+    /// 미니맵 · 노클립은 넣지 않는다(검증 대상 동작을 바꾸지 않는 것이 이 도구의 조건).
     /// </summary>
     public sealed class QaDebugOverlay : MonoBehaviour
     {
         private const Key OverlayKey = Key.F3;
         private const Key LightKey = Key.F2;
+        private const Key TeleportKey = Key.F4;
+
+        private readonly struct QaPoint
+        {
+            public readonly string Name;
+            public readonly Vector3 Feet;
+            public readonly float Yaw;
+
+            public QaPoint(string name, float x, float y, float z, float yaw)
+            {
+                Name = name;
+                Feet = new Vector3(x, y, z);
+                Yaw = yaw;
+            }
+        }
+
+        /// <summary>
+        /// 맵 v2(<c>MapV2Layout</c>) 좌표. 09-27 Game 씬에서 배치모드로 확인 — 발밑 바닥 콜라이더 · 캡슐(반지름 0.35)
+        /// 겹침 없음 · 대화(9m) 벽 윤곽 차폐 결과. 발 높이는 바닥 윗면 + 0.05(스폰 앵커와 같은 여유). 맵이 바뀌면 다시 잡는다.
+        /// </summary>
+        private static readonly QaPoint[] QaPoints =
+        {
+            new QaPoint("① 기계실 중앙 — 네 벽이 반경 안", 45f, 0.05f, 8.5f, 0f),
+            new QaPoint("② 기계실 문 바깥 — 문 너머 기계실 벽", 45f, 0.05f, 4.3f, 0f),
+            new QaPoint("③ 기계실 서벽 바깥 — 벽 하나 너머 기계실", 39.5f, 0.05f, 8.5f, 90f),
+            new QaPoint("④ 라커룸 1층 — 위층 물탱크실과 겹침", 7f, 0.05f, 26.5f, 0f),
+            new QaPoint("⑤ 물탱크실 2층 — 아래층 라커룸과 겹침", 7f, 3.55f, 26.5f, 0f),
+        };
 
         /// <summary>문자열 재조립 주기(초). 매 프레임 만들 필요가 없다.</summary>
         private const float RefreshInterval = 0.1f;
@@ -70,6 +101,7 @@ namespace Marco.Presentation.QA
         private GameObject _lightRig;
         private int _groundMask = ~0;
         private float _nextRefresh;
+        private int _qaPointIndex = -1;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
         private static void ResetForNewSession() => _instance = null;
@@ -83,7 +115,8 @@ namespace Marco.Presentation.QA
             var go = new GameObject("[QA] Debug Overlay");
             DontDestroyOnLoad(go);
             _instance = go.AddComponent<QaDebugOverlay>();
-            Debug.Log($"[QA] 디버그 오버레이 포함 빌드(MARCO_QA_BUILD) — {OverlayKey} 텍스트 오버레이 · {LightKey} QA 라이트(로컬 전용).");
+            Debug.Log($"[QA] 디버그 오버레이 포함 빌드(MARCO_QA_BUILD) — {OverlayKey} 텍스트 오버레이 · {LightKey} QA 라이트(로컬 전용) · " +
+                      $"{TeleportKey} QA 순간이동.");
         }
 
         private void Awake()
@@ -118,6 +151,12 @@ namespace Marco.Presentation.QA
                     _nextRefresh = 0f;
                     Debug.Log($"[QA] QA 라이트 {(_lightRig.activeSelf ? "켜짐" : "꺼짐")}(로컬 전용).");
                 }
+
+                if (keyboard[TeleportKey].wasPressedThisFrame)
+                {
+                    TeleportToNextPoint();
+                    _nextRefresh = 0f;
+                }
             }
 
             if (!_overlayRoot.activeSelf || Time.unscaledTime < _nextRefresh)
@@ -133,6 +172,13 @@ namespace Marco.Presentation.QA
             _sb.Append("[QA] ").Append(OverlayKey).Append(" 오버레이 · ").Append(LightKey)
                .Append(" QA 라이트 ").Append(_lightRig.activeSelf ? "켜짐" : "꺼짐").Append('\n');
             _sb.Append("씬  ").Append(SceneManager.GetActiveScene().name).Append('\n');
+            _sb.Append("QA 지점  ");
+            if (_qaPointIndex < 0)
+                _sb.Append("— (").Append(TeleportKey).Append("로 순간이동)");
+            else
+                _sb.Append(_qaPointIndex + 1).Append('/').Append(QaPoints.Length).Append(' ')
+                   .Append(QaPoints[_qaPointIndex].Name).Append("  · ").Append(TeleportKey).Append(" 다음");
+            _sb.Append('\n');
 
             FirstPersonController player = LocalPlayerRegistry.Current;
             if (player == null)
@@ -177,6 +223,36 @@ namespace Marco.Presentation.QA
                .Append(" · 질식 감속 ").Append(BreathClientState.ChokePenaltyActive ? "예" : "아니오");
 
             return _sb.ToString();
+        }
+
+        /// <summary>
+        /// 다음 QA 지점으로 로컬 플레이어를 옮긴다. <c>PawnPhaseTeleporter.PlaceExactly</c>와 같다 — CharacterController가
+        /// 켜져 있으면 위치 대입이 무시될 수 있어 잠깐 끈다. 시선은 yaw만 맞춘다(pitch는 마우스 상태 그대로).
+        /// </summary>
+        private void TeleportToNextPoint()
+        {
+            FirstPersonController player = LocalPlayerRegistry.Current;
+            if (player == null)
+            {
+                Debug.Log("[QA] 순간이동 — 로컬 플레이어가 아직 없습니다(스폰 전).");
+                return;
+            }
+
+            _qaPointIndex = (_qaPointIndex + 1) % QaPoints.Length;
+            QaPoint point = QaPoints[_qaPointIndex];
+
+            var controller = player.GetComponent<CharacterController>();
+            bool wasEnabled = controller != null && controller.enabled;
+            if (wasEnabled)
+                controller.enabled = false;
+
+            player.transform.SetPositionAndRotation(point.Feet, Quaternion.Euler(0f, point.Yaw, 0f));
+
+            if (wasEnabled)
+                controller.enabled = true;
+
+            Debug.Log($"[QA] 순간이동 {_qaPointIndex + 1}/{QaPoints.Length} {point.Name} → " +
+                      $"({point.Feet.x:0.00}, {point.Feet.y:0.00}, {point.Feet.z:0.00}) yaw {point.Yaw:0}");
         }
 
         /// <summary>발밑 바닥 콜라이더 → 조상의 <c>Zone_</c> / <c>Water_</c> 이름. 없으면 콜라이더 이름만.</summary>

@@ -77,7 +77,7 @@ namespace Marco.EditorTools
             {
                 Debug.Log($"[Build] 성공 — {OutputPath} ({summary.totalSize / (1024 * 1024)} MB, {summary.totalTime.TotalSeconds:0}초). " +
                           $"씬: {sceneList}. 3인 테스트: 에디터 Play(호스트) + exe 2개 실행 → 로비 접속. " +
-                          $"{QaBuildDefine} 포함 — exe에서 F3 QA 오버레이 · F2 QA 라이트.");
+                          $"{QaBuildDefine} 포함 — exe에서 F3 QA 오버레이 · F2 QA 라이트 · F4 QA 순간이동.");
                 return true;
             }
 

@@ -106,6 +106,12 @@ namespace Marco.Presentation.Sound
         /// </summary>
         private PulseWallRevealer _wallReveal;
 
+        /// <summary>
+        /// 목소리 조명 리빌(2026-09-27 디자인 변경) — <b>자기</b> 목소리 파문만 차폐되는 포인트 라이트로 면을 비춘다
+        /// (<see cref="VoicePulseLighting"/>). 발소리 · 타인 파문은 위 윤곽선만.
+        /// </summary>
+        private VoicePulseLighting _voiceLights;
+
         /// <summary>이번 프레임 로컬 플레이어가 메아리인가(소나 시야). 매 프레임 재조회(GAP-61).</summary>
         private bool _echoView;
 
@@ -145,6 +151,7 @@ namespace Marco.Presentation.Sound
 
             _ringMaterial = _ringMaterialOverride != null ? _ringMaterialOverride : CreateDefaultRingMaterial();
             _wallReveal = new PulseWallRevealer(transform, _ringMaterial, _ringWidth);
+            _voiceLights = new VoicePulseLighting(transform);
 
             _registry.VisualAdded += OnVisualAdded;
             _registry.VisualUpdated += OnVisualUpdated;
@@ -196,6 +203,9 @@ namespace Marco.Presentation.Sound
             _selfPulses[id] = (position, radius);
             var perceived = new PerceivedPulse(radius, duration, position, DirectionOctant.N, worldSpaceRingVisible: true);
             _registry.Apply(new PulseDelivery(0UL, id, PulseDeliveryKind.Appeared, perceived), Time.time);
+
+            // 링과 같은 반경 · 지속 · 시작 시각. 목소리가 아니면(발소리) 조명은 붙지 않는다.
+            _voiceLights.Emit(type, isLocalSource: true, position, radius, duration, Time.time);
         }
 
         /// <summary>
@@ -321,6 +331,7 @@ namespace Marco.Presentation.Sound
                 _echoView = echo;
                 ClearResiduals();
                 _wallReveal.Clear(); // §3.2-1 메아리 소나 — "지형: 끝까지 보이지 않음"
+                _voiceLights.Clear();
             }
 
             _registry.Tick(now);
@@ -342,6 +353,7 @@ namespace Marco.Presentation.Sound
             {
                 UpdateRings(now);
                 _wallReveal.Tick(now, _frameColor);
+                _voiceLights.Tick(now);
             }
 
             UpdateAfterglowRings(now);
