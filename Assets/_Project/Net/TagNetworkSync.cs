@@ -58,7 +58,8 @@ namespace Marco.Net
             new Dictionary<ulong, float>();
 
         private IRoleState _roleState;
-        private bool _appliedTagEffect; // 피어별 태그 효과(역할 전환·통지)를 정확히 1회만 적용
+        private RoleNetworkSync _roleSyncOwner;
+        private bool _subscribed;
 
         /// <summary>
         /// 스폰된 태그 동기화 컴포넌트들(스프린트 17). 라운드 재시작 시 <c>RoundNetworkSync</c>가
@@ -69,6 +70,26 @@ namespace Marco.Net
         private void Awake()
         {
             _roleState = GetComponent<IRoleState>();
+        }
+
+        /// <summary>이 pawn의 역할 효과 규칙(Core) — <see cref="RoleNetworkSync"/>와 같은 인스턴스.</summary>
+        private PawnRoleSync RoleSync
+        {
+            get
+            {
+                _roleSyncOwner ??= GetComponent<RoleNetworkSync>();
+                if (_roleSyncOwner == null)
+                    return null;
+
+                PawnRoleSync sync = _roleSyncOwner.RoleSync;
+                if (!_subscribed)
+                {
+                    _subscribed = true;
+                    sync.EchoEffectApplied += OnEchoEffectApplied;
+                }
+
+                return sync;
+            }
         }
 
         // ── ITagTarget ────────────────────────────────────────────────────
@@ -218,8 +239,7 @@ namespace Marco.Net
                       $"서버컨텍스트={IsServerInitialized}, 클라컨텍스트={IsClientInitialized}");
 
             // 재접속·늦은 스폰 대비: 이미 태그된 상태로 들어오면 효과를 즉시 반영.
-            if (_tagged.Value)
-                ApplyTagEffect();
+            RoleSync?.ReceiveTagged(_tagged.Value);
         }
 
         public override void OnStopNetwork()
@@ -233,12 +253,9 @@ namespace Marco.Net
         /// <summary>
         /// 새 라운드를 위해 태그 상태를 초기화한다(스프린트 17). 서버 전용.
         ///
-        /// SyncVar를 false로 되돌리면 <see cref="OnTaggedChanged"/>가 전 피어에서 불리지만
-        /// <c>next == false</c>라 태그 효과를 적용하지 않는다. 효과 1회성 가드도 함께 풀어,
-        /// 새 라운드에서 다시 태그되면 정상적으로 Echo 전환이 일어나게 한다.
-        ///
-        /// 역할 복구는 여기서 하지 않는다 — <c>RoleNetworkSync</c>가 배정을 지우고 다시 배정하며,
-        /// 그 경로가 §6.2 표를 단일 소유하기 때문이다(역할 규칙을 두 곳에 두지 않는다).
+        /// SyncVar를 false로 되돌리면 <see cref="OnTaggedChanged"/>가 <b>모든 피어에서</b> 유효 역할을 다시 계산한다
+        /// (<see cref="PawnRoleSync"/> — 호스트와 클라이언트가 같은 경로). 예전의 피어별 1회성 가드는 서버에서만 풀려
+        /// 비호스트 클라이언트는 2판 태그를 건너뛰었다(09-29) — 가드 없이 "직전 적용값과 다를 때만"으로 대체했다.
         /// </summary>
         internal void ServerResetForNewRound()
         {
@@ -248,30 +265,20 @@ namespace Marco.Net
             // §3.1-1 술래 경직 기록도 라운드 경계에서 비운다 — 지난 라운드의 경직이
             // 살아남으면 새 라운드 첫 태그가 거부된다(더블체크 2).
             ServerSeekerStunnedAt.Clear();
-            _appliedTagEffect = false;
         }
 
         /// <summary>도메인 리로드를 끈 채 Play를 반복할 때의 static 잔여 상태 정리.</summary>
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
         private static void ResetForNewSession() => Spawned.Clear();
 
-        private void OnTaggedChanged(bool prev, bool next, bool asServer)
-        {
-            if (next)
-                ApplyTagEffect();
-        }
+        private void OnTaggedChanged(bool prev, bool next, bool asServer) => RoleSync?.ReceiveTagged(next);
 
         /// <summary>
-        /// 태그 확정 효과를 피어마다 정확히 1회 적용한다(호스트에서 OnChange가 서버·클라
-        /// 양쪽으로 불려도 중복되지 않게 가드). 대상 역할을 Echo로 바꾸고 라운드 집계에 통지한다.
+        /// 메아리 효과 — 역할 전환(Echo)은 <see cref="RoleNetworkSync"/>가 적용하고, 여기서는 라운드 집계에 통지한다.
+        /// 몇 번 적용할지는 규칙(<see cref="PawnRoleSync"/>)이 정한다.
         /// </summary>
-        private void ApplyTagEffect()
+        private void OnEchoEffectApplied()
         {
-            if (_appliedTagEffect)
-                return;
-            _appliedTagEffect = true;
-
-            _roleState?.ApplyRole(RoleType.Echo); // §3.1 태그 1회 → 메아리 즉시 전환
             TagTargetRegistry.NotifyTagged(this); // 각 피어의 RoundCoordinator가 서버 확정 태그를 집계
 
             Debug.Log($"[TagNet:Client] targetId={PlayerId} 메아리로 전환 — 서버 확정 수신, 화면 반영 (§3.1)");

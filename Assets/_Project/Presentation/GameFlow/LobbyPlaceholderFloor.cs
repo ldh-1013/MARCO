@@ -24,6 +24,9 @@ namespace Marco.Presentation.GameFlow
         [Tooltip("전환 시점을 Console에 남긴다(실기에서 눈으로 확인하기 위한 진단).")]
         [SerializeField] private bool _logTransitions = true;
 
+        [Tooltip("로비 복귀 배치에 쓸 텔레포터. 비우면 씬에서 찾는다.")]
+        [SerializeField] private PawnPhaseTeleporter _teleporter;
+
         private Renderer[] _renderers;
         private Collider[] _colliders;
 
@@ -33,14 +36,22 @@ namespace Marco.Presentation.GameFlow
 
         private void Awake()
         {
-            _renderers = GetComponentsInChildren<Renderer>(includeInactive: true);
-            _colliders = GetComponentsInChildren<Collider>(includeInactive: true);
+            EnsureParts();
         }
 
         private void Update()
         {
             // 맵이 있으면 맵 바닥이 지면 역할을 하므로 임시 바닥은 물러난다.
-            bool shouldBeActive = !SpawnAnchorRegistry.HasAnchor;
+            ApplyMapPresence(SpawnAnchorRegistry.HasAnchor);
+        }
+
+        /// <summary>
+        /// 맵 유무에 맞춰 임시 바닥을 켜고 끈다. <b>켜지는 호출(= 맵이 내려감) 안에서</b> 로컬 pawn을 로비 배정 슬롯에 놓는다
+        /// (09-29 — 로비로 돌아온 플레이어는 처음 로비에 들어온 플레이어와 같아야 한다). 메아리 포함. 상태가 같으면 아무것도 하지 않는다.
+        /// </summary>
+        public void ApplyMapPresence(bool mapPresent)
+        {
+            bool shouldBeActive = !mapPresent;
 
             if (_initialized && shouldBeActive == _active)
                 return;
@@ -55,6 +66,27 @@ namespace Marco.Presentation.GameFlow
                     ? "[SceneFlow] 로비 임시 바닥 ON — 맵이 없어 이 바닥이 지면 역할을 한다(무한 낙하 방지)."
                     : "[SceneFlow] 로비 임시 바닥 OFF — 맵 바닥이 지면을 대신한다(같은 평면 Z-파이팅 방지).");
             }
+
+            if (shouldBeActive)
+                PlaceLocalPawnInLobby();
+        }
+
+        private void PlaceLocalPawnInLobby()
+        {
+            Player.FirstPersonController player = Player.LocalPlayerRegistry.Current;
+            if (player == null)
+                return; // 부팅 · 접속 전 — 옮길 pawn이 없다(접속하면 프리팹 위치 = 이 바닥 윗면 중심에 선다).
+
+            if (_teleporter == null)
+                _teleporter = FindAnyObjectByType<PawnPhaseTeleporter>();
+            if (_teleporter == null || !_teleporter.PlaceInLobby(player, this))
+                Debug.LogWarning("[SceneFlow] 맵 언로드 — 로컬 pawn을 로비 슬롯에 놓지 못했습니다(텔레포터 없음). 낙하 복구가 받아낸다.");
+        }
+
+        private void EnsureParts()
+        {
+            _renderers ??= GetComponentsInChildren<Renderer>(includeInactive: true);
+            _colliders ??= GetComponentsInChildren<Collider>(includeInactive: true);
         }
 
         /// <summary>
@@ -85,6 +117,8 @@ namespace Marco.Presentation.GameFlow
 
         private void Apply(bool value)
         {
+            EnsureParts();
+
             if (_renderers != null)
             {
                 for (int i = 0; i < _renderers.Length; i++)

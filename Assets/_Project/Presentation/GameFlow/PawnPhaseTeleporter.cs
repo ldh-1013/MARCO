@@ -96,11 +96,11 @@ namespace Marco.Presentation.GameFlow
             // 라운드 번호가 바뀐다. 그 순간을 "다시 배치할 때"로 삼는다 — 맵 로드 신호만 보던
             // 기존 구조로는 리매치 때 아무도 움직이지 않아 직전 라운드 자리에서 재시작됐다.
             //
-            // 순서 보장: 서버는 배정(EnsureRolesAssigned) **직후** 라운드 번호를 올리고 그 뒤에
-            // 라운드를 시작하므로, 클라이언트가 새 번호를 관측한 시점에는 역할이 이미 확정돼 있다.
-            // 스폰 슬롯 자체는 PlayerId로만 정해져 역할과 무관하다.
+            // 순서: 서버는 StartRound 틱에 라운드 번호를 올리고 **같은 틱에** 역할을 배정한다(RoundNetworkSync —
+            // 번호 증가 뒤 EnsureRolesAssigned). 배정은 SyncVar 하나(09-29)라 번호와 함께 한 번에 도착하므로,
+            // 이 Update가 새 번호를 볼 때 역할도 이미 반영돼 있다. 스폰 슬롯 자체는 PlayerId로만 정해져 역할과 무관하다.
             int round = CurrentRoundNumber();
-            if (_placedForCurrentMap && round == _placedForRound)
+            if (!SpawnPlacementRules.ShouldPlaceOnMap(mapReady, _placedForCurrentMap, _placedForRound, round))
                 return;
 
             FirstPersonController player = LocalPlayerRegistry.Current;
@@ -118,7 +118,7 @@ namespace Marco.Presentation.GameFlow
             // §10.1 술래 격리(스프린트 24): 술래는 도망자 스폰 지점이 아니라 격리 공간에서
             // 시작하고 3초 뒤에 움직일 수 있다. 러너·메아리는 종전대로 스폰 링에 배치된다.
             bool isolate = SeekerIsolation.AppliesTo(player.Role);
-            if (isolate && IsolationAnchorRegistry.HasAnchor)
+            if (SpawnPlacementRules.UsesIsolationAnchor(player.Role, IsolationAnchorRegistry.HasAnchor))
                 PlaceExactly(player, IsolationAnchorRegistry.Pose);
             else
                 PlaceAtAnchor(player, SpawnAnchorRegistry.Pose);
@@ -223,24 +223,58 @@ namespace Marco.Presentation.GameFlow
             if (player == null)
                 return false;
 
-            SpawnPose pose;
-            if (SpawnAnchorRegistry.HasAnchor)
-            {
-                pose = SeekerIsolation.AppliesTo(player.Role) && IsolationAnchorRegistry.HasAnchor
-                    ? IsolationAnchorRegistry.Pose
-                    : SpawnRing.GetPose(SpawnAnchorRegistry.Pose, SlotOf(player), _spawnRadius, _spawnSlots);
-            }
-            else
+            if (!SpawnAnchorRegistry.HasAnchor)
             {
                 if (_lobbyFloor == null)
                     _lobbyFloor = FindAnyObjectByType<LobbyPlaceholderFloor>();
-                if (_lobbyFloor == null || !_lobbyFloor.TryGetTopCenter(out Vector3 center))
-                    return false;
-
-                pose = SpawnRing.GetPose(new SpawnPose(center, Quaternion.identity), SlotOf(player), _spawnRadius, _spawnSlots);
+                return TryGetLobbySlot(player, _lobbyFloor, out feet);
             }
 
+            SpawnPose pose = SpawnPlacementRules.UsesIsolationAnchor(player.Role, IsolationAnchorRegistry.HasAnchor)
+                ? IsolationAnchorRegistry.Pose
+                : SpawnRing.GetPose(SpawnAnchorRegistry.Pose, SlotOf(player), _spawnRadius, _spawnSlots);
             feet = pose.Position + Vector3.up * _verticalOffset;
+            return true;
+        }
+
+        /// <summary>로비 배정 슬롯 — 임시 바닥 윗면 중심을 앵커로 한 스폰 링 슬롯(발 위치).</summary>
+        private bool TryGetLobbySlot(FirstPersonController player, LobbyPlaceholderFloor floor, out Vector3 feet)
+        {
+            feet = default;
+            if (floor == null || !floor.TryGetTopCenter(out Vector3 center))
+                return false;
+
+            SpawnPose pose = SpawnRing.GetPose(new SpawnPose(center, Quaternion.identity), SlotOf(player), _spawnRadius, _spawnSlots);
+            feet = pose.Position + Vector3.up * _verticalOffset;
+            return true;
+        }
+
+        /// <summary>
+        /// 로비 복귀 배치(09-29) — 맵이 내려가는 순간(<see cref="LobbyPlaceholderFloor"/>가 켜지는 같은 호출) 로컬 pawn을
+        /// 로비 배정 슬롯에 놓는다. 메아리 포함 전원(각 클라이언트가 자기 pawn). 이동은 소유자 권한이라 서버 RPC가 없다.
+        /// 예전에는 판이 끝난 자리(맵 좌표)에 남아, 임시 바닥 밖이면 떨어져 낙하 복구가 받아냈다(09-28 · 09-29 실기).
+        /// </summary>
+        public bool PlaceInLobby(FirstPersonController player, LobbyPlaceholderFloor floor)
+        {
+            if (player == null || !TryGetLobbySlot(player, floor, out Vector3 target))
+                return false;
+
+            Vector3 from = player.transform.position;
+            var controller = player.GetComponent<CharacterController>();
+            bool wasEnabled = controller != null && controller.enabled;
+            if (wasEnabled)
+                controller.enabled = false;
+
+            player.transform.position = target;
+
+            if (wasEnabled)
+                controller.enabled = true;
+
+            player.ResetVerticalVelocity();
+
+            Debug.Log($"[SpawnDiag] 맵 언로드 — 로컬 플레이어(PlayerId={player.PlayerId}, 역할 {player.Role})를 " +
+                      $"({from.x:0.00}, {from.y:0.00}, {from.z:0.00}) → 로비 슬롯 {SlotOf(player)}/{_spawnSlots} " +
+                      $"({target.x:0.00}, {target.y:0.00}, {target.z:0.00}) 으로 이동.");
             return true;
         }
 

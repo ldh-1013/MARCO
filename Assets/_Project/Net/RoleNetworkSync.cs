@@ -17,18 +17,16 @@ namespace Marco.Net
     /// 플레이어의 역할도</b> 모든 피어가 일관되게 인지한다 — 태그 판정(§3.1 상대 역할 참조)·
     /// 밸브 GAP-5(메아리 거부)·전원태그(GAP-19)가 실제 배정 결과 위에서 동작하게 되는 근거.
     ///
-    /// **초기 배정과 태그 전환의 구분(지시서 §2)**:
-    /// - <b>초기 배정</b>(이 컴포넌트): 라운드 시작 시 서버가 1회 배정. Seeker 또는 Runner만.
-    /// - <b>역할 전환</b>(<see cref="TagNetworkSync"/>, 스프린트 11): 태그 확정 시 Echo로.
-    /// 두 경로가 같은 <see cref="IRoleState"/>를 쓰므로, 이 컴포넌트는 <b>이미 Echo인 플레이어의
-    /// 역할을 절대 덮어쓰지 않는다</b>(<see cref="ApplyAssignedRole"/>의 Echo 가드). 태그는
-    /// 단방향(Runner→Echo)이고 되돌아가지 않으므로 이 가드만으로 두 경로의 충돌이 사라진다.
+    /// **배정과 태그는 한 규칙으로(09-29)**: 유효 역할은 (배정, 태그)에서 계산한다 —
+    /// 미배정이면 로비 기본값(처음 입장과 같음), 태그됐으면 메아리, 그 외에는 배정 역할
+    /// (<see cref="RoleEffect.Resolve"/>). 이 컴포넌트(배정)와 <see cref="TagNetworkSync"/>(태그)가 같은
+    /// <see cref="PawnRoleSync"/>를 호출하고, 각 피어는 계산값이 직전 적용값과 다를 때만 적용한다.
+    /// 호스트와 클라이언트가 같은 경로다. 로비로 돌아오면(미배정) 메아리도 풀린다.
     ///
-    /// **왜 배정 플래그가 따로 필요한가**: <c>SyncVar&lt;RoleType&gt;</c>의 기본값은 열거형
-    /// 0번인 <see cref="RoleType.Seeker"/>다. 플래그 없이 값만 보면 <b>배정 전 모든 플레이어가
-    /// 술래로 보인다</b> — 스프린트 12 실기에서 Player 프리팹 <c>_role</c> 기본값이 Seeker(0)로
-    /// 굳어 있어 원격 러너가 인식되지 않던 것과 같은 함정이다. 그래서 <see cref="_hasAssignment"/>가
-    /// true일 때만 역할을 반영한다.
+    /// **배정은 SyncVar 하나(09-29 원자성)**: 예전에는 배정 플래그와 역할이 서로 다른 SyncVar였고,
+    /// FishNet이 플래그를 먼저 보내 클라이언트가 역할 SyncVar의 기본값(Seeker, 열거형 0번)을 한 번 적용한 뒤
+    /// Runner로 바꿨다(실기 로그 "Seeker 반영 → Runner 반영"). 이제 <see cref="RoleAssignment"/>를
+    /// <c>SyncVar&lt;byte&gt;</c> 하나로 보낸다 — 0 = 미배정이라 기본값이 "술래"로 읽히는 함정도 없다.
     ///
     /// **로컬 폴백 + NRE 가드**: 네트워크 미시작 시 스폰되지 않아 아무 배정도 일어나지 않고,
     /// <c>FirstPersonController</c>의 인스펙터 기본값(Runner)이 유지된다. FishNet의
@@ -43,16 +41,37 @@ namespace Marco.Net
         /// </summary>
         internal static readonly List<RoleNetworkSync> Spawned = new List<RoleNetworkSync>();
 
-        // 서버가 확정해 전 피어에 전파하는 배정 결과.
-        private readonly SyncVar<RoleType> _assignedRole = new();
-        private readonly SyncVar<bool> _hasAssignment = new();
+        // 서버가 확정해 전 피어에 전파하는 배정 결과 — RoleAssignment 부호(0 = 미배정, 1 + RoleType). 하나라서 원자적이다.
+        private readonly SyncVar<byte> _assignment = new();
 
         private IRoleState _roleState;
+        private PawnRoleSync _roleSync;
 
         private void Awake()
         {
             _roleState = GetComponent<IRoleState>();
         }
+
+        /// <summary>
+        /// 이 피어에서 이 pawn의 역할 효과 규칙(Core). 배정(여기)과 태그(<see cref="TagNetworkSync"/>)가 같은 인스턴스를
+        /// 호출한다 — 컴포넌트 Awake 순서와 무관하게 쓰이도록 지연 생성.
+        /// </summary>
+        internal PawnRoleSync RoleSync
+        {
+            get
+            {
+                if (_roleSync != null)
+                    return _roleSync;
+
+                _roleState ??= GetComponent<IRoleState>();
+                _roleSync = new PawnRoleSync(_roleState != null ? _roleState.Role : RoleType.Runner);
+                _roleSync.RoleApplied += OnRoleApplied;
+                return _roleSync;
+            }
+        }
+
+        /// <summary>서버 SyncVar 값(배정 · 해제 계산의 기준).</summary>
+        private RoleSyncState State => new RoleSyncState(RoleAssignment.FromCode(_assignment.Value));
 
         /// <summary>NetworkObject가 스폰된 뒤에만 true(연결 전 NRE 가드).</summary>
         public bool NetworkActive => NetworkObject != null && IsSpawned;
@@ -61,7 +80,7 @@ namespace Marco.Net
         internal int OrderKey => NetworkObject != null ? OwnerId : -1;
 
         /// <summary>서버가 이 플레이어에게 역할을 배정했는가.</summary>
-        internal bool HasAssignment => _hasAssignment.Value;
+        internal bool HasAssignment => State.Assignment.IsAssigned;
 
         /// <summary>현재 역할(배정 전에는 로컬 기본값).</summary>
         internal RoleType CurrentRole => _roleState != null ? _roleState.Role : RoleType.Runner;
@@ -138,28 +157,24 @@ namespace Marco.Net
         /// </summary>
         internal void ServerAssign(RoleType role)
         {
-            if (_hasAssignment.Value && _assignedRole.Value == role)
+            RoleSyncState next = State.Assign(role);
+            if (next.Equals(State))
                 return;
 
-            _assignedRole.Value = role;
-            _hasAssignment.Value = true;
+            _assignment.Value = next.Assignment.ToCode();
             Debug.Log($"[RoleNet:Server] ownerId={OrderKey} 역할 배정 = {role} (§6.2)");
         }
 
         /// <summary>
         /// 새 라운드를 위해 배정을 지운다(스프린트 17). 서버 전용.
         ///
-        /// 배정 플래그를 내리면 <c>RoundNetworkSync.EnsureRolesAssigned</c>가 다음 프레임에
-        /// **§6.2 표대로 다시 배정**한다 — 배정 규칙을 여기 복제하지 않고 기존 경로를 재사용한다.
-        /// 술래 재추첨(§2.2 로테이션)은 이번 스코프가 아니므로, GAP-22의 결정론적 정렬대로
-        /// 같은 사람이 다시 술래가 된다.
-        ///
-        /// 태그로 Echo가 된 플레이어도 이 리셋 후 다시 배정 대상이 된다 —
-        /// <c>TagNetworkSync.ServerResetForNewRound</c>가 먼저 태그 상태를 풀기 때문이다.
+        /// 미배정이 되면 모든 피어에서 이 pawn의 유효 역할이 로비 기본값으로 돌아간다(메아리 해제 포함, 09-29).
+        /// 다음 판의 재배정은 <c>RoundNetworkSync.EnsureRolesAssigned</c>가 §6.2 표대로 한다 — 배정 규칙을 여기
+        /// 복제하지 않는다.
         /// </summary>
         internal void ServerClearAssignmentForNewRound()
         {
-            _hasAssignment.Value = false;
+            _assignment.Value = State.Clear().Assignment.ToCode();
         }
 
         // ── 전 피어: 확정 배정 반영 ──────────────────────────────────────
@@ -167,53 +182,34 @@ namespace Marco.Net
         public override void OnStartNetwork()
         {
             base.OnStartNetwork();
-            _assignedRole.OnChange += OnAssignedRoleChanged;
-            _hasAssignment.OnChange += OnHasAssignmentChanged;
+            _assignment.OnChange += OnAssignmentChanged;
 
             if (!Spawned.Contains(this))
                 Spawned.Add(this);
 
-            // 늦은 스폰·재접속 대비: 이미 배정된 상태로 들어오면 즉시 반영한다.
-            if (_hasAssignment.Value)
-                ApplyAssignedRole();
+            // 늦은 스폰·재접속 대비: 이미 배정 · 태그된 상태로 들어오면 둘을 한 번에 계산해 반영한다(중간 역할 없음).
+            RoleSync.ReceiveSnapshot(State, IsTaggedOut);
         }
 
         public override void OnStopNetwork()
         {
             base.OnStopNetwork();
-            _assignedRole.OnChange -= OnAssignedRoleChanged;
-            _hasAssignment.OnChange -= OnHasAssignmentChanged;
+            _assignment.OnChange -= OnAssignmentChanged;
             Spawned.Remove(this);
         }
 
-        private void OnAssignedRoleChanged(RoleType prev, RoleType next, bool asServer) => ApplyAssignedRole();
-
-        private void OnHasAssignmentChanged(bool prev, bool next, bool asServer)
-        {
-            if (next)
-                ApplyAssignedRole();
-        }
+        private void OnAssignmentChanged(byte prev, byte next, bool asServer) =>
+            RoleSync.Receive(RoleSyncUpdate.Of(RoleAssignment.FromCode(next)));
 
         /// <summary>
-        /// 서버가 배정한 역할을 이 피어의 <see cref="IRoleState"/>에 반영한다.
-        ///
-        /// <b>Echo 가드</b>: 이미 태그돼 메아리가 된 플레이어는 건드리지 않는다 — 초기 배정
-        /// SyncVar(Runner)가 뒤늦게 도착해 태그 결과(Echo)를 되돌리는 것을 막는다. 두 SyncVar의
-        /// 도착 순서나 컴포넌트 콜백 순서에 의존하지 않으려면 이 가드가 필요하다.
+        /// 규칙(<see cref="PawnRoleSync"/>)이 정한 역할을 이 피어의 <see cref="IRoleState"/>에 반영한다.
+        /// 메아리 전환 로그는 <see cref="TagNetworkSync"/>가 남긴다.
         /// </summary>
-        private void ApplyAssignedRole()
+        private void OnRoleApplied(RoleType role)
         {
-            if (!_hasAssignment.Value || _roleState == null)
-                return;
-
-            if (IsTaggedOut)
-                return; // 태그 전환(스프린트 11) 결과를 초기 배정이 덮지 않는다.
-
-            if (_roleState.Role == _assignedRole.Value)
-                return;
-
-            _roleState.ApplyRole(_assignedRole.Value);
-            Debug.Log($"[RoleNet:Client] ownerId={OrderKey} 역할 반영 = {_assignedRole.Value} — 서버 배정 수신");
+            _roleState?.ApplyRole(role);
+            if (role != RoleType.Echo)
+                Debug.Log($"[RoleNet:Client] ownerId={OrderKey} 역할 반영 = {role} — 서버 배정 수신");
         }
 
         /// <summary>

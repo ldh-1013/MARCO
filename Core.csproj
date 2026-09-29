@@ -62,6 +62,7 @@
     <Compile Include="Assets\_Project\Core\Role\RoleAssigner.cs" />
     <Compile Include="Assets\_Project\Core\Net\IValveNetworkBridge.cs" />
     <Compile Include="Assets\_Project\Core\SoundPulse\SoundPulseResolver.cs" />
+    <Compile Include="Assets\_Project\Core\GameFlow\SpawnPlacementRules.cs" />
     <Compile Include="Assets\_Project\Core\Objectives\Valve.cs" />
     <Compile Include="Assets\_Project\Core\Net\IReadyState.cs" />
     <Compile Include="Assets\_Project\Core\GameFlow\FallRecovery.cs" />
@@ -122,6 +123,7 @@
     <Compile Include="Assets\_Project\Core\Objectives\IValveHost.cs" />
     <Compile Include="Assets\_Project\Core\GameFlow\GameFlowManager.cs" />
     <Compile Include="Assets\_Project\Core\Objectives\ValveRoster.cs" />
+    <Compile Include="Assets\_Project\Core\Role\PawnRoleSync.cs" />
     <Compile Include="Assets\_Project\Core\Net\IConnectionService.cs" />
     <Compile Include="Assets\_Project\Core\Role\RoleType.cs" />
     <Compile Include="Assets\_Project\Core\GameFlow\SeekerIsolation.cs" />
