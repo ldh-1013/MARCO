@@ -164,6 +164,21 @@ namespace Marco.Core.Tests
             StringAssert.Contains("abc.gl.at.ply.gg:48123", ConnectionMessages.Disconnected(new JoinAddress("abc.gl.at.ply.gg", 48123)));
         }
 
+        // ── 호스트 주소 줄 라벨(09-30) — 사설이면 "같은 네트워크", 아니면 "공인 IP로 보임" ─────────────
+
+        [TestCase("192.168.0.10", "내 주소(같은 네트워크)")]
+        [TestCase("10.1.2.3", "내 주소(같은 네트워크)")]
+        [TestCase("172.16.0.5", "내 주소(같은 네트워크)")]
+        [TestCase("172.31.255.1", "내 주소(같은 네트워크)")]
+        [TestCase("198.51.100.7", "내 주소(공인 IP로 보임 — 외부에서 접속 가능할 수 있음)")]
+        [TestCase("203.0.113.5", "내 주소(공인 IP로 보임 — 외부에서 접속 가능할 수 있음)")]
+        [TestCase("172.32.0.1", "내 주소(공인 IP로 보임 — 외부에서 접속 가능할 수 있음)")]
+        public void HostAddressLabel_PrivateSaysSameNetwork_OtherwisePublic(string ip, string expected)
+        {
+            Assert.AreEqual(expected, ConnectionMessages.HostAddressLabel(ip));
+            Assert.AreEqual($"{expected}: {ip}:7770", ConnectionMessages.HostAddressLine(ip, 7770));
+        }
+
         // ── LAN IP ───────────────────────────────────────────────────────
 
         [TestCase("10.0.0.1", true)]

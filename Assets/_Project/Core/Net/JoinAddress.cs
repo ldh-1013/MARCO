@@ -336,11 +336,19 @@ namespace Marco.Core.Net
         /// <summary>접속됐다가 끊겼을 때.</summary>
         public static string Disconnected(JoinAddress target) => $"{target}와(과)의 연결이 끊겼습니다 — 호스트가 나갔거나 네트워크가 끊겼습니다";
 
-        /// <summary>호스트 로비의 주소 줄 — 같은 네트워크용 LAN IP:포트. LAN IP를 못 찾으면 포트만.</summary>
+        /// <summary>호스트 로비의 주소 줄 — 라벨(<see cref="HostAddressLabel"/>) + IP:포트. IP를 못 찾으면 포트만.</summary>
         public static string HostAddressLine(string lanIpv4, ushort port) =>
             string.IsNullOrEmpty(lanIpv4)
                 ? $"내 주소: (LAN IP를 찾지 못함) · 포트 {port}"
-                : $"내 주소(같은 네트워크): {lanIpv4}:{port}";
+                : $"{HostAddressLabel(lanIpv4)}: {lanIpv4}:{port}";
+
+        /// <summary>
+        /// 호스트 주소 줄의 라벨(09-30) — 사설 대역(10.x · 172.16~31.x · 192.168.x, <see cref="LanAddress.IsPrivate"/>)이면
+        /// "같은 네트워크", 아니면 "공인 IP로 보임 — 외부에서 접속 가능할 수 있음"(공유기 없이 공인 IP를 직접 받은 PC —
+        /// 방화벽이 열려 있으면 인터넷에서 바로 들어올 수 있다).
+        /// </summary>
+        public static string HostAddressLabel(string ipv4) =>
+            LanAddress.IsPrivate(ipv4) ? "내 주소(같은 네트워크)" : "내 주소(공인 IP로 보임 — 외부에서 접속 가능할 수 있음)";
 
         /// <summary>참가자 로비의 주소 줄.</summary>
         public static string ClientAddressLine(JoinAddress target) => $"접속 주소: {target}";
