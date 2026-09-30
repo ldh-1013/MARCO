@@ -29,14 +29,13 @@ namespace Marco.Net
 
         public bool HasStarted { get; private set; }
 
-        public string DefaultAddress => _defaultAddress;
-
-        /// <summary>직전 시도의 실패 안내 — <see cref="JoinAttempt.FailureMessage"/>(실패일 때만).</summary>
-        public string LastFailure => Attempt.State == JoinAttemptState.Failed ? Attempt.FailureMessage : null;
+        /// <summary>직전 시도의 실패 안내 — <see cref="JoinAttempt.FailureMessage"/>(실패일 때만). 경고 로그용.</summary>
+        private string LastFailure => Attempt.State == JoinAttemptState.Failed ? Attempt.FailureMessage : null;
 
         public JoinAttempt Attempt { get; } = new JoinAttempt();
 
-        public JoinAddress RetryAddress =>
+        /// <summary>빈 주소로 <see cref="StartClient"/>가 불렸을 때 대신 쓸 주소 — 직전 참가 주소, 없으면 기본 주소.</summary>
+        private JoinAddress RetryAddress =>
             _hasTarget ? _target
             : JoinAddressParser.TryParse(_defaultAddress, out JoinAddress parsed, out _) ? parsed
             : new JoinAddress("localhost", JoinAddressParser.DefaultPort);

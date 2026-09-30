@@ -26,10 +26,7 @@ namespace Marco.Core.Tests
             public int CancelCalls { get; private set; }
             public int StopAllCalls { get; private set; }
             public JoinAttempt Attempt { get; } = new JoinAttempt();
-            public string DefaultAddress => "localhost";
             public string AddressLine => string.Empty;
-            public string LastFailure => Attempt.FailureMessage;
-            public JoinAddress RetryAddress => Target;
             public void StartHost() { }
             public void StartClient(JoinAddress address) { }
 

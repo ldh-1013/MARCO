@@ -12,10 +12,12 @@ namespace Marco.Presentation.UI
     /// §12.2 메인 메뉴(접속) + §12.3 로비 화면(스프린트 18, 정식 UI 3단계).
     /// 스프린트 16·17과 같은 런타임 uGUI 구축 패턴이다.
     ///
-    /// 세 상태를 하나의 화면이 순서대로 담당한다:
-    /// 1. **접속 전**(§12.2): "방 만들기(H) / 코드 입장(J)" — <see cref="IConnectionService"/>(Core)를
-    ///    통해 접속을 시작한다. 스프린트 18b까지 이 역할을 하던 DebugTools H/J 키를 대체했고,
-    ///    그 임시 도구는 스프린트 19에서 제거됐다.
+    /// 접속 전에는 그리지 않는다(10-01 옛 접속 전 패널 삭제). 이 화면은 PulseSystem(NetworkObject)에 있어 FishNet이
+    /// 접속 전에 꺼 두므로 H/J 패널은 원래 보이지 않았다. 접속 시작은 메인 메뉴(H/J) → <see cref="LobbyEntry"/>,
+    /// 접속 중 · 실패 · 취소 표시는 SceneFlow의 <see cref="JoinProgressOverlay"/>가 맡는다.
+    ///
+    /// 접속이 시작된 뒤 세 상태를 순서대로 담당한다:
+    /// 1. **접속 대기**(라운드 동기화 전): "접속 중…" · Esc 취소.
     /// 2. **로비**(§12.3, 페이즈 Lobby): 방코드(GAP-28: 주소로 대체)·플레이어 목록(준비 상태)·
     ///    "준비완료 (n/m)"·R 키 안내. 플레이어 pawn은 이미 맵의 입구 로비(§10.1)에 스폰돼
     ///    자유 이동·파문 확인이 가능하다 — §12.3 "이 화면 자체가 튜토리얼" 컨셉의 구현이다(GAP-28).
@@ -35,9 +37,7 @@ namespace Marco.Presentation.UI
         [SerializeField] private PulseVisualRenderer _colorblindSource;
         [SerializeField] private bool _colorblindFallback;
 
-        [Header("키 (§12.2/§12.3 — 정식 버튼 UI는 §12.6 이후)")]
-        [SerializeField] private Key _hostKey = Key.H;
-        [SerializeField] private Key _joinKey = Key.J;
+        [Header("키 (§12.3 — 정식 버튼 UI는 §12.6 이후)")]
         [SerializeField] private Key _readyKey = Key.R;
 
         [Tooltip("접속 대기 중 빠져나오는 키(§12.2 재시도). 접속에 실패해도 화면이 멈추지 않도록 하는 유일한 출구다.")]
@@ -59,9 +59,6 @@ namespace Marco.Presentation.UI
         private Text _countdownText;
 
         private bool _visible;
-
-        /// <summary>접속 전 패널의 주소 입력 칸(09-30) — 메인 메뉴와 같은 입력 칸. 실패 뒤 주소를 고쳐 다시 시도한다.</summary>
-        private readonly AddressEntry _entry = new AddressEntry();
 
         private bool Colorblind =>
             _colorblindSource != null ? _colorblindSource.ColorblindMode : _colorblindFallback;
@@ -175,11 +172,11 @@ namespace Marco.Presentation.UI
             IConnectionService connection = ConnectionServiceRegistry.Current;
             bool connectionStarted = connection != null && connection.HasStarted;
 
+            // 접속 전 — 그리지 않는다(10-01 옛 접속 전 패널 삭제, 위 클래스 설명). 끊김 직후 한두 프레임 여기로 올 수 있어
+            // 숨기기만 한다(그 뒤는 JoinProgressOverlay가 메뉴로 돌려보낸다).
             if (!connectionStarted)
             {
-                SetVisible(true);
-                RefreshPreConnection(connection);
-                HandleConnectionInput(connection);
+                SetVisible(false);
                 return;
             }
 
@@ -230,64 +227,7 @@ namespace Marco.Presentation.UI
                 _root.SetActive(visible);
         }
 
-        // ── 접속 전 (§12.2) ──────────────────────────────────────────────
-
-        private void RefreshPreConnection(IConnectionService connection)
-        {
-            _titleText.text = "마르코!";
-            _titleText.color = NeutralColor();
-
-            if (connection == null)
-            {
-                _roomCodeText.text = "접속 서비스를 찾지 못했습니다 — Diagnose Network Setup 확인";
-                _roomCodeText.color = SeekerColor();
-                _hintText.text = string.Empty;
-            }
-            else if (_entry.IsOpen)
-            {
-                _roomCodeText.text = $"코드 입장 — {_entry.Render(Time.unscaledTime)}";
-                _roomCodeText.color = NeutralColor();
-                _hintText.text = _entry.HintLine();
-                _hintText.color = _entry.Error != null ? SeekerColor() : RunnerColor();
-            }
-            else
-            {
-                // 09-30 — 직전 시도가 실패했으면 원인 후보를 보여 준다(주소 오타 / 호스트 미실행 / 방화벽 · 터널 미연결).
-                string failure = connection.LastFailure;
-                _roomCodeText.text = failure ?? HudFormatter.FormatRoomCode(connection.RetryAddress.ToString());
-                _roomCodeText.color = failure != null ? SeekerColor() : NeutralColor();
-                _hintText.text = $"{_hostKey} — 방 만들기(호스트)   ·   {_joinKey} — 코드 입장(참가 · 주소 입력)";
-                _hintText.color = RunnerColor();
-            }
-
-            ClearPlayerRows();
-            _readyCountText.text = string.Empty;
-            _countdownText.text = string.Empty;
-        }
-
-        private void HandleConnectionInput(IConnectionService connection)
-        {
-            if (connection == null)
-                return;
-
-            Keyboard keyboard = Keyboard.current;
-            if (keyboard == null)
-                return;
-
-            if (_entry.IsOpen)
-            {
-                if (_entry.Tick(keyboard, out JoinAddress address) == AddressEntry.Result.Submitted)
-                    connection.StartClient(address);
-                return;
-            }
-
-            if (keyboard[_hostKey].wasPressedThisFrame)
-                connection.StartHost();
-            else if (keyboard[_joinKey].wasPressedThisFrame)
-                _entry.Open(connection.RetryAddress.ToString()); // 직전 주소를 채워 둔다 — 오타만 고쳐 다시 시도
-        }
-
-        private void OnDisable() => _entry.Close();
+        // ── 접속 대기 (§12.2 — 접속은 시작됐고 라운드 동기화 전) ──────────────
 
         private void ShowConnecting()
         {
@@ -404,9 +344,6 @@ namespace Marco.Presentation.UI
 
         private Color RunnerColor() =>
             _palette != null ? _palette.GetRunner(Colorblind) : new Color(0.21f, 0.94f, 0.82f);
-
-        private Color SeekerColor() =>
-            _palette != null ? _palette.GetSeeker(Colorblind) : new Color(1f, 0.23f, 0.30f);
 
         private Color NeutralColor() =>
             _palette != null ? _palette.GetEnvironmentPulse(Colorblind) : new Color(0.91f, 0.91f, 0.91f);

@@ -6,7 +6,8 @@ namespace Marco.Core.Net
     /// 네트워크 접속 시작(호스트/참가)의 Presentation ↔ Net 계약(스프린트 18, §12.2 방 만들기/코드 입장).
     ///
     /// **왜 필요한가**: 접속 시작은 FishNet(`InstanceFinder.ServerManager` 등)을 호출해야 하는데,
-    /// 로비 화면(<c>LobbyScreen</c>)은 Presentation이라 §15.2상 FishNet을 참조할 수 없다.
+    /// 접속을 시작 · 표시하는 화면(<c>LobbyEntry</c> · <c>JoinProgressOverlay</c> · <c>LobbyScreen</c>)은 Presentation이라
+    /// §15.2상 FishNet을 참조할 수 없다.
     /// 스프린트 18b까지는 제3 어셈블리(<c>DebugTools</c>)의 H/J 키가 이 틈을 임시로 메웠다 —
     /// 이 계약이 그 역할을 정식 UI 경로로 대체했고, 그 도구는 스프린트 19에서 제거됐다.
     /// </summary>
@@ -33,19 +34,8 @@ namespace Marco.Core.Net
         /// </summary>
         void Cancel();
 
-        /// <summary>참가 기본 주소(방코드 대용 표시에도 쓴다 — GAP-28).</summary>
-        string DefaultAddress { get; }
-
         /// <summary>로비 화면의 주소 줄(09-30) — 호스트는 내 LAN IP:포트, 참가자는 접속한 주소.</summary>
         string AddressLine { get; }
-
-        /// <summary>
-        /// 직전 접속 시도가 실패 · 끊김으로 끝났을 때의 안내(원인 후보 포함). 없으면 null. 새 시도 · 취소 때 지운다(09-30).
-        /// </summary>
-        string LastFailure { get; }
-
-        /// <summary>다시 시도할 주소 — 직전 참가 주소, 없으면 기본 주소(09-30).</summary>
-        JoinAddress RetryAddress { get; }
 
         /// <summary>이번 접속 시도의 상태(09-30) — 접속 중 화면이 읽는다(시도 중 · 연결됨 · 실패 · 취소).</summary>
         JoinAttempt Attempt { get; }

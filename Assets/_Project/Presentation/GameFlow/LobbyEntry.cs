@@ -14,8 +14,9 @@ namespace Marco.Presentation.GameFlow
     /// 접속 자체는 <see cref="IConnectionService"/>(Core 계약, Net 구현)에 위임한다 —
     /// Presentation이 FishNet을 직접 만지지 않는다(§15.2).
     ///
-    /// 메인 메뉴를 거치지 않고 로비 씬에서 바로 Play한 경우(개발 편의)에는 의도가 없으므로
-    /// 아무것도 하지 않고, <c>LobbyScreen</c>의 접속 전 패널(H/J)이 그대로 쓰인다.
+    /// 메인 메뉴를 거치지 않고 로비 씬에서 바로 Play한 경우에는 의도가 없으므로 아무것도 하지 않는다 — 접속하지
+    /// 않는다. 로비에는 접속 전 패널이 없다(10-01 삭제: <c>LobbyScreen</c>이 PulseSystem(NetworkObject)에 있어 접속 전에
+    /// 꺼지므로 원래 보이지 않았다). 접속하려면 메인 메뉴를 거친다(빌드와 같은 Boot 씬부터 Play).
     /// </summary>
     public sealed class LobbyEntry : MonoBehaviour
     {
@@ -36,7 +37,7 @@ namespace Marco.Presentation.GameFlow
 
             MainMenuScreen.Intent intent = MainMenuScreen.Consume();
             if (intent == MainMenuScreen.Intent.None)
-                return; // 메인 메뉴를 거치지 않음 — LobbyScreen의 H/J 패널로 접속한다.
+                return; // 메인 메뉴를 거치지 않음 — 접속하지 않는다(로비에는 접속 전 패널이 없다).
 
             IConnectionService connection = ConnectionServiceRegistry.Current;
             if (connection == null)
