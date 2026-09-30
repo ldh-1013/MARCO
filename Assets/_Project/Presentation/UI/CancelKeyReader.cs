@@ -17,7 +17,8 @@ namespace Marco.Presentation.UI
     }
 
     /// <summary>
-    /// 접속 중 화면의 취소 키(Esc) 읽기 — 입력 읽기 → 취소 판정을 한곳에 둔다(10-01 실기 결함 수정).
+    /// 취소 · 뒤로 키(Esc) 읽기 — 입력 읽기 → 판정을 한곳에 둔다(10-01 실기 결함 수정). 접속 중 화면(Esc 취소)과 메인 메뉴
+    /// 주소 입력 칸(Esc 뒤로, <see cref="AddressEntry"/>)이 쓴다. 설정 창은 따로 읽는다.
     ///
     /// <para>
     /// <b>실기에서 Esc가 먹지 않은 원인</b>: 전에는 Input System 키 상태(<c>keyboard[Key.Escape].wasPressedThisFrame</c>) 한 경로만

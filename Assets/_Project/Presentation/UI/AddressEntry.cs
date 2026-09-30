@@ -6,14 +6,15 @@ using UnityEngine.InputSystem;
 namespace Marco.Presentation.UI
 {
     /// <summary>
-    /// 참가 주소 입력 칸(09-30) — 메인 메뉴 "코드 입장"(J)과 로비 접속 전 패널이 같이 쓴다. uGUI InputField(EventSystem 필요) 대신
-    /// Input System 키 입력을 직접 받는다 — 이 화면들이 모두 키 기반이라서다.
+    /// 참가 주소 입력 칸(09-30) — 메인 메뉴 "코드 입장"(J)이 쓴다(로비의 접속 전 패널은 10-01 삭제). uGUI InputField(EventSystem 필요)
+    /// 대신 Input System 키 입력을 직접 받는다 — 메뉴가 키 기반이라서다.
     ///
     /// <list type="bullet">
     /// <item>글자: <c>Keyboard.onTextInput</c>(제어 문자 제외). 처음 연 기본값(예: localhost)은 첫 입력 · 붙여넣기 · Backspace에서 통째로 바뀐다.</item>
     /// <item>Ctrl+V: 클립보드 붙여넣기(터널 주소를 복사해 오기 쉽게). 줄바꿈 · 공백은 지운다.</item>
     /// <item>Enter: <see cref="JoinAddressParser"/>로 검사 — 형식 오류면 접속 시도 없이 <see cref="Error"/>에 안내를 남기고 칸은 열린 채.</item>
-    /// <item>Esc: 닫기.</item>
+    /// <item>Esc: 닫기 — Input System 키 + OS 키 이벤트(<see cref="CancelKeyReader"/>, 10-01: 스캔코드 없는 Esc가 무시됐다).
+    ///   OS 키 이벤트는 화면이 OnGUI에서 <see cref="ObserveKeyEvent"/>로 넘긴다.</item>
     /// </list>
     /// </summary>
     public sealed class AddressEntry
@@ -31,6 +32,7 @@ namespace Marco.Presentation.UI
         private readonly StringBuilder _text = new StringBuilder();
         private Keyboard _subscribed;
         private bool _replaceOnFirstInput;
+        private readonly CancelKeyReader _escape = new CancelKeyReader(Key.Escape, KeyCode.Escape);
 
         public bool IsOpen { get; private set; }
 
@@ -47,12 +49,14 @@ namespace Marco.Presentation.UI
             _replaceOnFirstInput = _text.Length > 0;
             Error = null;
             IsOpen = true;
+            _escape.Clear(); // 닫혀 있을 때 눌린 Esc로 방금 연 칸이 닫히지 않게
             Subscribe(Keyboard.current);
         }
 
         public void Close()
         {
             IsOpen = false;
+            _escape.Clear();
             Unsubscribe();
         }
 
@@ -98,21 +102,32 @@ namespace Marco.Presentation.UI
             return Result.None;
         }
 
+        /// <summary>OS 키 이벤트(OnGUI의 <see cref="Event.current"/>)를 넘긴다 — 열려 있을 때만 쌓는다(가상 키 코드 Esc).</summary>
+        public void ObserveKeyEvent(Event e)
+        {
+            if (IsOpen)
+                _escape.Observe(e);
+        }
+
         /// <summary>매 프레임 — Enter · Esc · Backspace · Ctrl+V를 처리한다(글자는 onTextInput이 넣는다).</summary>
         public Result Tick(Keyboard keyboard, out JoinAddress address)
         {
             address = default;
-            if (!IsOpen || keyboard == null)
+            if (!IsOpen)
                 return Result.None;
 
-            if (!ReferenceEquals(_subscribed, keyboard))
-                Subscribe(keyboard);
-
-            if (keyboard.escapeKey.wasPressedThisFrame)
+            // Esc — 접속 중 화면과 같은 읽기(Input System 키 + OS 키 이벤트). 메인 메뉴에는 설정 창이 없어 막지 않는다.
+            if (_escape.Read(keyboard, blocked: false) != CancelKeySource.None)
             {
                 Close();
                 return Result.Cancelled;
             }
+
+            if (keyboard == null)
+                return Result.None;
+
+            if (!ReferenceEquals(_subscribed, keyboard))
+                Subscribe(keyboard);
 
             if (keyboard.enterKey.wasPressedThisFrame || keyboard.numpadEnterKey.wasPressedThisFrame)
                 return Submit(out address);

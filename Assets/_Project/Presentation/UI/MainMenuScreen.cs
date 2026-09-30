@@ -124,6 +124,7 @@ namespace Marco.Presentation.UI
 
         private void Awake()
         {
+            useGUILayout = false; // OnGUI는 키 이벤트만 넘긴다 — 레이아웃 패스가 필요 없다
             BuildUi();
         }
 
@@ -292,6 +293,15 @@ namespace Marco.Presentation.UI
         }
 
         private void OnDisable() => _entry.Close();
+
+        /// <summary>OS 키 이벤트 — 주소 입력 칸의 Esc(뒤로)를 가상 키 코드로도 받는다(10-01, <see cref="CancelKeyReader"/>).</summary>
+        private void OnGUI()
+        {
+            ObserveKeyEvent(Event.current);
+        }
+
+        /// <summary>OS 키 이벤트를 주소 입력 칸에 넘긴다(<see cref="OnGUI"/>). 칸이 닫혀 있으면 버린다.</summary>
+        public void ObserveKeyEvent(Event e) => _entry.ObserveKeyEvent(e);
 
         private void Choose(Intent intent, JoinAddress address)
         {

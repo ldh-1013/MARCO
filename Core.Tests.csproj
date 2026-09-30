@@ -86,6 +86,7 @@
     <Compile Include="Assets\_Project\Tests\EditMode\ValveTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\UnderwaterWorkSessionTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\SoundPulseResolverTests.cs" />
+    <Compile Include="Assets\_Project\Tests\EditMode\AddressEntryCancelInputTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\RoundStartSequencerTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\BreathGaugeTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\SceneGeometry.cs" />
