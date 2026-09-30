@@ -119,7 +119,7 @@ namespace Marco.Core.Tests
         public void Cancel_ReturnsToMenu_WithGrayNotice()
         {
             _fake.Attempt.BeginJoin(Target, Time.realtimeSinceStartup);
-            _fake.Cancel(); // Esc
+            _fake.Cancel(); // 취소 호출 이후만 본다 — Esc 입력 읽기 → 취소 호출은 JoinCancelInputTests(10-01)
             Lifecycle(_overlay, "Update");
 
             Assert.IsTrue(_overlay.ReturnedToMenu);

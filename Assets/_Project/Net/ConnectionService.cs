@@ -283,7 +283,11 @@ namespace Marco.Net
         public void Cancel()
         {
             if (!HasStarted)
+            {
+                // 진단(10-01): 취소 키가 읽혔는데 여기서 멈추면 화면은 그대로 "접속 중"이다 — 실기 로그에서 구분되게 남긴다.
+                Debug.Log($"[Connection] 취소 요청 무시 — 진행 중인 접속 없음(시도 상태 {Attempt.State})");
                 return;
+            }
 
             Attempt.Cancel(); // 뒤따르는 Stopped는 취소로 처리된다(실패로 세지 않는다)
 

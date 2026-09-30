@@ -124,6 +124,7 @@
     <Compile Include="Assets\_Project\Tests\EditMode\LocalPulsePipelineExpiryTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\OcclusionTagWeightTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\DrainDiveTests.cs" />
+    <Compile Include="Assets\_Project\Tests\EditMode\JoinCancelInputTests.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Assets\_Project\Tests\EditMode\Core.Tests.asmdef" />
@@ -1275,6 +1276,14 @@
     </Reference>
     <Reference Include="System.Text.Json">
       <HintPath>C:\Program Files\Unity\Hub\Editor\6000.5.4f1\Editor\Data\BCLExtensions\TargetingPacks\netstandard2.1\ref\System.Text.Json.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="Unity.InputSystem">
+      <HintPath>Library\ScriptAssemblies\Unity.InputSystem.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="Unity.InputSystem.TestFramework">
+      <HintPath>Library\ScriptAssemblies\Unity.InputSystem.TestFramework.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="UnityEngine.TestRunner">

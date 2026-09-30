@@ -4,6 +4,8 @@
     "references": [
         "Core",
         "Presentation",
+        "Unity.InputSystem",
+        "Unity.InputSystem.TestFramework",
         "UnityEngine.TestRunner",
         "UnityEditor.TestRunner"
     ],

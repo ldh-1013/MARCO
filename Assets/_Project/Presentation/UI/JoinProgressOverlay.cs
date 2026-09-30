@@ -17,7 +17,8 @@ namespace Marco.Presentation.UI
     /// </para>
     ///
     /// <list type="bullet">
-    /// <item>시도 중: "127.0.0.1:7999에 접속 중… (N초)" · "Esc — 취소"(설정 창이 열려 있으면 Esc는 설정 창 몫).</item>
+    /// <item>시도 중: "127.0.0.1:7999에 접속 중… (N초)" · "Esc — 취소"(설정 창이 열려 있으면 Esc는 설정 창 몫). Esc는
+    ///   <see cref="CancelKeyReader"/>가 Input System 키와 OS 키 이벤트 두 경로로 읽는다(10-01 — 스캔코드 없는 Esc가 무시됐다).</item>
     /// <item>실패(Tugboat 포기 · 10초 초과 · 연결 뒤 끊김) · 취소: 네트워크를 정리하고(<see cref="IConnectionService.StopAll"/>) 메인 메뉴로.
     ///   메뉴에 빨간 원인 안내(취소는 회색)를 띄우고 J에 직전 주소를 채운다(<see cref="MainMenuScreen.PrepareReturnFromLobby"/>).</item>
     /// <item>연결됨: 숨는다 — 로비 화면이 이어받는다.</item>
@@ -30,12 +31,16 @@ namespace Marco.Presentation.UI
 
         [SerializeField] private Key _cancelKey = Key.Escape;
 
+        [Tooltip("OS 키 이벤트(가상 키 코드)로 읽을 취소 키 — _cancelKey와 같은 키여야 한다.")]
+        [SerializeField] private KeyCode _cancelKeyCode = KeyCode.Escape;
+
         [SerializeField, Range(12, 48)] private int _fontSize = 28;
 
         private GameObject _root;
         private Text _progressText;
         private Text _hintText;
         private bool _returning;
+        private CancelKeyReader _cancelInput;
 
         /// <summary>화면이 보이는가(시도 중).</summary>
         public bool IsShowing => _root != null && _root.activeSelf;
@@ -49,6 +54,8 @@ namespace Marco.Presentation.UI
 
         private void Awake()
         {
+            _cancelInput = new CancelKeyReader(_cancelKey, _cancelKeyCode);
+            useGUILayout = false; // OnGUI는 키 이벤트만 읽는다 — 레이아웃 패스가 필요 없다
             BuildUi();
             SetShowing(false);
         }
@@ -59,6 +66,7 @@ namespace Marco.Presentation.UI
             JoinAttempt attempt = connection?.Attempt;
             if (_returning || attempt == null)
             {
+                _cancelInput.Clear();
                 SetShowing(false);
                 return;
             }
@@ -70,9 +78,15 @@ namespace Marco.Presentation.UI
                     _progressText.text = attempt.ProgressLine(Time.realtimeSinceStartup);
                     _hintText.text = JoinAttempt.CancelHint;
 
-                    Keyboard keyboard = Keyboard.current;
-                    if (keyboard != null && keyboard[_cancelKey].wasPressedThisFrame && !SettingsScreen.IsAnyOpen)
+                    CancelKeySource pressed = _cancelInput.Read(Keyboard.current, SettingsScreen.IsAnyOpen);
+                    if (pressed != CancelKeySource.None)
+                    {
+                        Debug.Log($"[JoinOverlay] 취소 키 감지 — {CancelKeyReader.Describe(pressed)} · " +
+                                  $"시도 후 {attempt.Elapsed(Time.realtimeSinceStartup):0.0}초 → 접속 취소");
                         connection.Cancel();
+                        if (attempt.State == JoinAttemptState.Connecting)
+                            Debug.LogWarning("[JoinOverlay] 취소를 불렀지만 아직 접속 중 — [Connection] 줄에서 이유를 확인");
+                    }
                     break;
 
                 case JoinAttemptState.Failed:
@@ -81,9 +95,36 @@ namespace Marco.Presentation.UI
                     break;
 
                 default:
+                    _cancelInput.Clear();
                     SetShowing(false);
                     break;
             }
+        }
+
+        /// <summary>OS 키 이벤트 — 가상 키 코드만 담긴 Esc도 여기로 온다(Input System 키 상태에는 안 잡힌다).</summary>
+        private void OnGUI()
+        {
+            ObserveKeyEvent(Event.current);
+        }
+
+        /// <summary>
+        /// OS 키 이벤트를 취소 키 읽기에 넘긴다(<see cref="OnGUI"/>). 접속 중일 때만 — 그 밖의 때 눌린 키는 쌓아 두지 않는다.
+        /// </summary>
+        public void ObserveKeyEvent(Event e)
+        {
+            if (!_returning && ConnectionServiceRegistry.Current?.Attempt?.State == JoinAttemptState.Connecting)
+                _cancelInput.Observe(e);
+        }
+
+        /// <summary>진단(10-01): 접속 중에 창 포커스가 바뀌면 남긴다 — 포커스가 없으면 키 입력이 이 창에 오지 않는다.</summary>
+        private void OnApplicationFocus(bool hasFocus)
+        {
+            JoinAttempt attempt = ConnectionServiceRegistry.Current?.Attempt;
+            if (_returning || attempt == null || attempt.State != JoinAttemptState.Connecting)
+                return;
+
+            Debug.Log($"[JoinOverlay] 접속 중 창 포커스 {(hasFocus ? "얻음" : "잃음 — 키 입력이 이 창에 오지 않는다")} · " +
+                      $"시도 후 {attempt.Elapsed(Time.realtimeSinceStartup):0.0}초");
         }
 
         /// <summary>네트워크를 정리하고 메인 메뉴로 — 안내 · 직전 주소를 넘긴다. 한 번만.</summary>

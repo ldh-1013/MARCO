@@ -80,6 +80,7 @@
     <Compile Include="Assets\_Project\Presentation\GameFlow\LobbyPlaceholderFloor.cs" />
     <Compile Include="Assets\_Project\Presentation\GameFlow\BootFlow.cs" />
     <Compile Include="Assets\_Project\Presentation\SoundPulse\PhysicsFootstepMaterialProbe.cs" />
+    <Compile Include="Assets\_Project\Presentation\UI\CancelKeyReader.cs" />
     <Compile Include="Assets\_Project\Presentation\SoundPulse\LocalPulsePipelineBehaviour.cs" />
     <Compile Include="Assets\_Project\Presentation\Tagging\TaggableRunner.cs" />
     <Compile Include="Assets\_Project\Presentation\GameFlow\PawnPhaseTeleporter.cs" />
