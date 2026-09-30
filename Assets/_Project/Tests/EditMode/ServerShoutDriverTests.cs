@@ -307,8 +307,7 @@ namespace Marco.Core.Tests
             d.Tick(firedAt);
 
             var gauge = new BreathGauge();
-            for (int i = 0; i < 400; i++)
-                gauge.Tick(BreathZone.Submerged, 0.02f); // 8초 잠수(수중 밸브 1회) → 잔여 4.0 < 4.5
+            gauge.Tick(BreathZone.Submerged, BreathConfig.TotalSeconds - 4f); // 잔여 4.0 < 4.5(v0.4에서는 수중 밸브 1회 직후)
 
             float before = gauge.Current;
             List<ScreamReaction> reactions = d.ResolveFear(Origin, new List<ShoutTarget> { Runner(RunnerA, 5f, gauge) }, firedAt);

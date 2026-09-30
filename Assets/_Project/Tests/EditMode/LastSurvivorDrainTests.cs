@@ -22,12 +22,12 @@ namespace Marco.Core.Tests
 
         // ── §6.5-2 작업 시간 · 총 점유 · 잠수 횟수 표 ─────────────────────
 
-        // 동시 개방 | T | 총 점유(진입 1 + T + 부상 1) | 게이지 12초 기준
-        //   0개     | 14 | 16 | 2회
-        //   1개     | 11 | 13 | 2회
-        //   2개     |  8 | 10 | 1회(잔여 2초)
-        [TestCase(0, 14f, 16f, 2)]
-        [TestCase(1, 11f, 13f, 2)]
+        // 동시 개방 | T | 총 점유(진입 1 + T + 부상 1) | 게이지 20초 기준(10-01 — v0.4 12초에서는 0 · 1개가 2회)
+        //   0개     | 14 | 16 | 1회(잔여 4초)
+        //   1개     | 11 | 13 | 1회(잔여 7초)
+        //   2개     |  8 | 10 | 1회(잔여 10초)
+        [TestCase(0, 14f, 16f, 1)]
+        [TestCase(1, 11f, 13f, 1)]
         [TestCase(2, 8f, 10f, 1)]
         public void DrainTable_MatchesDesignDoc(int openValves, float t, float occupancy, int dives)
         {
@@ -37,10 +37,10 @@ namespace Marco.Core.Tests
         }
 
         [Test]
-        public void TwoOpenValves_OneDive_LeavesTwoSecondsOfBreath()
+        public void TwoOpenValves_OneDive_LeavesTenSecondsOfBreath()
         {
-            // §6.5-2 "1회 잠수(잔여 2초)" — 게이지 값은 BreathConfig 한 곳이 소유한다.
-            Assert.AreEqual(2f, BreathConfig.TotalSeconds - DrainConfig.TotalOccupancySeconds(2), Eps);
+            // §6.5-2 "1회 잠수(잔여 10초)" — 게이지 값은 BreathConfig 한 곳이 소유한다(10-01 20초, v0.4 12초에서는 잔여 2초).
+            Assert.AreEqual(10f, BreathConfig.TotalSeconds - DrainConfig.TotalOccupancySeconds(2), Eps);
         }
 
         [Test]

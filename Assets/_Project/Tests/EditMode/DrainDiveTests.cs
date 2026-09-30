@@ -110,76 +110,59 @@ namespace Marco.Core.Tests
             Assert.AreEqual(DrainConfig.SurfaceSeconds, s.SurfaceSeconds, Eps);
         }
 
-        [Test]
-        public void OneValveOpen_Job13s_ExceedsGauge12_ForcesSecondDive()
+        // ── 10-01 플레이 보고 "배수구를 절대 못 연다" — 숨 총량 20초 ──────────────────
+
+        [TestCase(0.5f)]
+        [TestCase(1f / 60f)]
+        public void NoValvesOpen_HoldFromFullBreath_CompletesInOneDive(float dt)
         {
-            // §6.5-2 표: 동시 개방 1개 → T 11 → 총 점유(진입 1 + 11 + 부상 1) 13초 > 게이지 12초 → 2회 잠수.
-            Assert.AreEqual(13f, DrainConfig.TotalOccupancySeconds(1), Eps);
-            Assert.Greater(DrainConfig.TotalOccupancySeconds(1), BreathConfig.TotalSeconds);
+            // 최후 생존자 페이즈 · 동시 개방 0개 → T 14 → 총 점유(진입 1 + 14 + 부상 1) 16초.
+            // 만충에서 E를 끝까지 누른 채 한 번 잠수로 작업 · 부상 · 통과까지 마쳐야 한다.
+            // 수정 전(숨 12초): 작업 11초째에 숨이 바닥나 강제 부상 — 진행도 11/14에서 감쇠(유예 3초 뒤 −0.10/s)가
+            // 수면 회복(대기 2초 + 초당 2)보다 빨라 다음 잠수로도 따라잡지 못했다(아래 NoValvesOpen_SurfaceRecoveryOnly_… 참조).
+            var sim = new DrainDiveSim(openValves: 0);
+            while (sim.Dives < 2 && !sim.Escaped && sim.Elapsed < DrainConfig.PhaseSeconds)
+                sim.Step(dt);
 
-            // 만충에서 E를 끝까지 누른 채 버틴다 — 그래도 한 번에는 나갈 수 없다.
-            var sim = new DrainDiveSim(openValves: 1);
-            while (sim.Dives < 2 && !sim.Escaped && sim.Elapsed < 60f)
-                sim.Step(0.5f);
-
-            Assert.IsFalse(sim.Escaped, "첫 잠수로는 탈출 못 한다");
-            Assert.AreEqual(1, sim.ForcedSurfaces, "숨 12초가 13초 작업 도중 바닥나 강제 부상(§5.9-1)");
-
-            sim.RunUntilEscapeOr(DrainConfig.PhaseSeconds);
-            Assert.IsTrue(sim.Escaped, "두 번째 잠수로 탈출");
-            Assert.AreEqual(2, sim.Dives, "2회 잠수가 강제된다");
+            Assert.AreEqual(0, sim.ForcedSurfaces, "숨이 모자라 강제 부상(질식)하면 안 된다");
+            Assert.IsTrue(sim.Escaped, "첫 잠수로 탈출(작업 완료 → 부상 → 통과 1.5초)");
+            Assert.AreEqual(1, sim.Dives);
         }
 
-        [Test]
-        public void TwoValvesOpen_Job10s_OneDive_Residual2()
+        [TestCase(0, 14f, 4f)]
+        [TestCase(1, 11f, 7f)]
+        [TestCase(2, 8f, 10f)]
+        [TestCase(3, 5f, 13f)] // 공식 확인용 — 실제로는 요구 수(2 또는 3)를 채워 게이트가 열리면 배수구가 켜지지 않는다(§6.5-2)
+        public void OneDive_WorkSecondsAndResidualBreath(int openValves, float workSeconds, float residualBreath)
         {
-            // §6.5-2 표: 동시 개방 2개 → T 8 → 총 점유 10초 → 1회 잠수(잔여 2초).
-            var sim = new DrainDiveSim(openValves: 2);
-            sim.RunUntilEscapeOr(DrainConfig.PhaseSeconds);
+            Assert.AreEqual(workSeconds, DrainConfig.WorkSeconds(openValves), Eps, "T = 14 − 동시 개방 × 3");
+
+            // 서버에 가까운 1/60초 틱. 진입 · 작업 · 부상 세 구간은 틱마다 dt를 더해 경계를 넘는지 보므로, 부동소수 누적으로
+            // 구간마다 최대 한 틱씩 늦을 수 있다 — 허용 오차 세 틱(0.05초). 게임에서도 같다(서버 틱 단위).
+            // (0.5초 틱이면 T 14초가 한 틱 늦어 잔여가 3.5로 나온다.)
+            const float Dt = 1f / 60f;
+            var sim = new DrainDiveSim(openValves);
+            sim.RunUntilEscapeOr(DrainConfig.PhaseSeconds, Dt);
 
             Assert.IsTrue(sim.Escaped);
+            Assert.AreEqual(1, sim.Dives, "한 번 잠수");
+            Assert.AreEqual(0, sim.ForcedSurfaces);
+            Assert.AreEqual(residualBreath, sim.BreathAtTransit, 3f * Dt + Eps, "20 − (진입 1 + T + 부상 1) — 부상을 마친 순간의 숨");
+        }
+
+        [TestCase(0)]
+        [TestCase(1)]
+        public void CautiousPolicy_ReleaseAtOneAndHalf_StillOneDive(int openValves)
+        {
+            // 부상을 숨으로 덮으려는 조심스러운 정책(숨 1.5에서 E를 뗌)도 한 번에 끝난다 — 잔여가 4 · 7초라 떼는 일이 없다.
+            // v0.4(12초)에서는 1개 개방이 2회 잠수, 0개 개방은 수면 회복만으로 질식 없이 90초 안에 나갈 수 없었다
+            // (진행도 감쇠 −0.10/s가 수면 회복보다 빨랐다 — 10-01 플레이 보고의 원인).
+            var sim = new DrainDiveSim(openValves) { ReleaseAtBreath = 1.5f };
+            sim.RunUntilEscapeOr(DrainConfig.PhaseSeconds);
+
+            Assert.IsTrue(sim.Escaped, $"경과 {sim.Elapsed:0.0}초");
             Assert.AreEqual(1, sim.Dives);
             Assert.AreEqual(0, sim.ForcedSurfaces);
-            Assert.AreEqual(2f, sim.BreathAtTransit, Eps, "12 − (1 + 8 + 1) = 2 — 부상을 마친 순간의 숨");
-        }
-
-        [Test]
-        public void OneValveOpen_WithoutChoking_TwoDives()
-        {
-            // 부상을 숨으로 덮는 정책(숨 1.5에서 떼고, 11에서 다시 누름) — 질식 없이 2회(§6.5-2 표와 일치).
-            var sim = new DrainDiveSim(openValves: 1) { ReleaseAtBreath = 1.5f, PressAtBreath = 11f };
-            sim.RunUntilEscapeOr(DrainConfig.PhaseSeconds);
-
-            Assert.IsTrue(sim.Escaped, $"경과 {sim.Elapsed:0.0}초");
-            Assert.AreEqual(2, sim.Dives);
-            Assert.AreEqual(0, sim.ForcedSurfaces);
-        }
-
-        [Test]
-        public void NoValvesOpen_SurfaceRecoveryOnly_WithoutChoking_CannotEscapeIn90s()
-        {
-            // **물 위(수면 +2/s)에서만 숨을 채우는 경우**의 동작을 고정한다. 채우는 동안(대기 2초 + 초당 2) 진행도가
-            // 유예 3초 뒤 −0.10/s로 깎여 질식 없이는 90초 안에 나갈 수 없다(파이썬 정책 전수 탐색 — 떼는 숨 0~12 × 다시 누르는 숨 0.5~12).
-            // ⚠ 기획서 §6.5-2 표("0개 → 2회")와 충돌하는 것은 아니다 — 09-23 재검증: 물 밖(+4/s)으로 나가 채우고 귀환 한계선
-            // (숨 1.0초)에서 떼면 **질식 없이 2회**로 나간다(숨 1.0~1.2초 사이, 조작 창 약 0.15~0.2초 — §5.9-1 0초 경계 수정 뒤 60Hz 정수 틱 탐색). 그 전략은 이 시뮬레이터 밖이다.
-            var sim = new DrainDiveSim(openValves: 0) { ReleaseAtBreath = 1.5f, PressAtBreath = 12f };
-            sim.RunUntilEscapeOr(DrainConfig.PhaseSeconds);
-
-            Assert.IsFalse(sim.Escaped);
-            Assert.AreEqual(0, sim.ForcedSurfaces);
-        }
-
-        [Test]
-        public void NoValvesOpen_SurfaceRecoveryOnly_WithChoking_ThreeDivesTwoChokes()
-        {
-            // 물 위에서만 채우면서 질식(§5.9-1 강제 부상 — 매번 22m 고함급 파문)을 감수하고 끝까지 버티면 나갈 수는 있다 —
-            // 잠수 3회 · 질식 2회(같은 조건의 파이썬 정책 탐색 최소값과 같다). 물 밖 회복을 쓰면 2회로 줄어든다(위 주석).
-            var sim = new DrainDiveSim(openValves: 0) { ReleaseAtBreath = 0f, PressAtBreath = 11.5f };
-            sim.RunUntilEscapeOr(DrainConfig.PhaseSeconds);
-
-            Assert.IsTrue(sim.Escaped, $"경과 {sim.Elapsed:0.0}초");
-            Assert.AreEqual(3, sim.Dives, "물 위 회복만이면 3회");
-            Assert.AreEqual(2, sim.ForcedSurfaces, "질식 2회");
         }
 
         [Test]

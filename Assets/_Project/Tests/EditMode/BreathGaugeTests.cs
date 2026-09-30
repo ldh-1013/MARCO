@@ -26,7 +26,7 @@ namespace Marco.Core.Tests
         [Test]
         public void Config_MatchesDesignDoc()
         {
-            Assert.AreEqual(12f, BreathConfig.TotalSeconds);   // §5.9-1 [v0.4] "총량 12초"
+            Assert.AreEqual(20f, BreathConfig.TotalSeconds);   // 10-01 총량 20초(v0.4 12초 — 배수구 플레이 보고)
             Assert.AreEqual(1f, BreathConfig.DivePerSecond);
             Assert.AreEqual(4.5f, BreathConfig.SuppressionCost); // §5.9-1 [v0.4] "비명 억제 -4.5"
             Assert.AreEqual(2f, BreathConfig.SurfaceRecoveryPerSecond);
@@ -39,17 +39,12 @@ namespace Marco.Core.Tests
         [Test]
         public void MaxConsecutiveSuppressions_IsDerivedNotHardcoded()
         {
-            // §5.9-1 [v0.4] "연속 억제 최대 2회 — 게이지 12초 ÷ 억제 4.5초 = 2.67".
-            Assert.AreEqual(2, BreathConfig.MaxConsecutiveSuppressions);
             Assert.AreEqual((int)(BreathConfig.TotalSeconds / BreathConfig.SuppressionCost),
                 BreathConfig.MaxConsecutiveSuppressions);
 
-            // §5.9-1 [v0.4]가 명시적으로 막은 결과를 고정한다 — 총량만 8→12로 올리고
-            // 비용을 3으로 두면 이 값이 4가 되어 "3.5절 외침의 위력이 약해진다".
-            Assert.AreNotEqual(4, BreathConfig.MaxConsecutiveSuppressions,
-                "총량 12초에 억제 비용 3초를 쓰면 4회가 된다 — §5.9-1이 4.5초로 비율을 고정한 이유다.");
-            Assert.AreEqual(2.666f, BreathConfig.TotalSeconds / BreathConfig.SuppressionCost, 0.001f,
-                "§5.9-1 '12 ÷ 4.5 = 2.67회로 비율을 고정'.");
+            // 10-01: 총량만 12→20으로 올리고 억제 비용 4.5는 그대로 뒀다(지시) — 20 ÷ 4.5 = 4.44 → 4회.
+            // v0.4(12 ÷ 4.5 = 2.67 → 2회)의 "비율 고정"은 의도적으로 유지하지 않았다 — §3.5 외침의 위력이 약해진다.
+            Assert.AreEqual(4, BreathConfig.MaxConsecutiveSuppressions);
         }
 
         [Test]
@@ -81,14 +76,14 @@ namespace Marco.Core.Tests
             var g = new BreathGauge();
             Advance(g, BreathZone.Submerged, 3f);
 
-            Assert.AreEqual(9f, g.Current, 0.01f); // 12 - 1/초 × 3초
+            Assert.AreEqual(BreathConfig.TotalSeconds - 3f, g.Current, 0.01f); // 총량 - 1/초 × 3초
         }
 
         [Test]
         public void Dive_StopsAtZero_NeverNegative()
         {
             var g = new BreathGauge();
-            Advance(g, BreathZone.Submerged, 20f); // 총량의 2배 넘게 잠수
+            Advance(g, BreathZone.Submerged, BreathConfig.TotalSeconds * 2f + 1f); // 총량의 2배 넘게 잠수
 
             Assert.AreEqual(0f, g.Current, 0.0001f);
         }
@@ -99,7 +94,7 @@ namespace Marco.Core.Tests
             var g = new BreathGauge();
 
             Assert.AreEqual(SuppressionResult.Suppressed, g.TrySuppressScream(BreathZone.OutOfWater));
-            Assert.AreEqual(7.5f, g.Current, 0.0001f); // 12 - 4.5
+            Assert.AreEqual(BreathConfig.TotalSeconds - 4.5f, g.Current, 0.0001f); // 총량 - 4.5
         }
 
         // ── 회복 ─────────────────────────────────────────────────────────
@@ -108,12 +103,12 @@ namespace Marco.Core.Tests
         public void Recovery_DoesNotStartDuringDelay()
         {
             var g = new BreathGauge();
-            g.TrySuppressScream(BreathZone.OutOfWater); // 7.5 남음, 대기 2초
+            g.TrySuppressScream(BreathZone.OutOfWater); // 총량 - 4.5 남음, 대기 2초
 
             Advance(g, BreathZone.OutOfWater, 1.9f);
 
             Assert.IsTrue(g.IsRecoveryDelayed);
-            Assert.AreEqual(7.5f, g.Current, 0.01f, "회복 대기 중에는 1도 회복하면 안 된다(§5.9-1).");
+            Assert.AreEqual(BreathConfig.TotalSeconds - 4.5f, g.Current, 0.01f, "회복 대기 중에는 1도 회복하면 안 된다(§5.9-1).");
         }
 
         [Test]
@@ -189,24 +184,25 @@ namespace Marco.Core.Tests
         [Test]
         public void DocTable_UnderwaterValveDive_TakesFour()
         {
-            // §5.9-1 [v0.4]: 수중 밸브 1회(8초) 후 물 밖 → -8 / 대기 2초 / 회복 2.0초 / 총 4.0초.
+            // §5.9-1: 수중 밸브 1회(8초) 후 물 밖 → -8 / 대기 2초 / 회복 2.0초 / 총 4.0초(총량과 무관 — 쓴 만큼만 채운다).
             // 8초는 §6.1 [v0.4] 수중 밸브 총 점유(B: 1.5+5.0+1.5 / E: 0.5+7.0+0.5)와 같은 값이다.
             var g = new BreathGauge();
             Advance(g, BreathZone.Submerged, 8f);
-            Assert.AreEqual(4f, g.Current, 0.02f);
+            Assert.AreEqual(BreathConfig.TotalSeconds - 8f, g.Current, 0.02f); // 10-01: 잔여 12(v0.4는 4)
 
-            Assert.AreEqual(4.0f, SecondsToFull(g, BreathZone.OutOfWater), 0.03f);
+            // 허용 오차 0.05(0.02초 측정 틱 두 번) — 20 근처 값에서 0.02초씩 누적하는 부동소수 잔차로 만충 판정이 두 틱 늦는다(실측 4.04).
+            Assert.AreEqual(4.0f, SecondsToFull(g, BreathZone.OutOfWater), 0.05f);
         }
 
         [Test]
-        public void DocTable_FullDepletion_TakesFive()
+        public void DocTable_FullDepletion_TakesSeven()
         {
-            // §5.9-1 [v0.4]: 전체 고갈(12초) 후 물 밖 → -12 / 대기 2초 / 회복 3.0초 / 총 5.0초
+            // §5.9-1: 전체 고갈(20초) 후 물 밖 → -20 / 대기 2초 / 회복 5.0초 / 총 7.0초(v0.4 12초는 5.0초였다)
             var g = new BreathGauge();
-            Advance(g, BreathZone.Submerged, 12f);
+            Advance(g, BreathZone.Submerged, BreathConfig.TotalSeconds);
             Assert.AreEqual(0f, g.Current, 0.02f);
 
-            Assert.AreEqual(5.0f, SecondsToFull(g, BreathZone.OutOfWater), 0.03f);
+            Assert.AreEqual(7.0f, SecondsToFull(g, BreathZone.OutOfWater), 0.03f);
         }
 
         // ── 질식 (§5.9-1 고갈 페널티) ────────────────────────────────────
@@ -217,7 +213,8 @@ namespace Marco.Core.Tests
             var g = new BreathGauge();
             int chokes = 0;
 
-            for (int i = 0; i < 900; i++) // 18초 잠수 — 12초에 고갈된다(§5.9-1 [v0.4])
+            int ticks = (int)(BreathConfig.TotalSeconds * 1.5f / 0.02f); // 총량의 1.5배 잠수 — 총량에서 고갈된다
+            for (int i = 0; i < ticks; i++)
             {
                 if (g.Tick(BreathZone.Submerged, 0.02f).Choked)
                     chokes++;
@@ -297,7 +294,7 @@ namespace Marco.Core.Tests
             // 경계를 재는 테스트이므로 단일 틱으로 정확히 7.5초를 소모한다
             // (Choke_AppliesSpeedPenaltyForThreeSeconds가 같은 이유로 이미 이 방식을 쓴다).
             var g = new BreathGauge();
-            g.Tick(BreathZone.Submerged, 7.5f); // 12 - 7.5 = 4.5 정확히
+            g.Tick(BreathZone.Submerged, BreathConfig.TotalSeconds - 4.5f); // 잔여 4.5 정확히
             Assert.AreEqual(4.5f, g.Current, 0.0001f);
 
             Assert.AreEqual(SuppressionResult.Suppressed, g.TrySuppressScream(BreathZone.OutOfWater));
@@ -308,9 +305,9 @@ namespace Marco.Core.Tests
         public void Suppress_BelowCost_FailsAndLeavesGaugeUntouched()
         {
             // §3.5 [v0.4] "게이지 4.5초 미만 — 억제 불가. 비명 강제 발생". 부분 차감도 음수도 없다.
-            // 8초는 §5.9-1 [v0.4]가 지목한 실제 상황이다 — 수중 밸브 1회 직후 잔여 4.0.
+            // 잔여 4.0(v0.4에서는 수중 밸브 1회 직후였다 — 10-01 총량 20초부터는 잔여 12라 이 상황이 아니다).
             var g = new BreathGauge();
-            Advance(g, BreathZone.Submerged, 8f); // 잔여 4.0 < 4.5
+            Advance(g, BreathZone.Submerged, BreathConfig.TotalSeconds - 4f); // 잔여 4.0 < 4.5
             float before = g.Current;
 
             Assert.AreEqual(SuppressionResult.NotEnoughBreath, g.TrySuppressScream(BreathZone.OutOfWater));
@@ -322,26 +319,28 @@ namespace Marco.Core.Tests
         public void Suppress_AtZero_FailsAndStaysAtZero()
         {
             var g = new BreathGauge();
-            Advance(g, BreathZone.Submerged, 12f);
+            Advance(g, BreathZone.Submerged, BreathConfig.TotalSeconds);
 
             Assert.AreEqual(SuppressionResult.NotEnoughBreath, g.TrySuppressScream(BreathZone.OutOfWater));
             Assert.AreEqual(0f, g.Current, 0.0001f);
         }
 
-        // ── §5.9-1 "연속 억제 최대 2회" ─────────────────────────────────
+        // ── §5.9-1 연속 억제 최대 횟수(10-01: 4회) ─────────────────────
 
         [Test]
-        public void ConsecutiveSuppressions_MaxTwoOnFullGauge()
+        public void ConsecutiveSuppressions_MaxFourOnFullGauge()
         {
             var g = new BreathGauge();
 
-            Assert.AreEqual(SuppressionResult.Suppressed, g.TrySuppressScream(BreathZone.OutOfWater)); // 12 → 7.5
-            Assert.AreEqual(SuppressionResult.Suppressed, g.TrySuppressScream(BreathZone.OutOfWater)); // 7.5 → 3.0
+            Assert.AreEqual(SuppressionResult.Suppressed, g.TrySuppressScream(BreathZone.OutOfWater)); // 20 → 15.5
+            Assert.AreEqual(SuppressionResult.Suppressed, g.TrySuppressScream(BreathZone.OutOfWater)); // 15.5 → 11.0
+            Assert.AreEqual(SuppressionResult.Suppressed, g.TrySuppressScream(BreathZone.OutOfWater)); // 11.0 → 6.5
+            Assert.AreEqual(SuppressionResult.Suppressed, g.TrySuppressScream(BreathZone.OutOfWater)); // 6.5 → 2.0
             Assert.AreEqual(SuppressionResult.NotEnoughBreath, g.TrySuppressScream(BreathZone.OutOfWater));
 
-            // v0.4에서 총량이 8→12로 늘었어도 2회는 그대로다 — 비용이 3→4.5로 함께 올랐다.
-            Assert.AreEqual(BreathConfig.MaxConsecutiveSuppressions, 2);
-            Assert.AreEqual(3f, g.Current, 0.0001f, "12 - 4.5 - 4.5 = 3.0 (4.5 미만이라 3회는 불가).");
+            // 10-01 총량 20초 · 억제 비용 4.5 그대로 → 4회(v0.4 12초에서는 2회였다).
+            Assert.AreEqual(BreathConfig.MaxConsecutiveSuppressions, 4);
+            Assert.AreEqual(2f, g.Current, 0.0001f, "20 - 4.5 × 4 = 2.0 (4.5 미만이라 5회는 불가).");
         }
 
         [Test]
@@ -358,13 +357,13 @@ namespace Marco.Core.Tests
                 "45초 뒤에는 어떤 상태에서든 만충이라 육상·수면에서는 억제가 항상 가능하다.");
         }
 
-        [TestCase(7.5f, true)]  // §5.9-1 [v0.4] 표: 7.5초 잠수(-7.5, 잔여 4.5) 직후 → 억제 가능하나 게이지 0
-        [TestCase(8f, false)]   // §5.9-1 [v0.4] 표: 8초 잠수(수중 밸브 1회, 잔여 4.0) → 억제 불가, 비명 강제
-        public void DocTable_DiveThenShout(float diveSeconds, bool canSuppress)
+        [TestCase(4.5f, true)]  // §5.9-1 표: 잠수 뒤 잔여 4.5 → 억제 가능하나 게이지 0(v0.4는 7.5초 잠수, 10-01은 15.5초)
+        [TestCase(4.0f, false)] // §5.9-1 표: 잠수 뒤 잔여 4.0 → 억제 불가, 비명 강제(v0.4는 8초 잠수 = 수중 밸브 1회, 10-01은 16초)
+        public void DocTable_DiveThenShout(float residualAfterDive, bool canSuppress)
         {
-            // 7.5초 행이 정확히 비용 경계(잔여 4.5)라 누적 오차가 판정을 뒤집는다 — 단일 틱.
+            // 잔여 4.5가 정확히 비용 경계라 누적 오차가 판정을 뒤집는다 — 단일 틱.
             var g = new BreathGauge();
-            g.Tick(BreathZone.Submerged, diveSeconds);
+            g.Tick(BreathZone.Submerged, BreathConfig.TotalSeconds - residualAfterDive);
 
             Assert.AreEqual(canSuppress, g.CanSuppress,
                 "§5.9-1 '이 제약이 실제로 작동하는 것은 잠수와 겹칠 때뿐'이라는 표와 어긋난다.");
@@ -378,7 +377,7 @@ namespace Marco.Core.Tests
             // §3.5 "잠수 중 | 이미 게이지 소모 중 | 자동 억제(물속이라 비명 못 지름)".
             // 억제 -4.5와 잠수 -1/초가 같은 프레임에 이중으로 빠지지 않는다는 것이 핵심이다.
             var g = new BreathGauge();
-            Advance(g, BreathZone.Submerged, 2f); // 잔여 10
+            Advance(g, BreathZone.Submerged, 2f); // 잔여 총량 - 2
             float before = g.Current;
 
             Assert.AreEqual(SuppressionResult.SuppressedByDive, g.TrySuppressScream(BreathZone.Submerged));
@@ -390,7 +389,7 @@ namespace Marco.Core.Tests
         {
             // 잔여 4.0에서도 잠수 중이면 억제된다 — 비용이 0이라 "4.5 미만" 규칙이 적용되지 않는다.
             var g = new BreathGauge();
-            Advance(g, BreathZone.Submerged, 8f);
+            Advance(g, BreathZone.Submerged, BreathConfig.TotalSeconds - 4f);
             Assert.IsFalse(g.CanSuppress);
 
             Assert.AreEqual(SuppressionResult.SuppressedByDive, g.TrySuppressScream(BreathZone.Submerged));
@@ -402,7 +401,7 @@ namespace Marco.Core.Tests
             // 같은 프레임에 억제와 잠수 소모가 겹치는 경우. 잠수 중이면 억제는 무료이므로
             // 그 프레임의 감소분은 잠수 소모(-1 × dt)뿐이어야 한다.
             var g = new BreathGauge();
-            Advance(g, BreathZone.Submerged, 1f); // 잔여 11
+            Advance(g, BreathZone.Submerged, 1f); // 잔여 총량 - 1
             float before = g.Current;
 
             g.TrySuppressScream(BreathZone.Submerged);
@@ -419,7 +418,7 @@ namespace Marco.Core.Tests
             g.TrySuppressScream(BreathZone.Surface);
             g.Tick(BreathZone.Surface, 0.02f);
 
-            Assert.AreEqual(7.5f, g.Current, 0.0001f); // 12 - 4.5
+            Assert.AreEqual(BreathConfig.TotalSeconds - 4.5f, g.Current, 0.0001f); // 총량 - 4.5
         }
 
         // ── 라운드 초기화 ────────────────────────────────────────────────
@@ -438,10 +437,11 @@ namespace Marco.Core.Tests
             Assert.IsTrue(g.CanSubmerge);
         }
 
-        // ── §6.5-2 배수구 "2회 잠수 필수" 부등식 [v0.4] ──────────────────
+        // ── §6.5-2 배수구 잠수 횟수 (10-01: 모두 1회) ─────────────────────
 
         /// <summary>
-        /// §6.5-2 표를 그대로 고정한다 — 총 점유가 게이지 12초를 넘으면 2회 잠수가 강제된다.
+        /// §6.5-2 표를 고정한다 — 총 점유가 게이지를 넘으면 2회 잠수가 강제된다. v0.4(12초)에서는 0 · 1개가 2회였고,
+        /// 10-01 총량 20초부터는 0~2개 모두 1회다(플레이 보고 "배수구를 절대 못 연다" — 2회 잠수가 실제로는 불가능했다).
         ///
         /// <para>
         /// 여기의 14·3·1은 <b>§6.5-2 표의 값을 테스트 안에서만</b> 쓴 것이다. 배수구 상수의
@@ -450,9 +450,9 @@ namespace Marco.Core.Tests
         /// 같은 값이 남는다(더블체크 8).
         /// </para>
         /// </summary>
-        [TestCase(0, 14f, 16f, 2)] // §6.5-2: T=14, 총 16초 → 2회 잠수 필수
-        [TestCase(1, 11f, 13f, 2)] // §6.5-2: T=11, 총 13초 → 2회 잠수 필수
-        [TestCase(2, 8f, 10f, 1)]  // §6.5-2: T= 8, 총 10초 → 1회 잠수(잔여 2초)
+        [TestCase(0, 14f, 16f, 1)] // §6.5-2: T=14, 총 16초 → 1회 잠수(잔여 4초 · v0.4 12초에서는 2회)
+        [TestCase(1, 11f, 13f, 1)] // §6.5-2: T=11, 총 13초 → 1회 잠수(잔여 7초 · v0.4 12초에서는 2회)
+        [TestCase(2, 8f, 10f, 1)]  // §6.5-2: T= 8, 총 10초 → 1회 잠수(잔여 10초)
         public void DocTable_DrainWork_ForcesDiveCount(int valvesOpen, float expectedT,
             float expectedOccupancy, int expectedDives)
         {
@@ -464,24 +464,22 @@ namespace Marco.Core.Tests
             float occupancy = 1f + t + 1f;
             Assert.AreEqual(expectedOccupancy, occupancy, 0.0001f);
 
-            // 게이지 12초로 한 번에 덮을 수 있는가 — 이것이 "2회 잠수 필수"의 정의다.
+            // 게이지로 한 번에 덮을 수 있는가 — 이것이 "2회 잠수 필수"의 정의다.
             int dives = occupancy <= BreathConfig.TotalSeconds ? 1 : 2;
             Assert.AreEqual(expectedDives, dives,
                 $"§6.5-2 표와 어긋난다 — 총 점유 {occupancy}초 vs 게이지 {BreathConfig.TotalSeconds}초.");
         }
 
         [Test]
-        public void DrainWork_WouldCollapseToOneDive_IfGaugeWereLarger()
+        public void DrainWork_WorstCaseFitsInOneDive()
         {
-            // §6.5-2의 "2회 잠수 필수"는 게이지 12초에 의존한다. 총량을 16초 이상으로 올리면
-            // 밸브 0개 상태에서도 1회 잠수로 끝나 "부상하는 순간마다 위치가 노출된다"는
-            // 페이즈 설계가 사라진다. 그 경계를 고정해 둔다.
+            // v0.4(12초)는 이 경계를 일부러 넘지 않았다 — "2회 잠수 필수"로 부상할 때마다 위치가 노출되게 하려고.
+            // 10-01 플레이 보고로 뒤집었다: 밸브 0개에서 2회 잠수가 진행도 감쇠(−0.10/s) 때문에 실제로는 불가능했다
+            // (DrainDiveTests 참조). 총량을 최악의 총 점유 이상으로 두어 밸브 0개도 한 숨에 끝나게 한 것을 고정한다.
             const float WorstCaseOccupancy = 16f; // 밸브 0개: 1 + 14 + 1
 
-            Assert.Less(BreathConfig.TotalSeconds, WorstCaseOccupancy,
-                "게이지가 총 점유 이상이면 §6.5-2가 성립하지 않는다.");
-            Assert.Greater(BreathConfig.TotalSeconds, WorstCaseOccupancy / 2f,
-                "게이지가 총 점유의 절반 미만이면 2회로도 부족해 3회 잠수가 된다(표에 없는 상태).");
+            Assert.GreaterOrEqual(BreathConfig.TotalSeconds, WorstCaseOccupancy,
+                "게이지가 최악의 총 점유보다 작으면 밸브 0개 배수구를 한 숨에 못 연다.");
         }
     }
 }

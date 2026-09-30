@@ -227,14 +227,14 @@ namespace Marco.Core.Tests
             round.Tick(200f);
             Assert.IsTrue(round.TryEnterLastSurvivorPhase());
 
-            // 게이트 닫힘 → 배수구 활성. 동시 개방 1개 → T = 11초, 총 점유 13 > 게이지 12 → 2회 잠수.
+            // 게이트 닫힘 → 배수구 활성. 동시 개방 0개(가장 어려운 경우) → T = 14초, 총 점유 16 ≤ 게이지 20 → 1회 잠수.
+            //   10-01 플레이 보고 "배수구를 절대 못 연다" — v0.4(게이지 12초)에서는 이 경우를 질식 없이 90초 안에 나갈 수 없어
+            //   이 시나리오가 1개 개방 · 2회 잠수로 옮겨져 있었다.
             Assert.IsTrue(DrainSelection.ShouldActivate(gateOpen: false));
-            Assert.AreEqual(2, DrainConfig.RequiredDives(1, BreathConfig.TotalSeconds));
+            Assert.AreEqual(1, DrainConfig.RequiredDives(0, BreathConfig.TotalSeconds));
 
-            // [커밋 전 수정 4-1 의미 변경] 잠수 구간 = 진입 1 + 작업 + 부상 1(밸브 B·E와 같은 세션), 부상 뒤 통과.
-            //   0개 개방에서 1개 개방으로 옮겼다 — 이 시뮬레이터(숨은 물 위에서만 채움)로는 0개 개방을 질식 없이 90초 안에
-            //   나갈 수 없다. 물 밖 회복(+4/s)을 쓰면 0개도 2회로 나간다(09-23 재검증 — DrainDiveTests 주석).
-            var sim = new DrainDiveSim(openValves: 1) { ReleaseAtBreath = 1.5f, PressAtBreath = 11f };
+            // 잠수 구간 = 진입 1 + 작업 + 부상 1(밸브 B·E와 같은 세션), 부상 뒤 통과.
+            var sim = new DrainDiveSim(openValves: 0);
             while (!sim.Escaped && sim.Elapsed < DrainConfig.PhaseSeconds)
             {
                 sim.Step(0.5f);
@@ -242,7 +242,7 @@ namespace Marco.Core.Tests
             }
 
             Assert.IsTrue(sim.Escaped, $"90초 안에 배수구 탈출(경과 {sim.Elapsed:0.0}초)");
-            Assert.AreEqual(2, sim.Dives, "§6.5-2 1개 개방 → 2회 잠수");
+            Assert.AreEqual(1, sim.Dives, "0개 개방도 1회 잠수");
             Assert.AreEqual(0, sim.ForcedSurfaces, "질식 없이");
             Assert.IsTrue(round.TryRegisterDrainEscape(9, RoleType.Runner));
             Assert.IsTrue(round.Evaluate(round.Census(runners, 2)));
@@ -369,7 +369,7 @@ namespace Marco.Core.Tests
         {
             Assert.AreEqual("탈출 ●○ / 요구 2", HudFormatter.FormatEscapeBoard(1, 2));
             Assert.AreEqual("탈출 ●●● / 요구 2", HudFormatter.FormatEscapeBoard(3, 2), "요구 초과도 표시");
-            Assert.AreEqual("숨 ■■■■■■□□□□ 7.5초", HudFormatter.FormatBreath(7.55f));
+            Assert.AreEqual("숨 ■■■□□□□□□□ 7.5초", HudFormatter.FormatBreath(7.55f)); // 7.55 / 20 → 3칸(10-01 총량 20초)
             Assert.AreEqual("숨 □□□□□□□□□□ 0.0초", HudFormatter.FormatBreath(-1f));
             Assert.AreEqual("↑", HudFormatter.DirectionArrow(0f));
             Assert.AreEqual("↑", HudFormatter.DirectionArrow(22.4f));

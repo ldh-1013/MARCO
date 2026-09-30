@@ -62,7 +62,7 @@ namespace Marco.Core.Objectives
 
         /// <summary>
         /// 숨 게이지로 한 번에 덮을 수 있는가. 못 덮으면 §6.5-2 "2회 잠수 필수".
-        /// 게이지 값은 <c>BreathConfig.TotalSeconds</c> 한 곳이 소유한다.
+        /// 게이지 값은 <c>BreathConfig.TotalSeconds</c> 한 곳이 소유한다 — 10-01 총량 20초부터는 동시 개방 0~3개 모두 1회다.
         /// </summary>
         public static int RequiredDives(int openValves, float breathTotalSeconds)
         {
@@ -93,7 +93,7 @@ namespace Marco.Core.Objectives
     /// <b>부상을 마친 뒤</b> 서버가 <see cref="BeginTransit"/>로 통과(1.5초)를 연다. §6.5-2 "통과 1.5초, 그 동안
     /// 태그 가능"과 §6.5-3 "술래가 태그할 수 있는 순간은 부상할 그때뿐"을 함께 만족하려면 통과가 수면에서
     /// 일어나야 한다 — 부상 구간(잠수)과 겹치면 통과 앞부분이 태그 불가가 된다. 이 순서 덕에 총 점유
-    /// (진입 1 + T + 부상 1)가 숨 12초 안에 들어와야 한 번에 나갈 수 있다(§6.5-2 표 그대로).
+    /// (진입 1 + T + 부상 1)가 숨 총량(<c>BreathConfig.TotalSeconds</c>) 안에 들어와야 한 번에 나갈 수 있다(§6.5-2).
     /// </para>
     ///
     /// <para>

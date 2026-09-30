@@ -67,23 +67,26 @@ namespace Marco.Core.Tests
 
         [TestCase(ValveId.B)]
         [TestCase(ValveId.E)]
-        public void ShoutRightAfterJob_CannotSuppress_Residual4(ValveId id)
+        public void ShoutRightAfterJob_Residual12_CanSuppress(ValveId id)
         {
-            // §6.1 "숨 게이지 8.0초를 소모하고(잔여 4.0) 부상" → §3.5 억제 4.5 불가.
+            // §6.1 "숨 게이지 8.0초를 소모하고 부상". v0.4(12초)에서는 잔여 4.0 → §3.5 억제 4.5 불가였다.
+            // 10-01 총량 20초부터 잔여 12 → 억제할 수 있다(수중 밸브 직후의 비명 리스크가 설계에서 빠졌다).
             JobResult r = RunFullJob(id);
-            Assert.AreEqual(4f, r.Gauge.Current, Eps, "12 − 8.0 = 4.0");
-            Assert.IsFalse(r.Gauge.CanSuppress);
-            Assert.AreEqual(SuppressionResult.NotEnoughBreath, r.Gauge.TrySuppressScream(BreathZone.Surface),
-                "부상 직후 외침 → 억제 불가(4.0 < 4.5)");
+            Assert.AreEqual(12f, r.Gauge.Current, Eps, "20 − 8.0 = 12.0");
+            Assert.IsTrue(r.Gauge.CanSuppress);
+            Assert.AreEqual(SuppressionResult.Suppressed, r.Gauge.TrySuppressScream(BreathZone.Surface),
+                "부상 직후 외침 → 억제 가능(12.0 ≥ 4.5)");
         }
 
         [Test]
-        public void RotationOnly_WouldHaveLeft7_WhichIsWhyThisExists()
+        public void RotationOnly_WouldHaveLeftEntryPlusSurfaceMore_WhichIsWhyThisExists()
         {
-            // 수정 전 모델(회전 5.0초만 잠수)의 잔여 — 억제 가능해져 §6.1 리스크가 사라졌었다.
-            float oldResidual = BreathConfig.TotalSeconds - ValveOccupancy.RotateSeconds(ValveId.B);
-            Assert.AreEqual(7f, oldResidual, Eps);
-            Assert.GreaterOrEqual(oldResidual, BreathConfig.SuppressionCost);
+            // 수정 전 모델(회전 5.0초만 잠수)은 진입 + 부상(3.0초)만큼 숨을 덜 썼다 — 수중 작업의 대가가 줄어든다.
+            float rotationOnlyResidual = BreathConfig.TotalSeconds - ValveOccupancy.RotateSeconds(ValveId.B);
+            float fullJobResidual = BreathConfig.TotalSeconds - ValveOccupancy.TotalSeconds(ValveId.B);
+            Assert.AreEqual(ValveOccupancy.EntrySeconds(ValveId.B) + ValveOccupancy.SurfaceSeconds(ValveId.B),
+                rotationOnlyResidual - fullJobResidual, Eps);
+            Assert.AreEqual(3f, rotationOnlyResidual - fullJobResidual, Eps);
         }
 
         [Test]

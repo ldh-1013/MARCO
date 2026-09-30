@@ -76,7 +76,7 @@ namespace Marco.Presentation.UI
         private Text _staminaText;           // §3.1 질주 스태미나(기능 표시) [블록 5·7]
         private Text[] _compassTexts;        // §3.2-2 메아리 8방위 [블록 6]
         private Text _scoreText;             // §12.4 승리조건 점수판(탈출 ●○ / 요구) [블록 7]
-        private Text _breathText;            // §12.4 숨 게이지(잠수 중, 12초) [블록 7]
+        private Text _breathText;            // §12.4 숨 게이지(잠수 중, 총량 BreathConfig.TotalSeconds) [블록 7]
         private Text _guideText;             // §12.4 첫 20초 오프닝 가이드 [블록 7]
         private Image _overlay;              // 연출.md §4.2 태그 플래시·암전 [블록 7]
 

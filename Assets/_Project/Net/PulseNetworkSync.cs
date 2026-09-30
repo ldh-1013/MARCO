@@ -944,7 +944,7 @@ namespace Marco.Net
             bool submerged = zone == BreathZone.Submerged;
             bool choke = gauge.IsChokePenaltyActive;
 
-            // 경계값(0 · 만충)에 닿은 순간은 해상도와 무관하게 보낸다 — 11.8에서 멈춰 보이면 "가득 안 찼다"로 읽힌다.
+            // 경계값(0 · 만충)에 닿은 순간은 해상도와 무관하게 보낸다 — 만충 직전(예: 19.8)에서 멈춰 보이면 "가득 안 찼다"로 읽힌다.
             bool atBound = gauge.Current <= 0f || gauge.Current >= BreathConfig.TotalSeconds;
             if (_breathSent.TryGetValue(id, out (float Value, bool Submerged, bool Choke) last)
                 && (Mathf.Abs(last.Value - gauge.Current) < BreathSendStepSeconds && !(atBound && last.Value != gauge.Current))
@@ -956,7 +956,7 @@ namespace Marco.Net
         }
 
         /// <summary>
-        /// 숨 게이지 전송 해상도(초). 표시값이다 — 12초 게이지를 이 간격으로 갱신하면 HUD가 끊겨 보이지
+        /// 숨 게이지 전송 해상도(초). 표시값이다 — 숨 게이지(총량 20초)를 이 간격으로 갱신하면 HUD가 끊겨 보이지
         /// 않으면서 초당 최대 몇 회에 그친다(§14.3 "매 프레임 보내지 마라").
         /// </summary>
         private const float BreathSendStepSeconds = 0.25f;

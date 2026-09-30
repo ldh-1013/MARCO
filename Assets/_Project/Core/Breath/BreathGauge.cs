@@ -43,7 +43,7 @@ namespace Marco.Core.Breath
     /// | 육상 비명 억제 1회           | -4.5 | 2초  | 1.125초 | 3.125초 |
     /// | 수면에서 비명 억제 1회        | -4.5 | 2초  | 2.25초  | 4.25초  |
     /// | 수중 밸브 1회(8초) 후 물 밖   | -8   | 2초  | 2.0초   | 4.0초   |
-    /// | 전체 고갈(12초) 후 물 밖      | -12  | 2초  | 3.0초   | 5.0초   |
+    /// | 전체 고갈(20초) 후 물 밖      | -20  | 2초  | 5.0초   | 7.0초   |
     /// </code>
     /// </summary>
     public sealed class BreathGauge
@@ -152,7 +152,7 @@ namespace Marco.Core.Breath
 
             _current += BreathConfig.RecoveryPerSecond(zone) * deltaSeconds;
             if (_current > BreathConfig.TotalSeconds)
-                _current = BreathConfig.TotalSeconds; // §5.9-1 "최대 12초에서 상한"
+                _current = BreathConfig.TotalSeconds; // §5.9-1 총량에서 상한
         }
 
         /// <summary>

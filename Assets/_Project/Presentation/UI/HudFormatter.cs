@@ -132,7 +132,7 @@ namespace Marco.Presentation.UI
             return "탈출 " + new string('●', escaped) + new string('○', slots - escaped) + $" / 요구 {requirement}";
         }
 
-        /// <summary>§12.4 숨 게이지(12초). 10칸 막대 + 남은 초(소수 1자리, 내림).</summary>
+        /// <summary>§12.4 숨 게이지(총량 <c>BreathConfig.TotalSeconds</c> 기준 비율). 10칸 막대 + 남은 초(소수 1자리, 내림).</summary>
         public static string FormatBreath(float remainingSeconds)
         {
             float total = Marco.Core.Breath.BreathConfig.TotalSeconds;
