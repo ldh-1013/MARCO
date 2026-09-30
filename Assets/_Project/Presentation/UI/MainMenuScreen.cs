@@ -1,3 +1,4 @@
+using Marco.Core.Net;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.UI;
@@ -32,8 +33,8 @@ namespace Marco.Presentation.UI
         /// </summary>
         public static Intent PendingIntent { get; private set; } = Intent.None;
 
-        /// <summary>참가 주소(§12.2 "코드 입장" — MVP는 주소 직결, GAP-28).</summary>
-        public static string PendingAddress { get; private set; }
+        /// <summary>참가 주소(§12.2 "코드 입장" — 주소 직결, GAP-28). 09-30부터 호스트 이름 · 포트 포함(입력 칸 · -join).</summary>
+        public static JoinAddress PendingJoin { get; private set; }
 
         public static Intent Consume()
         {
@@ -50,6 +51,7 @@ namespace Marco.Presentation.UI
         [SerializeField] private Key _joinKey = Key.J;
 
         [Header("참가")]
+        [Tooltip("J(코드 입장) 입력 칸에 미리 채우는 값. 09-30부터 입력 칸에서 바꿀 수 있다.")]
         [SerializeField] private string _joinAddress = "localhost";
 
         [Header("표시")]
@@ -62,7 +64,11 @@ namespace Marco.Presentation.UI
         private Text _titleText;
         private Text _menuText;
         private Text _hintText;
+        private Text _statusText;
         private bool _transitioning;
+
+        /// <summary>코드 입장 주소 입력 칸(09-30).</summary>
+        private readonly AddressEntry _entry = new AddressEntry();
 
         private void Awake()
         {
@@ -100,6 +106,9 @@ namespace Marco.Presentation.UI
             _titleText = CreateText(canvasGo.transform, font, "Title", _titleFontSize, new Vector2(0.5f, 0.72f));
             _menuText = CreateText(canvasGo.transform, font, "Menu", _bodyFontSize, new Vector2(0.5f, 0.5f));
             _hintText = CreateText(canvasGo.transform, font, "Hint", _bodyFontSize, new Vector2(0.5f, 0.36f));
+            _statusText = CreateText(canvasGo.transform, font, "Status", _bodyFontSize, new Vector2(0.5f, 0.42f));
+            _statusText.color = new Color(0.62f, 0.62f, 0.62f);
+            _statusText.text = string.Empty;
 
             _titleText.text = "마르코!";
             _titleText.color = new Color(0.91f, 0.91f, 0.91f);
@@ -151,6 +160,26 @@ namespace Marco.Presentation.UI
             return text;
         }
 
+        /// <summary>
+        /// 실행 인자 <c>-join &lt;주소[:포트]&gt;</c>(09-30) — 값이 맞으면 메뉴를 거치지 않고 바로 참가한다. 틀리면 안내만 띄우고 메뉴에 남는다.
+        /// 인자가 없으면(Run3P_QA.bat 포함) 아무것도 하지 않는다.
+        /// </summary>
+        private void Start()
+        {
+            if (LaunchArguments.TryGetJoin(System.Environment.GetCommandLineArgs(), out JoinAddress address, out JoinAddressError error))
+            {
+                Debug.Log($"[MainMenu] 실행 인자 -join {address} — 바로 참가한다.");
+                Choose(Intent.Client, address);
+                return;
+            }
+
+            if (error != JoinAddressError.None)
+            {
+                _statusText.text = "-join 인자를 쓸 수 없습니다 — " + JoinAddressParser.Describe(error);
+                Debug.LogWarning("[MainMenu] " + _statusText.text);
+            }
+        }
+
         private void Update()
         {
             if (_transitioning)
@@ -160,19 +189,50 @@ namespace Marco.Presentation.UI
             if (keyboard == null)
                 return;
 
+            // 코드 입장 — 주소 입력 칸이 열려 있는 동안은 H/J를 글자로 받는다.
+            if (_entry.IsOpen)
+            {
+                AddressEntry.Result result = _entry.Tick(keyboard, out JoinAddress address);
+                if (result == AddressEntry.Result.Submitted)
+                {
+                    Choose(Intent.Client, address);
+                    return;
+                }
+
+                if (result == AddressEntry.Result.Cancelled)
+                {
+                    ShowMenu();
+                    return;
+                }
+
+                _menuText.text = $"코드 입장 — {_entry.Render(Time.unscaledTime)}";
+                _statusText.text = _entry.HintLine();
+                _statusText.color = _entry.Error != null ? new Color(0.94f, 0.42f, 0.30f) : new Color(0.62f, 0.62f, 0.62f);
+                return;
+            }
+
             if (keyboard[_hostKey].wasPressedThisFrame)
-                Choose(Intent.Host);
+                Choose(Intent.Host, default);
             else if (keyboard[_joinKey].wasPressedThisFrame)
-                Choose(Intent.Client);
+                _entry.Open(_joinAddress);
         }
 
-        private void Choose(Intent intent)
+        private void ShowMenu()
+        {
+            _menuText.text = $"{_hostKey} — 방 만들기        {_joinKey} — 코드 입장";
+            _statusText.text = string.Empty;
+        }
+
+        private void OnDisable() => _entry.Close();
+
+        private void Choose(Intent intent, JoinAddress address)
         {
             _transitioning = true;
+            _entry.Close();
             PendingIntent = intent;
-            PendingAddress = _joinAddress;
+            PendingJoin = address;
 
-            Debug.Log($"[MainMenu] {(intent == Intent.Host ? "방 만들기(호스트)" : "코드 입장(참가)")} 선택 — " +
+            Debug.Log($"[MainMenu] {(intent == Intent.Host ? "방 만들기(호스트)" : $"코드 입장(참가 {address})")} 선택 — " +
                       $"로비 씬 로드 후 접속한다(§12.2 → §15.1)");
 
             UnityEngine.SceneManagement.SceneManager.LoadScene(_lobbySceneName,

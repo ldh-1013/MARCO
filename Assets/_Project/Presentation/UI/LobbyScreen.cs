@@ -60,6 +60,9 @@ namespace Marco.Presentation.UI
 
         private bool _visible;
 
+        /// <summary>접속 전 패널의 주소 입력 칸(09-30) — 메인 메뉴와 같은 입력 칸. 실패 뒤 주소를 고쳐 다시 시도한다.</summary>
+        private readonly AddressEntry _entry = new AddressEntry();
+
         private bool Colorblind =>
             _colorblindSource != null ? _colorblindSource.ColorblindMode : _colorblindFallback;
 
@@ -240,11 +243,20 @@ namespace Marco.Presentation.UI
                 _roomCodeText.color = SeekerColor();
                 _hintText.text = string.Empty;
             }
+            else if (_entry.IsOpen)
+            {
+                _roomCodeText.text = $"코드 입장 — {_entry.Render(Time.unscaledTime)}";
+                _roomCodeText.color = NeutralColor();
+                _hintText.text = _entry.HintLine();
+                _hintText.color = _entry.Error != null ? SeekerColor() : RunnerColor();
+            }
             else
             {
-                _roomCodeText.text = HudFormatter.FormatRoomCode(connection.DefaultAddress);
-                _roomCodeText.color = NeutralColor();
-                _hintText.text = $"{_hostKey} — 방 만들기(호스트)   ·   {_joinKey} — 코드 입장(참가)";
+                // 09-30 — 직전 시도가 실패했으면 원인 후보를 보여 준다(주소 오타 / 호스트 미실행 / 방화벽 · 터널 미연결).
+                string failure = connection.LastFailure;
+                _roomCodeText.text = failure ?? HudFormatter.FormatRoomCode(connection.RetryAddress.ToString());
+                _roomCodeText.color = failure != null ? SeekerColor() : NeutralColor();
+                _hintText.text = $"{_hostKey} — 방 만들기(호스트)   ·   {_joinKey} — 코드 입장(참가 · 주소 입력)";
                 _hintText.color = RunnerColor();
             }
 
@@ -262,11 +274,20 @@ namespace Marco.Presentation.UI
             if (keyboard == null)
                 return;
 
+            if (_entry.IsOpen)
+            {
+                if (_entry.Tick(keyboard, out JoinAddress address) == AddressEntry.Result.Submitted)
+                    connection.StartClient(address);
+                return;
+            }
+
             if (keyboard[_hostKey].wasPressedThisFrame)
                 connection.StartHost();
             else if (keyboard[_joinKey].wasPressedThisFrame)
-                connection.StartClient(connection.DefaultAddress);
+                _entry.Open(connection.RetryAddress.ToString()); // 직전 주소를 채워 둔다 — 오타만 고쳐 다시 시도
         }
+
+        private void OnDisable() => _entry.Close();
 
         private void ShowConnecting()
         {
@@ -309,7 +330,8 @@ namespace Marco.Presentation.UI
             _titleText.color = NeutralColor();
             _countdownText.text = string.Empty;
 
-            _roomCodeText.text = HudFormatter.FormatRoomCode(connection != null ? connection.DefaultAddress : null);
+            // 09-30 — 호스트는 내 LAN IP:포트(같은 네트워크용), 참가자는 접속한 주소.
+            _roomCodeText.text = connection != null ? connection.AddressLine : HudFormatter.FormatRoomCode(null);
             _roomCodeText.color = NeutralColor();
 
             var states = ReadyStateRegistry.All;

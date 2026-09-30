@@ -18,8 +18,11 @@ namespace Marco.Core.Net
         /// <summary>호스트로 시작(서버+클라이언트 동시 — §12.2 "방 만들기").</summary>
         void StartHost();
 
-        /// <summary>클라이언트로 참가(§12.2 "코드 입장" — MVP는 주소 직결, GAP-28).</summary>
-        void StartClient(string address);
+        /// <summary>
+        /// 클라이언트로 참가(§12.2 "코드 입장" — 주소 직결, GAP-28). 09-30부터 호스트 이름(DNS)과 임의 포트를 받는다 —
+        /// 주소 파싱은 <see cref="JoinAddressParser"/>가 먼저 끝낸다(형식 오류는 접속 시도 없이 화면에서 걸러진다).
+        /// </summary>
+        void StartClient(JoinAddress address);
 
         /// <summary>
         /// 진행 중인 접속을 중단하고 <see cref="HasStarted"/>를 되돌린다(§12.2 재시도 경로).
@@ -32,6 +35,17 @@ namespace Marco.Core.Net
 
         /// <summary>참가 기본 주소(방코드 대용 표시에도 쓴다 — GAP-28).</summary>
         string DefaultAddress { get; }
+
+        /// <summary>로비 화면의 주소 줄(09-30) — 호스트는 내 LAN IP:포트, 참가자는 접속한 주소.</summary>
+        string AddressLine { get; }
+
+        /// <summary>
+        /// 직전 접속 시도가 실패 · 끊김으로 끝났을 때의 안내(원인 후보 포함). 없으면 null. 새 시도 · 취소 때 지운다(09-30).
+        /// </summary>
+        string LastFailure { get; }
+
+        /// <summary>다시 시도할 주소 — 직전 참가 주소, 없으면 기본 주소(09-30).</summary>
+        JoinAddress RetryAddress { get; }
     }
 
     /// <summary>

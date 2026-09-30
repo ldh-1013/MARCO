@@ -80,6 +80,7 @@
     <Compile Include="Assets\_Project\Tests\EditMode\ServerLobbyDriverTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\ValveInteractionControllerTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\VictoryFlowTests.cs" />
+    <Compile Include="Assets\_Project\Tests\EditMode\JoinAddressTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\InteractionPromptTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\ValveTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\UnderwaterWorkSessionTests.cs" />
@@ -94,6 +95,7 @@
     <Compile Include="Assets\_Project\Tests\EditMode\LastSurvivorDrainTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\GameFlowManagerTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\VoicePulseLightTests.cs" />
+    <Compile Include="Assets\_Project\Tests\EditMode\AddressEntryTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\WaterVolumeTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\ServerValveDriverTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\RematchVoteDriverTests.cs" />

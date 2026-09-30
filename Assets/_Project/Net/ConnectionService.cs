@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using FishNet;
 using FishNet.Transporting;
 using Marco.Core.Net;
@@ -27,8 +29,27 @@ namespace Marco.Net
 
         public string DefaultAddress => _defaultAddress;
 
+        public string LastFailure { get; private set; }
+
+        public JoinAddress RetryAddress =>
+            _hasTarget ? _target
+            : JoinAddressParser.TryParse(_defaultAddress, out JoinAddress parsed, out _) ? parsed
+            : new JoinAddress("localhost", JoinAddressParser.DefaultPort);
+
+        public string AddressLine =>
+            _startedAsHost ? ConnectionMessages.HostAddressLine(_lanAddress, _hostPort)
+            : _hasTarget ? ConnectionMessages.ClientAddressLine(_target)
+            : $"방코드: {(string.IsNullOrWhiteSpace(_defaultAddress) ? "-" : _defaultAddress)}";
+
         /// <summary>호스트로 시작했는가(취소 시 서버까지 내려야 하는지 판단).</summary>
         private bool _startedAsHost;
+
+        // 09-30 — 직전 참가 주소 · 이번 시도가 한 번이라도 연결됐는가 · 호스트 포트 · 호스트 LAN IP.
+        private JoinAddress _target;
+        private bool _hasTarget;
+        private bool _reachedStarted;
+        private ushort _hostPort = JoinAddressParser.DefaultPort;
+        private string _lanAddress;
 
         private bool _subscribed;
 
@@ -83,8 +104,20 @@ namespace Marco.Net
         /// </summary>
         private void OnClientConnectionState(ClientConnectionStateArgs args)
         {
+            if (args.ConnectionState == LocalConnectionState.Started)
+                _reachedStarted = true;
+
             if (args.ConnectionState != LocalConnectionState.Stopped || !HasStarted)
                 return;
+
+            // 09-30 — 원인 후보를 화면에 남긴다(주소 오타 / 호스트 미실행 / 방화벽 · 터널 미연결). 재시도 경로는 그대로.
+            if (_startedAsHost)
+                LastFailure = _reachedStarted ? null : $"방을 열지 못했습니다 — 포트 {_hostPort}가 이미 쓰이는 중일 수 있습니다(-hostport로 바꿀 수 있습니다)";
+            else if (_hasTarget)
+                LastFailure = _reachedStarted ? ConnectionMessages.Disconnected(_target) : ConnectionMessages.JoinFailed(_target);
+
+            if (LastFailure != null)
+                Debug.LogWarning("[Connection] " + LastFailure);
 
             HasStarted = false;
             _startedAsHost = false;
@@ -107,14 +140,23 @@ namespace Marco.Net
 
             TrySubscribe(); // OnEnable이 너무 일렀을 수 있다 — 시작 직전에 확실히 건다.
 
+            // 09-30 — 실행 인자 -hostport(터널 도구 설정용). 없으면 7770, 틀리면 7770으로 열고 알린다.
+            if (!LaunchArguments.TryGetHostPort(Environment.GetCommandLineArgs(), out _hostPort, out JoinAddressError portError))
+                Debug.LogWarning($"[Connection] -hostport 무시 — {JoinAddressParser.Describe(portError)}. 기본 포트 {_hostPort}로 연다.");
+
+            _lanAddress = LanAddress.PickPreferred(LocalIpv4Candidates());
+            LastFailure = null;
+            _reachedStarted = false;
+
             HasStarted = true;
             _startedAsHost = true;
-            InstanceFinder.ServerManager.StartConnection();
-            InstanceFinder.ClientManager.StartConnection();
-            Debug.Log("[Connection] 호스트로 시작 — 서버+클라이언트 동시 시작(§12.2 방 만들기).");
+            InstanceFinder.ServerManager.StartConnection(_hostPort);
+            InstanceFinder.ClientManager.StartConnection("localhost", _hostPort);
+            Debug.Log($"[Connection] 호스트로 시작 — 서버+클라이언트 동시 시작(§12.2 방 만들기). 포트 {_hostPort} · " +
+                      ConnectionMessages.HostAddressLine(_lanAddress, _hostPort));
         }
 
-        public void StartClient(string address)
+        public void StartClient(JoinAddress address)
         {
             if (HasStarted)
                 return;
@@ -125,15 +167,49 @@ namespace Marco.Net
                 return;
             }
 
-            if (string.IsNullOrWhiteSpace(address))
-                address = _defaultAddress;
+            if (string.IsNullOrWhiteSpace(address.Host))
+                address = RetryAddress;
 
             TrySubscribe();
 
+            _target = address;
+            _hasTarget = true;
+            LastFailure = null;
+            _reachedStarted = false;
+
             HasStarted = true;
             _startedAsHost = false;
-            InstanceFinder.ClientManager.StartConnection(address);
-            Debug.Log($"[Connection] 클라이언트로 참가 — {address} (§12.2 코드 입장, MVP 직결 GAP-28).");
+            InstanceFinder.ClientManager.StartConnection(address.Host, address.Port);
+            Debug.Log($"[Connection] 클라이언트로 참가 — {address} (§12.2 코드 입장, 직결 GAP-28 · 호스트 이름 · 포트 지정 09-30).");
+        }
+
+        /// <summary>
+        /// 이 PC의 IPv4 후보(09-30 — 호스트 로비에 LAN IP 표시). 켜진 인터페이스의 유니캐스트 IPv4. 실패하면 빈 목록(표시만 빠진다).
+        /// </summary>
+        private static List<string> LocalIpv4Candidates()
+        {
+            var result = new List<string>();
+            try
+            {
+                foreach (System.Net.NetworkInformation.NetworkInterface ni in
+                         System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces())
+                {
+                    if (ni.OperationalStatus != System.Net.NetworkInformation.OperationalStatus.Up)
+                        continue;
+
+                    foreach (System.Net.NetworkInformation.UnicastIPAddressInformation info in ni.GetIPProperties().UnicastAddresses)
+                    {
+                        if (info.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
+                            result.Add(info.Address.ToString());
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning($"[Connection] LAN IP 조회 실패 — 주소 줄에 포트만 보인다: {e.Message}");
+            }
+
+            return result;
         }
 
         /// <summary>
@@ -157,6 +233,7 @@ namespace Marco.Net
 
             HasStarted = false;
             _startedAsHost = false;
+            LastFailure = null; // 사용자가 취소했다 — 실패 안내를 남기지 않는다
             Debug.Log("[Connection] 접속을 취소했습니다 — 다시 시도할 수 있습니다(§12.2).");
         }
     }

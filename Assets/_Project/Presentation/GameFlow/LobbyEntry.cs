@@ -46,7 +46,7 @@ namespace Marco.Presentation.GameFlow
             if (intent == MainMenuScreen.Intent.Host)
                 connection.StartHost();
             else
-                connection.StartClient(MainMenuScreen.PendingAddress);
+                connection.StartClient(MainMenuScreen.PendingJoin);
         }
 
         /// <summary>
