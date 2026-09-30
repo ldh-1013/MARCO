@@ -36,6 +36,58 @@ namespace Marco.Presentation.UI
         /// <summary>참가 주소(§12.2 "코드 입장" — 주소 직결, GAP-28). 09-30부터 호스트 이름 · 포트 포함(입력 칸 · -join).</summary>
         public static JoinAddress PendingJoin { get; private set; }
 
+        /// <summary>로비에서 실패 · 취소로 돌아왔을 때 메뉴에 띄울 안내(09-30). 없으면 null.</summary>
+        public static string PendingNotice { get; private set; }
+
+        /// <summary><see cref="PendingNotice"/>가 오류(빨강)인가 — 취소면 회색.</summary>
+        public static bool PendingNoticeIsError { get; private set; }
+
+        /// <summary>J 입력 칸에 채울 직전 참가 주소(09-30). 없으면 인스펙터 기본값(localhost).</summary>
+        public static string RetryJoinText { get; private set; }
+
+        /// <summary>-join 실행 인자를 이미 읽었는가 — 실행당 한 번만 쓴다(09-30).</summary>
+        private static bool _joinArgumentConsumed;
+
+        /// <summary>
+        /// 로비의 접속 중 화면(<see cref="JoinProgressOverlay"/>)이 실패 · 취소로 메뉴에 돌려보내기 직전에 부른다(09-30). 메뉴가 열리면
+        /// 안내를 한 번 보여 주고 비운다. <paramref name="retryText"/>는 J 입력 칸에 채운다(호스트 시도면 null — 기존 값 유지).
+        /// </summary>
+        public static void PrepareReturnFromLobby(string notice, bool isError, string retryText)
+        {
+            PendingNotice = notice;
+            PendingNoticeIsError = isError;
+            if (!string.IsNullOrEmpty(retryText))
+                RetryJoinText = retryText;
+        }
+
+        /// <summary>세션 정적 상태 초기화(09-30) — 도메인 리로드 없이 Play를 반복할 때 · 테스트.</summary>
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        public static void ResetSessionState()
+        {
+            PendingNotice = null;
+            PendingNoticeIsError = false;
+            RetryJoinText = null;
+            _joinArgumentConsumed = false;
+        }
+
+        /// <summary>
+        /// 실행 인자 -join을 읽는다(09-30) — <b>실행당 한 번만</b>. 실패해서 메뉴로 돌아왔을 때 다시 읽으면 같은 주소로 자동 참가 →
+        /// 실패 → 복귀를 끝없이 되풀이한다. 두 번째부터는 false · error None(인자 없음과 같다).
+        /// </summary>
+        public static bool TryConsumeJoinArgument(System.Collections.Generic.IReadOnlyList<string> args,
+            out JoinAddress address, out JoinAddressError error)
+        {
+            if (_joinArgumentConsumed)
+            {
+                address = default;
+                error = JoinAddressError.None;
+                return false;
+            }
+
+            _joinArgumentConsumed = true;
+            return LaunchArguments.TryGetJoin(args, out address, out error);
+        }
+
         public static Intent Consume()
         {
             Intent intent = PendingIntent;
@@ -166,7 +218,17 @@ namespace Marco.Presentation.UI
         /// </summary>
         private void Start()
         {
-            if (LaunchArguments.TryGetJoin(System.Environment.GetCommandLineArgs(), out JoinAddress address, out JoinAddressError error))
+            // 로비에서 실패 · 취소로 돌아왔다 — 원인 안내(빨강) 또는 취소 안내(회색)를 한 번 보여 준다(09-30).
+            if (!string.IsNullOrEmpty(PendingNotice))
+            {
+                _statusText.text = PendingNotice;
+                _statusText.color = PendingNoticeIsError ? ErrorColor : NeutralColor;
+                Debug.Log($"[MainMenu] 로비에서 돌아옴 — {PendingNotice}");
+                PendingNotice = null;
+                PendingNoticeIsError = false;
+            }
+
+            if (TryConsumeJoinArgument(System.Environment.GetCommandLineArgs(), out JoinAddress address, out JoinAddressError error))
             {
                 Debug.Log($"[MainMenu] 실행 인자 -join {address} — 바로 참가한다.");
                 Choose(Intent.Client, address);
@@ -214,8 +276,14 @@ namespace Marco.Presentation.UI
             if (keyboard[_hostKey].wasPressedThisFrame)
                 Choose(Intent.Host, default);
             else if (keyboard[_joinKey].wasPressedThisFrame)
-                _entry.Open(_joinAddress);
+                OpenJoinEntry();
         }
+
+        /// <summary>J — 주소 입력 칸을 연다. 실패 · 취소로 돌아왔으면 직전 주소를 채워 둔다(오타만 고쳐 다시 시도).</summary>
+        private void OpenJoinEntry() => _entry.Open(string.IsNullOrEmpty(RetryJoinText) ? _joinAddress : RetryJoinText);
+
+        private static readonly Color ErrorColor = new Color(0.94f, 0.42f, 0.30f);
+        private static readonly Color NeutralColor = new Color(0.62f, 0.62f, 0.62f);
 
         private void ShowMenu()
         {

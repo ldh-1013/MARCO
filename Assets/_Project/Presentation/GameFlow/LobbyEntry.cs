@@ -19,6 +19,17 @@ namespace Marco.Presentation.GameFlow
     /// </summary>
     public sealed class LobbyEntry : MonoBehaviour
     {
+        /// <summary>
+        /// 접속 중 화면을 이 오브젝트(SceneFlow — NetworkObject 없음)에 붙인다(09-30). 로비 화면(<c>LobbyScreen</c>)은 PulseSystem
+        /// (NetworkObject)에 있어 FishNet이 연결 전에 끄고, 연결이 실패하면 다시 켜지지 않는다 — 접속 중 표시 · 실패 안내 · Esc 취소 ·
+        /// 메뉴 복귀는 여기서 한다. 씬을 고치지 않도록 런타임에 붙인다.
+        /// </summary>
+        private void Awake()
+        {
+            if (GetComponent<JoinProgressOverlay>() == null)
+                gameObject.AddComponent<JoinProgressOverlay>();
+        }
+
         private void Start()
         {
             WarnIfVoiceMissing();

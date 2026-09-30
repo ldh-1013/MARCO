@@ -46,6 +46,14 @@ namespace Marco.Core.Net
 
         /// <summary>다시 시도할 주소 — 직전 참가 주소, 없으면 기본 주소(09-30).</summary>
         JoinAddress RetryAddress { get; }
+
+        /// <summary>이번 접속 시도의 상태(09-30) — 접속 중 화면이 읽는다(시도 중 · 연결됨 · 실패 · 취소).</summary>
+        JoinAttempt Attempt { get; }
+
+        /// <summary>
+        /// 클라이언트 · 서버를 모두 내린다(09-30) — 실패 · 취소 뒤 메인 메뉴로 돌아가기 전에 부른다. 다시 H/J로 시작할 수 있는 상태로 정리한다.
+        /// </summary>
+        void StopAll();
     }
 
     /// <summary>

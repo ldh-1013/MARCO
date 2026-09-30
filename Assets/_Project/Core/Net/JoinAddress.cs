@@ -319,6 +319,20 @@ namespace Marco.Core.Net
         public static string JoinFailed(JoinAddress target) =>
             $"{target}에 접속하지 못했습니다 — ① 주소 · 포트 오타 ② 호스트가 아직 방을 만들지 않음 ③ 호스트 쪽 방화벽 또는 터널(playit.gg 등) 미연결";
 
+        /// <summary>시간 안에 연결되지 않았을 때 — 원인 후보 세 가지.</summary>
+        public static string JoinTimedOut(JoinAddress target, float seconds) =>
+            $"{target}에 {seconds:0}초 안에 접속하지 못했습니다 — ① 주소 · 포트 오타 ② 호스트가 아직 방을 만들지 않음 ③ 호스트 쪽 방화벽 또는 터널(playit.gg 등) 미연결";
+
+        /// <summary>호스트가 방을 열지 못했을 때.</summary>
+        public static string HostFailed(ushort port) =>
+            $"방을 열지 못했습니다 — 포트 {port}가 이미 쓰이는 중일 수 있습니다(-hostport로 바꿀 수 있습니다)";
+
+        /// <summary>호스트의 로컬 연결이 끊겼을 때.</summary>
+        public static string HostStopped() => "방이 닫혔습니다 — 로컬 연결이 끊겼습니다";
+
+        /// <summary>사용자가 취소했을 때(메뉴의 회색 안내).</summary>
+        public static string Cancelled() => "접속을 취소했습니다";
+
         /// <summary>접속됐다가 끊겼을 때.</summary>
         public static string Disconnected(JoinAddress target) => $"{target}와(과)의 연결이 끊겼습니다 — 호스트가 나갔거나 네트워크가 끊겼습니다";
 

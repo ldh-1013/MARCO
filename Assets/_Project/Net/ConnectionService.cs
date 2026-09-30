@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Text;
 using FishNet;
+using FishNet.Object;
 using FishNet.Transporting;
 using Marco.Core.Net;
 using UnityEngine;
@@ -29,7 +31,10 @@ namespace Marco.Net
 
         public string DefaultAddress => _defaultAddress;
 
-        public string LastFailure { get; private set; }
+        /// <summary>직전 시도의 실패 안내 — <see cref="JoinAttempt.FailureMessage"/>(실패일 때만).</summary>
+        public string LastFailure => Attempt.State == JoinAttemptState.Failed ? Attempt.FailureMessage : null;
+
+        public JoinAttempt Attempt { get; } = new JoinAttempt();
 
         public JoinAddress RetryAddress =>
             _hasTarget ? _target
@@ -44,12 +49,14 @@ namespace Marco.Net
         /// <summary>호스트로 시작했는가(취소 시 서버까지 내려야 하는지 판단).</summary>
         private bool _startedAsHost;
 
-        // 09-30 — 직전 참가 주소 · 이번 시도가 한 번이라도 연결됐는가 · 호스트 포트 · 호스트 LAN IP.
+        // 09-30 — 직전 참가 주소 · 호스트 포트 · 호스트 LAN IP(연결 여부는 Attempt가 안다).
         private JoinAddress _target;
         private bool _hasTarget;
-        private bool _reachedStarted;
         private ushort _hostPort = JoinAddressParser.DefaultPort;
         private string _lanAddress;
+
+        /// <summary>이번 시도를 시작한 시각(실시간) — 진단 로그의 경과 초.</summary>
+        private float _attemptStartedAt;
 
         private bool _subscribed;
 
@@ -104,18 +111,19 @@ namespace Marco.Net
         /// </summary>
         private void OnClientConnectionState(ClientConnectionStateArgs args)
         {
+            LogTransition(args.ConnectionState);
+
             if (args.ConnectionState == LocalConnectionState.Started)
-                _reachedStarted = true;
+                Attempt.OnTransportStarted();
+
+            if (args.ConnectionState == LocalConnectionState.Stopped)
+                Attempt.OnTransportStopped();
 
             if (args.ConnectionState != LocalConnectionState.Stopped || !HasStarted)
                 return;
 
-            // 09-30 — 원인 후보를 화면에 남긴다(주소 오타 / 호스트 미실행 / 방화벽 · 터널 미연결). 재시도 경로는 그대로.
-            if (_startedAsHost)
-                LastFailure = _reachedStarted ? null : $"방을 열지 못했습니다 — 포트 {_hostPort}가 이미 쓰이는 중일 수 있습니다(-hostport로 바꿀 수 있습니다)";
-            else if (_hasTarget)
-                LastFailure = _reachedStarted ? ConnectionMessages.Disconnected(_target) : ConnectionMessages.JoinFailed(_target);
-
+            // 09-30 — 원인 후보는 시도 상태(JoinAttempt)가 정한다(주소 오타 / 호스트 미실행 / 방화벽 · 터널 미연결 · 끊김).
+            //   화면은 SceneFlow의 접속 중 화면(JoinProgressOverlay)이 메인 메뉴로 돌아가며 보여 준다.
             if (LastFailure != null)
                 Debug.LogWarning("[Connection] " + LastFailure);
 
@@ -145,8 +153,8 @@ namespace Marco.Net
                 Debug.LogWarning($"[Connection] -hostport 무시 — {JoinAddressParser.Describe(portError)}. 기본 포트 {_hostPort}로 연다.");
 
             _lanAddress = LanAddress.PickPreferred(LocalIpv4Candidates());
-            LastFailure = null;
-            _reachedStarted = false;
+            _attemptStartedAt = Time.realtimeSinceStartup;
+            Attempt.BeginHost(_hostPort, _attemptStartedAt);
 
             HasStarted = true;
             _startedAsHost = true;
@@ -174,13 +182,65 @@ namespace Marco.Net
 
             _target = address;
             _hasTarget = true;
-            LastFailure = null;
-            _reachedStarted = false;
+            _attemptStartedAt = Time.realtimeSinceStartup;
+            Attempt.BeginJoin(address, _attemptStartedAt);
 
             HasStarted = true;
             _startedAsHost = false;
             InstanceFinder.ClientManager.StartConnection(address.Host, address.Port);
             Debug.Log($"[Connection] 클라이언트로 참가 — {address} (§12.2 코드 입장, 직결 GAP-28 · 호스트 이름 · 포트 지정 09-30).");
+        }
+
+        /// <summary>
+        /// 시간 초과 감시(09-30) — Tugboat 자체 포기(≈ 5초)가 오지 않는 경우의 안전망. 초과하면 전송 계층을 내린다.
+        /// 뒤따르는 Stopped는 이미 실패로 확정된 시도라 무시된다(기존 재시도 경로와 겹치지 않는다).
+        /// </summary>
+        private void Update()
+        {
+            if (!Attempt.Tick(Time.realtimeSinceStartup))
+                return;
+
+            Debug.LogWarning("[Connection] " + Attempt.FailureMessage);
+            StopAll();
+        }
+
+        public void StopAll()
+        {
+            // 조건 없이 내린다 — ClientManager.Started는 연결이 끝난 뒤에만 참이라 "시도 중"(Starting)을 놓친다.
+            // 이미 멈춘 전송 계층에 부르면 Tugboat가 false만 돌려준다.
+            if (InstanceFinder.ClientManager != null)
+                InstanceFinder.ClientManager.StopConnection();
+
+            if (InstanceFinder.ServerManager != null)
+                InstanceFinder.ServerManager.StopConnection(sendDisconnectMessage: true);
+
+            HasStarted = false;
+            _startedAsHost = false;
+        }
+
+        /// <summary>
+        /// [진단 09-30] 클라이언트 연결 상태 전이마다 경과 초와 씬 NetworkObject(로비 UI가 붙은 PulseSystem 등)의 활성 상태를 남긴다 —
+        /// FishNet 자체의 "Local client is …" 로그는 이 빌드의 로그 설정에서 걸러진다.
+        /// </summary>
+        private void LogTransition(LocalConnectionState state)
+        {
+            float elapsed = Time.realtimeSinceStartup - _attemptStartedAt;
+            string target = _startedAsHost ? $"호스트 localhost:{_hostPort}" : _hasTarget ? _target.ToString() : "-";
+            Debug.Log($"[Connection:Diag] 클라이언트 상태 {state} — 시도 후 {elapsed:0.0}초 · 대상 {target} · 씬 NetworkObject {SceneObjectStates()}");
+        }
+
+        private static string SceneObjectStates()
+        {
+            var sb = new StringBuilder();
+            foreach (NetworkObject nob in FindObjectsByType<NetworkObject>(FindObjectsInactive.Include))
+            {
+                if (nob == null || !nob.IsSceneObject)
+                    continue;
+
+                sb.Append(nob.name).Append(nob.gameObject.activeInHierarchy ? "=켜짐 " : "=꺼짐 ");
+            }
+
+            return sb.Length == 0 ? "(없음)" : sb.ToString().TrimEnd();
         }
 
         /// <summary>
@@ -225,6 +285,8 @@ namespace Marco.Net
             if (!HasStarted)
                 return;
 
+            Attempt.Cancel(); // 뒤따르는 Stopped는 취소로 처리된다(실패로 세지 않는다)
+
             if (InstanceFinder.ClientManager != null)
                 InstanceFinder.ClientManager.StopConnection();
 
@@ -233,7 +295,6 @@ namespace Marco.Net
 
             HasStarted = false;
             _startedAsHost = false;
-            LastFailure = null; // 사용자가 취소했다 — 실패 안내를 남기지 않는다
             Debug.Log("[Connection] 접속을 취소했습니다 — 다시 시도할 수 있습니다(§12.2).");
         }
     }

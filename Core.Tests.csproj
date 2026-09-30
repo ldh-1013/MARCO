@@ -63,6 +63,7 @@
     <Compile Include="Assets\_Project\Tests\EditMode\SeekerIsolationTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\VictoryPathTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\SpawnRingTests.cs" />
+    <Compile Include="Assets\_Project\Tests\EditMode\JoinAttemptTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\ServerPulseDriverTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\TagEscapePriorityTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\GateOpenAnnouncementTests.cs" />
@@ -112,6 +113,7 @@
     <Compile Include="Assets\_Project\Tests\EditMode\FallRecoveryTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\ValveDecayReflowTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\MainMenuScreenTests.cs" />
+    <Compile Include="Assets\_Project\Tests\EditMode\JoinProgressOverlayTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\TaggingTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\LocalPulsePipelineTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\GhostFlightTests.cs" />
