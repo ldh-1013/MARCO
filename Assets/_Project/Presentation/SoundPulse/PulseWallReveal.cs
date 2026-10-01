@@ -56,6 +56,19 @@ namespace Marco.Presentation.Sound
             }
         }
 
+        /// <summary>
+        /// 단위 큐브(로컬 −0.5~0.5, 프리미티브 큐브 메시)를 <paramref name="localToWorld"/>로 놓은 상자에서 <paramref name="point"/>의 최근접점.
+        /// 회전한 상자도 맞다 — 로컬로 옮겨 각 축을 자른 뒤 되돌린다. 콜라이더 없는 상자(<see cref="RevealOutlineRegistry"/>)에 쓴다.
+        /// </summary>
+        public static Vector3 ClosestPointOnUnitBox(Matrix4x4 localToWorld, Vector3 point)
+        {
+            Vector3 local = localToWorld.inverse.MultiplyPoint3x4(point);
+            local.x = Mathf.Clamp(local.x, -0.5f, 0.5f);
+            local.y = Mathf.Clamp(local.y, -0.5f, 0.5f);
+            local.z = Mathf.Clamp(local.z, -0.5f, 0.5f);
+            return localToWorld.MultiplyPoint3x4(local);
+        }
+
         private static float SafeDiv(float value, float scale)
         {
             float s = Mathf.Abs(scale);
@@ -71,6 +84,7 @@ namespace Marco.Presentation.Sound
     /// <b>범위</b>: 발생 지점에서 파문 반경 안의 벽 — <c>Physics.OverlapSphere</c>로 SoundBlocking 레이어의
     /// <c>Wall</c> 태그 · <b>고체</b> 콜라이더만 찾는다(맵 v2 생성기의 벽 차폐 자식 <c>Wall_n/Sound</c> — 벽과 같은 크기의
     /// BoxCollider). 트리거(수면판 · 풀 측벽)는 빠진다. 벽은 정적이라 파문이 생길 때 한 번만 찾는다.
+    /// [10-02] 콜라이더 없는 출구 문짝(<see cref="RevealOutlineRegistry"/>)도 같은 반경 · 도달 시각 · 차폐 규칙으로 함께 그린다.
     /// </para>
     ///
     /// <para>
@@ -155,8 +169,7 @@ namespace Marco.Presentation.Sound
 
             int count = Physics.OverlapSphereNonAlloc(state.SourcePos, state.Radius, _hits, WallMask(),
                 QueryTriggerInteraction.Ignore);
-            if (count == 0)
-                return;
+            // 반경 안에 벽이 없어도 콜라이더 없는 상자(출구 문 — RevealOutlineRegistry)는 있을 수 있다 — 여기서 끝내지 않는다.
 
             Reveal reveal = _revealPool.Count > 0 ? _revealPool.Pop() : new Reveal();
             reveal.Source = state.SourcePos;
@@ -183,6 +196,25 @@ namespace Marco.Presentation.Sound
                 BuildOutline(wall, reveal.Lines);
             }
 
+            // [10-02] 콜라이더 없는 상자(출구 문짝) — 벽과 같은 반경 · 도달 시각 · 눈높이 차폐 규칙.
+            IReadOnlyList<Transform> boxes = RevealOutlineRegistry.All;
+            for (int i = 0; i < boxes.Count; i++)
+            {
+                Transform box = boxes[i];
+                if (box == null)
+                    continue;
+
+                Matrix4x4 m = box.localToWorldMatrix;
+                float distance = Vector3.Distance(state.SourcePos, WallRevealTiming.ClosestPointOnUnitBox(m, state.SourcePos));
+                if (distance > state.Radius || !IsUnobstructed(eye, WallRevealTiming.ClosestPointOnUnitBox(m, eye)))
+                    continue;
+
+                float arrival = WallRevealTiming.ArrivalTime(state.StartTime, state.Duration, state.Radius, distance);
+                reveal.Walls.Add(new WallOutline(arrival, reveal.Lines.Count));
+                WallRevealTiming.BoxCorners(m, Vector3.zero, Vector3.one, box.lossyScale, _lineWidth * 0.5f, _corners);
+                AddOutlineLines(reveal.Lines);
+            }
+
             if (reveal.Walls.Count == 0)
             {
                 _revealPool.Push(reveal);
@@ -206,6 +238,20 @@ namespace Marco.Presentation.Sound
                 return true; // 사이에 아무것도 없다
 
             return hit.collider == wall;
+        }
+
+        /// <summary>
+        /// 눈높이에서 콜라이더 없는 상자의 최근접점까지 — 사이에 SoundBlocking 고체가 하나도 없는가. 상자가 벽 앞면에 붙어 있으므로
+        /// 레이를 최근접점 선 폭만큼 앞에서 멈춘다(뒤의 벽에 닿아 "가렸다"로 치지 않게).
+        /// </summary>
+        private bool IsUnobstructed(Vector3 eye, Vector3 target)
+        {
+            Vector3 delta = target - eye;
+            float distance = delta.magnitude - _lineWidth;
+            if (distance <= 1e-4f)
+                return true;
+
+            return !Physics.Raycast(eye, delta.normalized, distance, WallMask(), QueryTriggerInteraction.Ignore);
         }
 
         public void Remove(int pulseId)
@@ -279,6 +325,12 @@ namespace Marco.Presentation.Sound
                     _lineWidth * 0.5f, _corners);
             }
 
+            AddOutlineLines(lines);
+        }
+
+        /// <summary><see cref="_corners"/>(상자 모서리 8개)를 선 6개로 — 앞 · 뒤 면의 닫힌 사각형 2개 + 잇는 선분 4개.</summary>
+        private void AddOutlineLines(List<LineRenderer> lines)
+        {
             // 앞(−z) · 뒤(+z) 면의 닫힌 사각형.
             for (int face = 0; face < 2; face++)
             {

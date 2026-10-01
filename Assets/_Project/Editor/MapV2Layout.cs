@@ -377,6 +377,20 @@ namespace Marco.EditorTools
             ("출구2_정문",   new Vector2(7f, 40f)),  // 로비 북쪽. 카펫 ×0.7 경유
         };
 
+        /// <summary>
+        /// [10-02] 출구 문 — 출구마다 문을 붙일 <b>벽 안쪽 면</b>의 중앙(수평 좌표)과 방 안쪽 방향. 문 바닥은 구역 바닥(y 0)이다.
+        /// 출구 판정 위치(<see cref="Exits"/>)는 그대로 두고 문만 벽에 붙인다.
+        /// <list type="bullet">
+        /// <item>정문: 로비 북벽(z 40) 가운데 — 판정점 (7, 40) 바로 앞 면.</item>
+        /// <item>배수로: 직원통로 동쪽 막다른 벽(x 48) — 통로 중앙선 z 2.25((1 + 3.5) / 2). 판정점 (46, 2)에서 약 1.9m.</item>
+        /// </list>
+        /// </summary>
+        public static readonly (string Exit, Vector2 WallFace, Vector2 Inward)[] ExitDoors =
+        {
+            ("출구1_배수로", new Vector2(48f - WallThickness * 0.5f, 2.25f), new Vector2(-1f, 0f)),
+            ("출구2_정문",   new Vector2(7f, 40f - WallThickness * 0.5f), new Vector2(0f, -1f)),
+        };
+
         // ── 계단 (§10.1 "계단 서·동 2개" / 블록 1-D) ─────────────────────
 
         /// <summary>

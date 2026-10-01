@@ -117,6 +117,7 @@
     <Compile Include="Assets\_Project\Tests\EditMode\ValveDecayReflowTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\MainMenuScreenTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\JoinProgressOverlayTests.cs" />
+    <Compile Include="Assets\_Project\Tests\EditMode\ExitDoorTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\TaggingTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\LocalPulsePipelineTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\GhostFlightTests.cs" />
@@ -128,6 +129,7 @@
     <Compile Include="Assets\_Project\Tests\EditMode\OcclusionTagWeightTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\DrainDiveTests.cs" />
     <Compile Include="Assets\_Project\Tests\EditMode\JoinCancelInputTests.cs" />
+    <Compile Include="Assets\_Project\Tests\EditMode\ExitDoorSceneTests.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Assets\_Project\Tests\EditMode\Core.Tests.asmdef" />

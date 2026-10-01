@@ -69,6 +69,7 @@
     <Compile Include="Assets\_Project\Editor\NetworkPlayerSetupTool.cs" />
     <Compile Include="Assets\_Project\Editor\MapV2ValidationTool.cs" />
     <Compile Include="Assets\_Project\Editor\SceneObserverSetupTool.cs" />
+    <Compile Include="Assets\_Project\Editor\ExitDoorBuilder.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Assets\_Project\Editor\Marco.Editor.asmdef" />

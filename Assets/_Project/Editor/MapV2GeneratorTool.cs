@@ -690,6 +690,9 @@ namespace Marco.EditorTools
 
                 // [블록 7] §10.5 출구 — 탈출 판정 + 종반 출구 파문 위치 등록(EscapePointRegistry).
                 exit.AddComponent<EscapePointTrigger>();
+
+                // [10-02] 보이는 문 — 출구 마커는 빈 오브젝트라 어둠 속에서 볼 수단이 없었다(ExitDoorSceneTests).
+                ExitDoorBuilder.Build(exit.transform);
             }
             Bump(counts, "출구 마커", MapV2Layout.Exits.Length);
 

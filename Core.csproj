@@ -87,6 +87,7 @@
     <Compile Include="Assets\_Project\Core\GameFlow\RoundStartSequencer.cs" />
     <Compile Include="Assets\_Project\Core\Role\EchoVisibility.cs" />
     <Compile Include="Assets\_Project\Core\Sound\KnockConfig.cs" />
+    <Compile Include="Assets\_Project\Core\Objectives\EscapeDoorLook.cs" />
     <Compile Include="Assets\_Project\Core\Tagging\TagAftermath.cs" />
     <Compile Include="Assets\_Project\Core\Voice\VoiceConfig.cs" />
     <Compile Include="Assets\_Project\Core\Objectives\InteractionPrompt.cs" />
