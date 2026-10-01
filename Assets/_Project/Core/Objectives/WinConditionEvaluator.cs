@@ -3,9 +3,10 @@ using UnityEngine;
 namespace Marco.Core.Objectives
 {
     /// <summary>
-    /// §6.3 [v0.4 전면 개정] 승패 판정. 기획서 의사코드를 그대로 옮긴 순수 함수다.
+    /// §6.3 승패 판정. 기획서 의사코드를 옮긴 순수 함수다.
     ///
     /// <code>
+    /// // [라운드 종료 — 남은 도망자 0명(탈출 또는 포획) 또는 시간 종료]   ← 10-01: 이때만 판정한다
     /// int required = ceil(runnerCount / 2);              // §6.2 탈출 요구 인원
     ///
     /// if (escaped &gt;= required || lastSurvivorEscaped)
@@ -13,6 +14,13 @@ namespace Marco.Core.Objectives
     /// else
     ///     result = SeekerWin;
     /// </code>
+    ///
+    /// <para>
+    /// <b>10-01 — 라운드가 끝나기 전에는 판정하지 않는다.</b> 예전에는 탈출 수가 요구치에 닿는 <i>순간</i> 도망자 승리였다 —
+    /// 도망자 2명(요구 1)이면 1명이 나가자마자 다른 1명이 맵에 있어도 승리 화면이 떴다. 이제 라운드는 ① 남은 도망자가 0명
+    /// (전원 탈출 또는 포획) ② 시간 종료(최후 생존자 페이즈 90초 포함)에만 끝나고, 그때 위 식으로 판정한다. 게이트 개방은 탈출을
+    /// 가능하게 할 뿐 판정식의 항이 아니다(아래).
+    /// </para>
     ///
     /// <para>
     /// <b>v0.4에서 사라진 두 상수.</b>
@@ -63,7 +71,8 @@ namespace Marco.Core.Objectives
             ValveRoster.EscapeRequirement(runnerCount);
 
         /// <summary>
-        /// §6.3 판정. <b>판정 대상은 3개</b>이며 우선순위는 도망자 승리 → 술래 승리다
+        /// §6.3 판정. <b>라운드가 끝났을 때만</b>(남은 도망자 0명 또는 시간 종료) 결과를 내고, 그 전에는
+        /// <see cref="RoundResult.InProgress"/>다(10-01). 결과의 우선순위는 도망자 승리 → 술래 승리다
         /// (§6.3 "탈출을 먼저 확정 — 도망자에게 유리하게 해석").
         /// </summary>
         /// <param name="runnerCount">이번 라운드 도망자 총수. 탈출 요구의 분모다.</param>
@@ -83,6 +92,13 @@ namespace Marco.Core.Objectives
             bool lastSurvivorEscaped,
             float timeRemainingSeconds)
         {
+            // 라운드 종료 — §6.3 "모든 도망자가 탈출 또는 태그로 확정 → 즉시 종료, 판정" · "제한시간 종료 → 판정".
+            //   **"살아있는 0명"은 "전원 태그"가 아니다** — 탈출자도 빠진다. 1명이라도 맵에 남아 있으면 끝나지 않는다(10-01).
+            bool allRunnersOut = runnerCount > 0 && aliveRunners <= 0;
+            bool timeUp = timeRemainingSeconds <= 0f;
+            if (!allRunnersOut && !timeUp)
+                return RoundResult.InProgress;
+
             // ①·② 도망자 승리 — 요구 인원 탈출, 또는 최후 생존자의 단독 탈출.
             //     §6.3 "마지막 1인의 탈출은 게이트 개방 여부와 무관하게 팀 승리다."
             if (lastSurvivorEscaped)
@@ -91,18 +107,8 @@ namespace Marco.Core.Objectives
             if (runnerCount > 0 && runnersEscaped >= EscapeRequirement(runnerCount))
                 return RoundResult.RunnersWin;
 
-            // ③ 술래 승리 — 살아있는 도망자 0명, 또는 시간 종료.
-            //
-            //    **"살아있는 0명"은 "전원 태그"가 아니다.** 탈출자도 살아있는 수에서 빠지므로,
-            //    탈출이 요구치에 못 미친 채 나머지가 전부 잡히면 여기로 온다.
-            //    §6.3 "모든 도망자가 탈출 또는 태그로 확정 → 즉시 종료, 판정".
-            if (runnerCount > 0 && aliveRunners <= 0)
-                return RoundResult.SeekerWin;
-
-            if (timeRemainingSeconds <= 0f)
-                return RoundResult.SeekerWin;
-
-            return RoundResult.InProgress;
+            // ③ 술래 승리 — 탈출이 요구치에 못 미친 채 라운드가 끝났다(남은 도망자는 미탈출로 집계).
+            return RoundResult.SeekerWin;
         }
 
         /// <summary>

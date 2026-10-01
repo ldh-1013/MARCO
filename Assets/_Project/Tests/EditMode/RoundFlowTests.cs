@@ -150,16 +150,19 @@ namespace Marco.Core.Tests
 
         // ── §6.3 판정 연결 ─────────────────────────────────────────────
 
-        // 11) 밸브 전부 개방 + 2인 탈출 → 러너 승리(§6.3 갱신: 탈출 2명이 목표).
+        // 11) 밸브 전부 개방 + 2인 탈출 → 요구(⌈3/2⌉ = 2)는 채웠지만 3번째가 남아 있으면 끝나지 않는다(10-01).
+        //     3번째까지 나가면(여기서는 포획) 그때 러너 승리.
         [Test]
-        public void AllValvesOpenAndTwoEscaped_DecidesRunnersWin()
+        public void AllValvesOpenAndTwoEscaped_ThenLastRunnerOut_DecidesRunnersWin()
         {
             var outcome = new RoundOutcomeTracker();
             outcome.TryRegisterEscape(RunnerA, RoleType.Runner, gateOpen: true);
             outcome.TryRegisterEscape(RunnerB, RoleType.Runner, gateOpen: true);
 
-            bool decided = outcome.Evaluate(runnerCount: 3, taggedRunners: 0,
-                timeRemainingSeconds: 500f);
+            Assert.IsFalse(outcome.Evaluate(runnerCount: 3, taggedRunners: 0, timeRemainingSeconds: 500f),
+                "1명이 남았다 — 승리 화면은 라운드가 끝났을 때만");
+
+            bool decided = outcome.Evaluate(runnerCount: 3, taggedRunners: 1, timeRemainingSeconds: 500f);
 
             Assert.IsTrue(decided);
             Assert.AreEqual(RoundResult.RunnersWin, outcome.Result);
@@ -217,7 +220,7 @@ namespace Marco.Core.Tests
             outcome.TryRegisterEscape(RunnerA, RoleType.Runner, gateOpen: true);
             outcome.TryRegisterEscape(RunnerB, RoleType.Runner, gateOpen: true);
 
-            bool first = outcome.Evaluate(3, 0, 500f);   // RunnersWin 확정(탈출 2/요구 2)
+            bool first = outcome.Evaluate(3, 1, 500f);   // 3번째 포획 → 전원 확정 → RunnersWin(탈출 2/요구 2)
             bool second = outcome.Evaluate(3, 3, 0f);    // 술래 승리 조건으로 재평가 시도
 
             Assert.IsTrue(first);

@@ -120,7 +120,7 @@ namespace Marco.Presentation.UI
         /// <summary>
         /// 핍 개수 = §6.1-0 <b>배치</b> 수(5). v0.3의 "맵당 최대 3개"였던 상수가 남아 있어
         /// 밸브 D·E가 HUD에 영영 안 그려졌다(블록 2의 enum 파급 누락 — 블록 4에서 발견).
-        /// 활성 3~4개만이 아니라 잠금 밸브도 그려야 "어느 것이 잠겼나"가 보인다.
+        /// 활성 3개만이 아니라 잠금 밸브도 그려야 "어느 것이 잠겼나"가 보인다.
         /// </summary>
         private static int MaxValvePips => ValveRoster.PlacedCount;
 
@@ -932,7 +932,7 @@ namespace Marco.Presentation.UI
                 // 스프린트 18b: 밸브 목록은 맵 로드·언로드에 따라 바뀌므로 매 프레임 집계기에서
                 // 최신 배열을 읽는다(집계기가 씬 이벤트로 재스캔한다). 맵이 없으면 길이 0이라
                 // 모든 핍이 숨는다.
-                // §12.4 "밸브 상태 슬롯 — 활성 개수만큼(3~4칸)". 잠긴 밸브는 슬롯을 차지하지 않는다
+                // §12.4 "밸브 상태 슬롯 — 활성 개수만큼(3칸, 10-01)". 잠긴 밸브는 슬롯을 차지하지 않는다
                 // (잠금은 §12.4 브리핑 평면도가 보여준다).
                 ValveBehaviour[] valves = _valves.Valves;
                 ValveBehaviour valve = ActiveValveAt(valves, i);

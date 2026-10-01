@@ -15,32 +15,39 @@ namespace Marco.Core.Tests
         private static ServerRoundDriver NewDriver() => new ServerRoundDriver(600f);
 
         [Test]
-        public void TwoRunners_OneEscapes_RunnersWin_WithoutEnteringPhase()
+        public void TwoRunners_OneEscapes_NotDecided_LastOneEntersPhase_ThenEscapes()
         {
             ServerRoundDriver d = NewDriver();
             Assert.IsTrue(d.TryRegisterEscape(1, RoleType.Runner, gateOpen: true));
 
-            // 도망자 2 · 1명 탈출 → 살아있는 1명(페이즈 조건) 이자 탈출 요구 ⌈2/2⌉=1 달성(승리 조건)이 동시에 성립한다.
+            // 도망자 2 · 1명 탈출 → 탈출 요구 ⌈2/2⌉=1은 채웠지만 1명이 남았다 — 10-01: 끝나지 않고 최후 생존자 페이즈로.
+            //   (09-30 결함 "승리 확정 처리에서 페이즈 진입"은 이제 생길 수 없다 — 승리는 남은 도망자 0명일 때만 확정된다.)
             ServerRoundDriver.RoundStep step = d.Step(d.Census(totalRunners: 2, taggedRunners: 0));
 
-            Assert.IsTrue(step.Decided);
+            Assert.IsFalse(step.Decided);
+            Assert.IsTrue(step.EnteredLastSurvivorPhase);
+
+            Assert.IsTrue(d.TryRegisterEscape(2, RoleType.Runner, gateOpen: true), "남은 1명도 직접 탈출");
+            ServerRoundDriver.RoundStep end = d.Step(d.Census(2, 0));
+            Assert.IsTrue(end.Decided);
+            Assert.IsFalse(end.EnteredLastSurvivorPhase, "판정이 난 처리에서는 페이즈에 다시 들어가지 않는다");
             Assert.AreEqual(RoundResult.RunnersWin, d.Result);
-            Assert.IsFalse(step.EnteredLastSurvivorPhase, "승리가 확정된 처리에서는 페이즈에 들어가지 않는다(수정 전 1회)");
-            Assert.IsFalse(d.LastSurvivorPhase, "결과 화면에 '최후 생존자 1:30'이 남는 원인");
         }
 
         [Test]
-        public void ThreeRunners_TwoEscape_LastAlive_RunnersWinWithoutPhase()
+        public void ThreeRunners_TwoEscape_LastAlive_EntersPhase_ThenTagged_RunnersWin()
         {
             ServerRoundDriver d = NewDriver();
             d.TryRegisterEscape(1, RoleType.Runner, true);
             d.TryRegisterEscape(2, RoleType.Runner, true);
 
-            ServerRoundDriver.RoundStep step = d.Step(d.Census(3, 0)); // 요구 ⌈3/2⌉=2 달성, 생존 1
+            ServerRoundDriver.RoundStep step = d.Step(d.Census(3, 0)); // 요구 ⌈3/2⌉=2 달성, 생존 1 — 아직 끝나지 않는다
 
-            Assert.IsTrue(step.Decided);
-            Assert.IsFalse(step.EnteredLastSurvivorPhase);
-            Assert.IsFalse(d.LastSurvivorPhase);
+            Assert.IsFalse(step.Decided);
+            Assert.IsTrue(step.EnteredLastSurvivorPhase);
+
+            Assert.IsTrue(d.Step(d.Census(3, 1)).Decided, "마지막 1명 포획 — 전원 확정");
+            Assert.AreEqual(RoundResult.RunnersWin, d.Result, "탈출 2 ≥ 요구 2");
         }
 
         [Test]

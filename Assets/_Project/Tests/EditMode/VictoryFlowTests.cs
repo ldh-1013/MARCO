@@ -9,8 +9,8 @@ namespace Marco.Core.Tests
 {
     /// <summary>
     /// 승리 경로 끝에서 끝까지(1-4, Core 수준) — 서버가 쓰는 실제 규칙만 엮는다: 밸브 구동기(<see cref="ServerValveDriver"/>)로
-    /// 요구 수만큼 열고 → 서버 게이트 래치(<see cref="RoundObjective"/>) → 출구 트리거 규칙(<see cref="EscapeAttemptScheduler"/>)이
-    /// 요청 → 서버 탈출 등록(<see cref="ServerRoundDriver"/>) → 판정.
+    /// 활성 3개를 모두 열고 → 서버 게이트 래치(<see cref="RoundObjective"/>) → 출구 트리거 규칙(<see cref="EscapeAttemptScheduler"/>)이
+    /// 요청 → 서버 탈출 등록(<see cref="ServerRoundDriver"/>) → 도망자 전원이 나간 뒤 판정(10-01).
     /// </summary>
     public class VictoryFlowTests
     {
@@ -30,7 +30,7 @@ namespace Marco.Core.Tests
 
             public Round(int players)
             {
-                Active = ValveRoster.SelectActive(players, seed: 7);
+                Active = ValveRoster.SelectActive(seed: 7);
                 Objective.BeginRound(players, Active.Count);
                 foreach (ValveId id in Active)
                 {
@@ -91,41 +91,51 @@ namespace Marco.Core.Tests
         }
 
         [Test]
-        public void ThreePlayers_OpenTwo_GateLatch_FrontDoor_RunnersWin()
+        public void ThreePlayers_OpenAllThree_GateLatch_BothRunnersMustLeave()
         {
             var round = new Round(players: 3);
-            Assert.AreEqual(2, round.Objective.RequiredOpen);
+            Assert.AreEqual(3, round.Objective.RequiredOpen, "3인도 필요 3(10-01 — 예전 2)");
 
             // 러너는 스폰 슬롯 2 (7, 0.1, 39) — 정문 1.34m, 스폰부터 반경 안. 게이트가 닫힌 동안은 탈출하지 못한다.
             var slot2 = new Vector3(7f, 0.1f, 39f);
             Assert.IsFalse(round.StandAtExit(11, slot2, FrontDoor, 2f), "게이트 닫힘 — 탈출 불가");
 
             round.OpenValves(0, 2);
-            Assert.IsTrue(round.Objective.GateOpen, "요구 2개 동시 개방 → 서버 게이트 래치");
+            Assert.IsFalse(round.Objective.GateOpen, "활성 3개 중 2개 — 닫힘(수정 전: 여기서 열렸다)");
+            Assert.IsFalse(round.StandAtExit(11, slot2, FrontDoor, 1f), "아직 탈출 불가");
 
-            Assert.IsTrue(round.StandAtExit(11, slot2, FrontDoor, 1f), "움직이지 않고 정문으로 탈출");
-            Assert.IsTrue(round.Driver.Evaluate(round.Driver.Census(totalRunners: 2, taggedRunners: 0)));
-            Assert.AreEqual(RoundResult.RunnersWin, round.Driver.Result, "도망자 2명 — 탈출 요구 1명");
+            round.OpenValves(2, 3);
+            Assert.IsTrue(round.Objective.GateOpen, "3개 동시 개방 → 서버 게이트 래치");
+            Assert.IsFalse(round.Driver.Evaluate(round.Driver.Census(totalRunners: 2, taggedRunners: 0)), "게이트만으로는 승리 아님");
+
+            Assert.IsTrue(round.StandAtExit(11, slot2, FrontDoor, 1f), "정문으로 탈출");
+            Assert.IsFalse(round.Driver.Evaluate(round.Driver.Census(2, 0)), "1명 남았다 — 끝나지 않는다(수정 전: 즉시 승리)");
+
+            var nearDrain = new Vector3(46f, 0.05f, 2.25f); // 직원통로 — 배수로 출구 1.03m
+            Assert.IsTrue(round.StandAtExit(12, nearDrain, DrainExit, 1f), "두 번째 도망자도 직접 나간다");
+            Assert.IsTrue(round.Driver.Evaluate(round.Driver.Census(2, 0)));
+            Assert.AreEqual(RoundResult.RunnersWin, round.Driver.Result);
         }
 
         [Test]
-        public void ThreePlayers_SameFlow_ThroughDrainExit()
+        public void ThreePlayers_OneEscapes_OtherTagged_RunnersWin()
         {
             var round = new Round(players: 3);
-            round.OpenValves(0, 2);
+            round.OpenValves(0, 3);
             Assert.IsTrue(round.Objective.GateOpen);
 
-            var nearDrain = new Vector3(46f, 0.05f, 2.25f); // 직원통로 — 배수로 출구 1.03m
+            var nearDrain = new Vector3(46f, 0.05f, 2.25f);
             Assert.IsTrue(round.StandAtExit(12, nearDrain, DrainExit, 1f), "배수로 출구로 탈출");
-            Assert.IsTrue(round.Driver.Evaluate(round.Driver.Census(2, 0)));
-            Assert.AreEqual(RoundResult.RunnersWin, round.Driver.Result);
+            Assert.IsFalse(round.Driver.Evaluate(round.Driver.Census(2, 0)));
+            Assert.IsTrue(round.Driver.Evaluate(round.Driver.Census(2, 1)), "남은 1명 포획 — 전원 확정");
+            Assert.AreEqual(RoundResult.RunnersWin, round.Driver.Result, "도망자 2명 — 탈출 요구 1명");
         }
 
         [Test]
         public void GateOpened_ThenReflowClosesValves_EscapeStillValid()
         {
             var round = new Round(players: 3);
-            round.OpenValves(0, 2);
+            round.OpenValves(0, 3);
             Assert.IsTrue(round.Objective.GateOpen);
 
             round.Run(Valve.OpenHoldSeconds + Valve.ReflowSeconds + 5f); // 역류로 전부 닫힌다
@@ -133,15 +143,16 @@ namespace Marco.Core.Tests
             Assert.IsTrue(round.Objective.GateOpen, "§6.1-2 래치 — 게이트는 열린 채");
 
             Assert.IsTrue(round.StandAtExit(11, new Vector3(7f, 0.1f, 39f), FrontDoor, 1f), "역류 뒤에도 탈출 유효");
+            Assert.IsTrue(round.StandAtExit(12, new Vector3(46f, 0.05f, 2.25f), DrainExit, 1f));
             Assert.IsTrue(round.Driver.Evaluate(round.Driver.Census(2, 0)));
             Assert.AreEqual(RoundResult.RunnersWin, round.Driver.Result);
         }
 
         [Test]
-        public void FourPlayers_RequiresThree_AndTwoEscapes()
+        public void FourPlayers_RequiresThree_EndsOnlyWhenEveryRunnerIsOut()
         {
             var round = new Round(players: 4);
-            Assert.AreEqual(3, round.Objective.RequiredOpen, "4인 — 요구 3");
+            Assert.AreEqual(3, round.Objective.RequiredOpen, "4인 — 필요 3");
             Assert.AreEqual(2, ValveRoster.EscapeRequirement(3), "도망자 3명 — 탈출 요구 2");
 
             round.OpenValves(0, 2);
@@ -152,6 +163,8 @@ namespace Marco.Core.Tests
             Assert.IsTrue(round.StandAtExit(11, new Vector3(7f, 0.1f, 39f), FrontDoor, 1f));
             Assert.IsFalse(round.Driver.Evaluate(round.Driver.Census(3, 0)), "1명 탈출 — 아직");
             Assert.IsTrue(round.StandAtExit(12, new Vector3(46f, 0.05f, 2.25f), DrainExit, 1f));
+            Assert.IsFalse(round.Driver.Evaluate(round.Driver.Census(3, 0)), "요구 2명은 채웠지만 1명이 남았다(10-01)");
+            Assert.IsTrue(round.StandAtExit(13, new Vector3(7f, 0.1f, 39f), FrontDoor, 1f), "세 번째도 직접 나간다");
             Assert.IsTrue(round.Driver.Evaluate(round.Driver.Census(3, 0)));
             Assert.AreEqual(RoundResult.RunnersWin, round.Driver.Result);
         }

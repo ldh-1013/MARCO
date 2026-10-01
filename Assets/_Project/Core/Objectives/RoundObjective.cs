@@ -42,14 +42,14 @@ namespace Marco.Core.Objectives
         public bool GateOpen => _latch.IsOpen;
 
         /// <summary>
-        /// 라운드 시작(브리핑에서 활성 밸브를 고르는 순간) — 그 총원으로 요구 수를 확정한다. 라운드 중 인원이 바뀌어도
-        /// 이 판에서는 변하지 않는다(§6.2 · 09-29 결정).
+        /// 라운드 시작(브리핑에서 활성 밸브를 고르는 순간) — 필요 개방 수를 확정한다. 10-01: <b>필요 개방 = 이번 라운드 활성 밸브 수</b>
+        /// (3, 인원과 무관). 라운드 중 인원이 바뀌어도 이 판에서는 변하지 않는다.
         /// </summary>
         public void BeginRound(int totalPlayers, int activeValves)
         {
             TotalPlayers = totalPlayers;
             ActiveValves = activeValves;
-            RequiredOpen = ValveRoster.RequiredOpenCount(totalPlayers);
+            RequiredOpen = activeValves;
             _latch.Reset();
         }
 
@@ -104,7 +104,7 @@ namespace Marco.Core.Objectives
             }
 
             usedFallback = totalPlayersOverride <= 0;
-            return ValveRoster.RequiredOpenCount(usedFallback ? OfflineFallbackPlayers : totalPlayersOverride);
+            return ValveRoster.RequiredOpenCount; // 10-01: 인원과 무관하게 활성 수(3)
         }
 
         public static int ActiveValves(in ObjectivePublication publication, int localActiveCount) =>

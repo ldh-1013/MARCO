@@ -6,10 +6,10 @@ namespace Marco.Core.Objectives
         /// <summary>아직 승패가 갈리지 않음.</summary>
         InProgress,
 
-        /// <summary>밸브 전부 개방 + 1인 이상 탈출.</summary>
+        /// <summary>라운드가 끝났을 때(도망자 전원 탈출 · 포획 또는 시간 종료) 탈출 ≥ ⌈도망자 ÷ 2⌉, 또는 최후 생존자 탈출.</summary>
         RunnersWin,
 
-        /// <summary>도망자 전원 태그 또는 제한시간 종료.</summary>
+        /// <summary>라운드가 끝났을 때 탈출이 요구치에 못 미침(전원 포획 포함).</summary>
         SeekerWin
     }
 }

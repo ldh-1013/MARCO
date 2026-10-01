@@ -127,13 +127,15 @@ namespace Marco.Core.Tests
         // ── §6.3 판정 위임 + 래치 ────────────────────────────────────────
 
         [Test]
-        public void Evaluate_RequiredEscaped_RunnersWin()
+        public void Evaluate_RequiredEscaped_RunnersWin_OnceEveryRunnerIsOut()
         {
-            // §6.2 [v0.4] 도망자 3명 → 탈출 요구 ⌈3/2⌉ = 2명.
+            // §6.2 [v0.4] 도망자 3명 → 탈출 요구 ⌈3/2⌉ = 2명. 10-01: 3번째가 나가거나 잡혀야 판정한다.
             var d = new ServerRoundDriver(600f);
             d.TryRegisterEscape(1, RoleType.Runner, gateOpen: true);
             d.TryRegisterEscape(2, RoleType.Runner, gateOpen: true);
 
+            Assert.IsFalse(d.Evaluate(d.Census(3, 0)), "1명 남음 — 진행");
+            Assert.IsTrue(d.TryRegisterEscape(3, RoleType.Runner, gateOpen: true));
             Assert.IsTrue(d.Evaluate(d.Census(3, 0)));
             Assert.AreEqual(RoundResult.RunnersWin, d.Result);
         }

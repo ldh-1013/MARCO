@@ -516,9 +516,9 @@ namespace Marco.Net
         }
 
         /// <summary>
-        /// §6.1-0 이번 라운드 활성 밸브를 서버가 고른다. <b>이 호출부가 없으면 밸브 5개가
-        /// 전부 활성이라 §6.2 "활성 = 요구 + 1" 불변 조건이 깨지고, §9.3-1 봉쇄 무력화
-        /// 논리도 무의미해진다</b>(과거 <c>ServerKnockDriver.Reset()</c> 호출부 부재와 같은 유형).
+        /// §6.1-0 이번 라운드 활성 밸브를 서버가 고른다 — 10-01 규칙: 수영장 B · E 고정 + A · C · D 중 1개 = 3개.
+        /// <b>이 호출부가 없으면 밸브 5개가 전부 활성이고 필요 개방 수도 정해지지 않는다</b>
+        /// (과거 <c>ServerKnockDriver.Reset()</c> 호출부 부재와 같은 유형).
         ///
         /// <para>
         /// <b>시드</b>는 라운드 번호와 총원을 섞어 만든다 — <c>UnityEngine.Random</c>은 Core
@@ -545,12 +545,13 @@ namespace Marco.Net
             if (totalPlayers <= 0)
                 totalPlayers = valves.Count;
 
-            // §6.2 불변 조건을 여기서 단언한다 — 표를 고치다 어긋나면 조용히 밸런스가
+            // 10-01 규칙(활성 3 · 수영장 B · E 고정 · 필요 개방 = 활성 수)을 여기서 단언한다 — 어긋나면 조용히 밸런스가
             // 무너지는 대신 이 지점에서 터진다.
-            ValveRoster.AssertInvariant(totalPlayers);
+            ValveRoster.AssertInvariant();
 
+            // 라운드 번호가 시드에 들어가므로 매 라운드(재경기 포함) 다시 고른다.
             int seed = unchecked(_roundNumber.Value * 73856093 + totalPlayers * 19349663 + 1);
-            List<ValveId> active = ValveRoster.SelectActive(totalPlayers, seed);
+            List<ValveId> active = ValveRoster.SelectActive(seed);
 
             for (int i = 0; i < valves.Count; i++)
             {
@@ -562,7 +563,7 @@ namespace Marco.Net
                 valve.ServerSetActive(isActive);
             }
 
-            // §6.2 요구 개방 수는 **같은 총원으로 여기서 한 번** 확정한다 — 라운드 중 인원이 바뀌어도 이 판에서는 변하지 않는다.
+            // 필요 개방 수 = 활성 밸브 수(10-01, 인원 무관) — 여기서 한 번 확정한다. 라운드 중 인원이 바뀌어도 이 판에서는 변하지 않는다.
             _objective.BeginRound(totalPlayers, active.Count);
             ServerPublishObjective();
 

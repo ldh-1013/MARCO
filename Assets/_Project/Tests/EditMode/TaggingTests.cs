@@ -276,11 +276,13 @@ namespace Marco.Core.Tests
         [Test]
         public void AllThreeVerdictPaths_AreReachable()
         {
-            // (a) 러너 승리 — 밸브 완료 + 탈출 2명
+            // (a) 러너 승리 — 밸브 완료 + 탈출 2명, 남은 1명까지 나가면(여기서는 포획) 판정(10-01)
             var a = new RoundOutcomeTracker();
             a.TryRegisterEscape(RunnerA, RoleType.Runner, gateOpen: true);
             a.TryRegisterEscape(RunnerB, RoleType.Runner, gateOpen: true);
             a.Evaluate(3, 0, 300f);
+            Assert.AreEqual(RoundResult.InProgress, a.Result, "1명 남음 — 진행");
+            a.Evaluate(3, 1, 300f);
             Assert.AreEqual(RoundResult.RunnersWin, a.Result);
 
             // (b) 술래 승리 — **전원 태그**(시간 남음). v0.4에서 "태그 2명"이 아니다.

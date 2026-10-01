@@ -57,12 +57,13 @@ namespace Marco.Core.Tests
 
         // ── 1-2: 서버 판정 · HUD · 브리핑이 같은 수 ─────────────────────────
 
-        [TestCase(3, 3, 2)]
-        [TestCase(4, 4, 3)]
+        [TestCase(2, 3, 3)]
+        [TestCase(3, 3, 3)]
+        [TestCase(4, 3, 3)]
         public void ObjectiveNumbers_ServerHudBriefingAgree_AndGateOpensAtRequired(int players, int expectedActive, int expectedRequired)
         {
-            // 서버: 활성 밸브를 고를 때와 같은 총원으로 라운드 시작 시 확정(RoundNetworkSync.ServerSelectActiveValves).
-            List<ValveId> active = ValveRoster.SelectActive(players, seed: 1);
+            // 서버: 라운드 시작 시 확정(RoundNetworkSync.ServerSelectActiveValves) — 10-01: 활성 3 · 필요 3, 인원 무관.
+            List<ValveId> active = ValveRoster.SelectActive(seed: 1);
             var server = new RoundObjective();
             server.BeginRound(players, active.Count);
             Assert.AreEqual(expectedActive, server.ActiveValves, "서버 활성 수");

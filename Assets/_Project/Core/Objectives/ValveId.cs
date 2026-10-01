@@ -3,7 +3,7 @@ using UnityEngine;
 namespace Marco.Core.Objectives
 {
     /// <summary>
-    /// §10.2 맵에 배치된 밸브 5개. <b>배치는 5개 고정이고 활성만 3~4로 조절한다</b>(§6.1-0).
+    /// §10.2 맵에 배치된 밸브 5개. <b>배치는 5개 고정이고 매 라운드 3개가 활성</b>(수영장 B · E 고정 + 1개, 10-01).
     /// </summary>
     public enum ValveId
     {

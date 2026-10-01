@@ -267,8 +267,8 @@ namespace Marco.Core.Tests
 
             // §6.3 [v0.4] 판정에서 밸브 개방 수가 빠졌다 — 게이트는 탈출의 전제 조건이고
             // 판정식은 도망자 인구만 본다. 여기서는 세 밸브가 실제로 열렸다는 것과,
-            // 그 상태에서 요구 인원이 탈출하면 도망자 승리가 된다는 것을 따로 확인한다.
-            var census = new RunnerCensus(total: 3, taggedOut: 0, escaped: 2);
+            // 그 상태에서 요구 인원이 탈출하고 남은 도망자까지 나가면(10-01) 도망자 승리가 된다는 것을 따로 확인한다.
+            var census = new RunnerCensus(total: 3, taggedOut: 1, escaped: 2);
             RoundResult result = WinConditionEvaluator.Evaluate(
                 census.Total, census.Escaped, census.Alive,
                 lastSurvivorEscaped: false, timeRemainingSeconds: 600f);

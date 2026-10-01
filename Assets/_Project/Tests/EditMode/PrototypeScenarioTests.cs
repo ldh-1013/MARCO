@@ -45,27 +45,27 @@ namespace Marco.Core.Tests
             return n;
         }
 
-        // ── 시나리오 1 — 정상 클리어 (5인, 활성 A·B·C·D, 요구 3) ────────────
+        // ── 시나리오 1 — 정상 클리어 (5인, 활성 B·E·A, 필요 3 — 10-01) ────────────
 
         [Test]
         public void Scenario1_NormalClear_FivePlayers()
         {
             const int total = 5;
-            Assert.AreEqual(3, ValveRoster.RequiredOpenCount(total));
-            Assert.AreEqual(4, ValveRoster.ActiveCount(total));
+            Assert.AreEqual(3, ValveRoster.RequiredOpenCount);
+            Assert.AreEqual(3, ValveRoster.ActiveCount);
 
-            Valve a = NewValve(ValveId.A), b = NewValve(ValveId.B), c = NewValve(ValveId.C), d = NewValve(ValveId.D);
-            var all = new[] { a, b, c, d };
+            Valve a = NewValve(ValveId.A), b = NewValve(ValveId.B), e = NewValve(ValveId.E);
+            var all = new[] { a, b, e };
             var latch = new EscapeGateLatch();
             latch.ResetIfNewRound(1);
 
             a.TryInteract(1, RoleType.Runner);
             TickAll(all, 8f);                                  // t=8  A 개방(역류 180초 시작)
-            c.TryInteract(2, RoleType.Runner);
-            TickAll(all, 8f);                                  // t=16 C 개방
-            Assert.IsFalse(latch.Update(CountOpen(all), 3));
+            e.TryInteract(2, RoleType.Runner);
+            TickAll(all, 7f);                                  // t=15 E 개방(회전 7초)
+            Assert.IsFalse(latch.Update(CountOpen(all), 3), "활성 3개 중 2개 — 닫힘");
             b.TryInteract(3, RoleType.Runner);
-            TickAll(all, 5f);                                  // t=21 B 개방 → 동시 3
+            TickAll(all, 5f);                                  // t=20 B 개방 → 동시 3
             Assert.AreEqual(3, CountOpen(all));
             Assert.IsTrue(latch.Update(CountOpen(all), 3), "동시 3 → 게이트 Open");
 
@@ -81,8 +81,9 @@ namespace Marco.Core.Tests
             Assert.IsTrue(round.TryRegisterEscape(11, RoleType.Runner, latch.IsOpen));
             Assert.IsFalse(round.Evaluate(round.Census(runners, 0)), "1명 탈출 — 아직");
             Assert.IsTrue(round.TryRegisterEscape(12, RoleType.Runner, latch.IsOpen));
-            Assert.IsTrue(round.Evaluate(round.Census(runners, 0)));
-            Assert.AreEqual(RoundResult.RunnersWin, round.Result);
+            Assert.IsFalse(round.Evaluate(round.Census(runners, 0)), "요구 2명은 채웠지만 2명이 남았다 — 끝나지 않는다(10-01)");
+            Assert.IsTrue(round.Evaluate(round.Census(runners, 2)), "남은 2명 포획 — 도망자 전원 확정");
+            Assert.AreEqual(RoundResult.RunnersWin, round.Result, "탈출 2 ≥ 요구 2");
         }
 
         // ── 시나리오 2 — 감쇠 (v0.4 핵심) ──────────────────────────────────
@@ -153,18 +154,18 @@ namespace Marco.Core.Tests
             Assert.AreEqual(RoundResult.SeekerWin, round.Result, "시간 종료");
         }
 
-        // ── 시나리오 4 — 봉쇄 무력화(활성 = 요구 + 1) ──────────────────────
+        // ── 시나리오 4 — 봉쇄(10-01: 활성 = 필요) ──────────────────────────
+        //   예전 규칙(활성 = 요구 + 1)에서는 술래가 어느 하나를 지켜도 나머지로 게이트가 열렸다(§9.3-1 봉쇄 무력화).
+        //   10-01 규칙은 활성 3개를 전부 열어야 하므로 **하나만 지켜도 게이트가 막힌다** — 그 결과를 고정한다.
 
-        [TestCase(2)]
-        [TestCase(3)]
-        [TestCase(4)]
-        [TestCase(5)]
-        [TestCase(6)]
-        public void Scenario4_GuardingAnyOneValve_OthersStillOpenGate(int totalPlayers)
+        [TestCase(17)]
+        [TestCase(18)]
+        [TestCase(19)]
+        public void Scenario4_GuardingAnyOneValve_KeepsGateClosed(int seed)
         {
-            int required = ValveRoster.RequiredOpenCount(totalPlayers);
-            List<ValveId> active = ValveRoster.SelectActive(totalPlayers, seed: 17);
-            Assert.AreEqual(required + 1, active.Count, "§6.2 불변 조건");
+            int required = ValveRoster.RequiredOpenCount;
+            List<ValveId> active = ValveRoster.SelectActive(seed);
+            Assert.AreEqual(required, active.Count, "필요 개방 = 활성 수");
 
             foreach (ValveId guarded in active)
             {
@@ -182,7 +183,7 @@ namespace Marco.Core.Tests
                 }
 
                 latch.Update(CountOpen(opened), required);
-                Assert.IsTrue(latch.IsOpen, $"{totalPlayers}인 — {guarded}를 지켜도 나머지로 게이트가 열린다");
+                Assert.IsFalse(latch.IsOpen, $"seed {seed} — {guarded}를 지키면 나머지 2개로는 게이트가 열리지 않는다");
             }
         }
 

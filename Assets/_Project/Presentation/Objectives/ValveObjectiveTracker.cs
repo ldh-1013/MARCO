@@ -42,8 +42,8 @@ namespace Marco.Presentation.Objectives
         public int OpenedCount { get; private set; }
 
         /// <summary>
-        /// §6.2 게이트가 열리는 데 필요한 동시 개방 수(2 또는 3).
-        /// <b>3을 하드코딩하지 않는다</b> — 총원에서 유도한다.
+        /// 게이트가 열리는 데 필요한 동시 개방 수 — 10-01부터 활성 밸브 수(3, 인원 무관).
+        /// 서버가 공개한 값을 그대로 쓴다(오프라인 스모크 리그만 <see cref="ValveRoster.RequiredOpenCount"/>).
         /// </summary>
         public int RequiredOpenCount
         {

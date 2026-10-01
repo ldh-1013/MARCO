@@ -6,11 +6,12 @@ using NUnit.Framework;
 namespace Marco.Core.Tests
 {
     /// <summary>
-    /// §6.1-0 · §6.2 활성 밸브 조합과 요구 개방 수를 고정한다.
+    /// §6.1-0 · §6.2 활성 밸브 조합과 필요 개방 수를 고정한다.
     ///
     /// <para>
-    /// <b>이 파일의 중심은 불변 조건 "활성 = 요구 + 1"</b>이다. §6.2가 *"절대 깨지 않는다"*
-    /// 고 못박았고 §9.3-1의 봉쇄 무력화 논리가 성립하는 유일한 조건이다.
+    /// <b>10-01 확정 규칙</b>: 활성 3개(수영장 B · E 고정 + A · C · D 중 1개) · 필요 개방 = 활성 수(3, 인원 무관).
+    /// 예전 불변 조건 "활성 = 요구 + 1"(§9.3-1 봉쇄 무력화)은 이 규칙으로 폐기됐다 — 활성 3개를 전부 열어야 하므로 술래가 하나를
+    /// 지키면 게이트가 막힌다(PrototypeScenarioTests.Scenario4).
     /// </para>
     /// </summary>
     public class ValveRosterTests
@@ -18,36 +19,25 @@ namespace Marco.Core.Tests
         [Test]
         public void PlacedCount_IsFiveRegardlessOfPlayers()
         {
-            // §6.1-0 "배치는 5개 고정이며, 인원에 따라 활성 개수만 3~4로 조절한다."
+            // §6.1-0 "배치는 5개 고정" — 매 라운드 활성 3개(10-01).
             Assert.AreEqual(5, ValveRoster.PlacedCount);
             Assert.AreEqual(5, ValveOccupancy.All.Length);
         }
 
-        // §6.2 표: 총원 2→활성3/요구2 | 3→3/2 | 4→4/3 | 5→4/3 | 6→4/3
-        [TestCase(2, 3, 2)]
-        [TestCase(3, 3, 2)]
-        [TestCase(4, 4, 3)]
-        [TestCase(5, 4, 3)]
-        [TestCase(6, 4, 3)]
-        public void ActiveAndRequired_MatchDesignDocTable(int totalPlayers, int active, int required)
+        [Test]
+        public void ActiveAndRequired_AreThree_RegardlessOfPlayers()
         {
-            Assert.AreEqual(required, ValveRoster.RequiredOpenCount(totalPlayers), "요구 개방");
-            Assert.AreEqual(active, ValveRoster.ActiveCount(totalPlayers), "활성 밸브");
+            // 10-01: 인원 입력이 없다. 예전 표(총원 2·3 → 활성 3 / 요구 2, 4~6 → 활성 4 / 요구 3)는 폐기.
+            Assert.AreEqual(3, ValveRoster.ActiveCount, "활성 밸브");
+            Assert.AreEqual(3, ValveRoster.RequiredOpenCount, "필요 개방");
         }
 
-        [TestCase(2)]
-        [TestCase(3)]
-        [TestCase(4)]
-        [TestCase(5)]
-        [TestCase(6)]
-        public void Invariant_ActiveEqualsRequiredPlusOne(int totalPlayers)
+        [Test]
+        public void Invariant_RequiredEqualsActive_PoolValvesAreBAndE()
         {
-            // §6.2 "유지되는 불변 조건" — 여유가 0이면 술래가 하나만 지켜도 클리어가 막히고,
-            // 여유가 2 이상이면 압박이 소멸한다.
-            Assert.AreEqual(ValveRoster.RequiredOpenCount(totalPlayers) + 1,
-                ValveRoster.ActiveCount(totalPlayers));
-
-            Assert.DoesNotThrow(() => ValveRoster.AssertInvariant(totalPlayers));
+            Assert.AreEqual(ValveRoster.ActiveCount, ValveRoster.RequiredOpenCount, "필요 개방 = 활성 수");
+            CollectionAssert.AreEqual(new[] { ValveId.B, ValveId.E }, ValveRoster.PoolValves, "수영장 밸브 = 수중 밸브 B · E");
+            Assert.DoesNotThrow(ValveRoster.AssertInvariant);
         }
 
         // §6.2 [v0.4] 탈출 요구 = ⌈도망자 ÷ 2⌉ — 2→1 / 3→2 / 4→2 / 5→3
@@ -74,8 +64,8 @@ namespace Marco.Core.Tests
         [Test]
         public void SelectActive_IsDeterministicForSameSeed()
         {
-            List<ValveId> a = ValveRoster.SelectActive(5, seed: 1234);
-            List<ValveId> b = ValveRoster.SelectActive(5, seed: 1234);
+            List<ValveId> a = ValveRoster.SelectActive(seed: 1234);
+            List<ValveId> b = ValveRoster.SelectActive(seed: 1234);
 
             Assert.AreEqual(a, b, "같은 시드면 같은 조합이어야 테스트에서 고정할 수 있다.");
         }
@@ -85,9 +75,9 @@ namespace Marco.Core.Tests
         {
             for (int seed = 1; seed <= 50; seed++)
             {
-                List<ValveId> chosen = ValveRoster.SelectActive(5, seed);
+                List<ValveId> chosen = ValveRoster.SelectActive(seed);
 
-                Assert.AreEqual(4, chosen.Count, $"seed={seed}");
+                Assert.AreEqual(3, chosen.Count, $"seed={seed}");
                 CollectionAssert.AllItemsAreUnique(chosen, $"seed={seed}");
             }
         }
@@ -95,11 +85,11 @@ namespace Marco.Core.Tests
         [Test]
         public void SelectActive_EventuallyCoversAllFiveCombinations()
         {
-            // §6.1-0 "5개 중 서버가 무작위 선택, 조합 5가지" — 한 밸브도 영구 제외되지 않는다.
+            // 10-01: B · E 고정 + 나머지 1자리 → 조합 3가지. 다섯 밸브 모두 활성이 될 수 있다(A · C · D는 번갈아).
             var seen = new HashSet<ValveId>();
             for (int seed = 1; seed <= 200; seed++)
             {
-                foreach (ValveId id in ValveRoster.SelectActive(5, seed))
+                foreach (ValveId id in ValveRoster.SelectActive(seed))
                     seen.Add(id);
             }
 
@@ -107,9 +97,9 @@ namespace Marco.Core.Tests
         }
 
         [Test]
-        public void SelectActive_ForThreePlayers_PicksThree()
+        public void SelectActive_PicksThree()
         {
-            Assert.AreEqual(3, ValveRoster.SelectActive(3, seed: 7).Count);
+            Assert.AreEqual(3, ValveRoster.SelectActive(seed: 7).Count);
         }
 
         [Test]

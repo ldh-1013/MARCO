@@ -39,7 +39,10 @@ namespace Marco.Core.Tests
             d.ResolveTagRequest(12, RoleType.Runner, new Vector3(46f, 0.05f, 2.25f), gateOpen: true, Exits); // 배수로 1.03m
 
             ServerRoundDriver.RoundStep step = d.Step(d.Census(totalRunners: 2, taggedRunners: 0));
-            Assert.IsTrue(step.Decided);
+            Assert.IsFalse(step.Decided, "다른 도망자가 남았다 — 10-01: 끝나지 않는다");
+
+            // 남은 1명이 포획돼 전원 확정 — 태그 대신 확정된 탈출 1명이 요구 1을 채운다.
+            Assert.IsTrue(d.Step(d.Census(2, 1)).Decided);
             Assert.AreEqual(RoundResult.RunnersWin, d.Result, "도망자 2 · 탈출 요구 1 — 태그 대신 탈출이 승리로 이어진다");
         }
 
