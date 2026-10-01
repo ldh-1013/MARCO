@@ -22,13 +22,13 @@ namespace Marco.Core.Tests
 
         // ── §6.5-2 작업 시간 · 총 점유 · 잠수 횟수 표 ─────────────────────
 
-        // 동시 개방 | T | 총 점유(진입 1 + T + 부상 1) | 게이지 20초 기준(10-01 — v0.4 12초에서는 0 · 1개가 2회)
-        //   0개     | 14 | 16 | 1회(잔여 4초)
-        //   1개     | 11 | 13 | 1회(잔여 7초)
-        //   2개     |  8 | 10 | 1회(잔여 10초)
-        [TestCase(0, 14f, 16f, 1)]
-        [TestCase(1, 11f, 13f, 1)]
-        [TestCase(2, 8f, 10f, 1)]
+        // 동시 개방 | T | 총 점유(진입 1 + T + 부상 1) | 게이지 14초 기준(10-02 — T = 11 − 3n)
+        //   0개     | 11 | 13 | 1회(잔여 1초)
+        //   1개     |  8 | 10 | 1회(잔여 4초)
+        //   2개     |  5 |  7 | 1회(잔여 7초)
+        [TestCase(0, 11f, 13f, 1)]
+        [TestCase(1, 8f, 10f, 1)]
+        [TestCase(2, 5f, 7f, 1)]
         public void DrainTable_MatchesDesignDoc(int openValves, float t, float occupancy, int dives)
         {
             Assert.AreEqual(t, DrainConfig.WorkSeconds(openValves), Eps);
@@ -37,26 +37,28 @@ namespace Marco.Core.Tests
         }
 
         [Test]
-        public void TwoOpenValves_OneDive_LeavesTenSecondsOfBreath()
+        public void TwoOpenValves_OneDive_LeavesSevenSecondsOfBreath()
         {
-            // §6.5-2 "1회 잠수(잔여 10초)" — 게이지 값은 BreathConfig 한 곳이 소유한다(10-01 20초, v0.4 12초에서는 잔여 2초).
-            Assert.AreEqual(10f, BreathConfig.TotalSeconds - DrainConfig.TotalOccupancySeconds(2), Eps);
+            // §6.5-2 "1회 잠수(잔여 7초)" — 게이지 값은 BreathConfig 한 곳이 소유한다(10-02 14초 · T 5, 10-01 20초는 잔여 10초).
+            Assert.AreEqual(7f, BreathConfig.TotalSeconds - DrainConfig.TotalOccupancySeconds(2), Eps);
         }
 
         [Test]
         public void RequiredDives_Boundary_EqualOccupancyIsOneDive()
         {
             // 경계: 총 점유 = 게이지면 1회(≤). 0.01초라도 모자라면 2회.
-            Assert.AreEqual(1, DrainConfig.RequiredDives(2, 10f));
-            Assert.AreEqual(2, DrainConfig.RequiredDives(2, 9.99f));
+            float occupancy = DrainConfig.TotalOccupancySeconds(2);
+            Assert.AreEqual(1, DrainConfig.RequiredDives(2, occupancy));
+            Assert.AreEqual(2, DrainConfig.RequiredDives(2, occupancy - 0.01f));
         }
 
         [Test]
         public void WorkSeconds_NeverNegative()
         {
             // 방어 하한 — 5개 개방은 게이트가 열려 배수구가 활성화되지 않지만 공식은 음수가 되면 안 된다.
-            Assert.AreEqual(0f, DrainConfig.WorkSeconds(5), Eps);
-            Assert.AreEqual(14f, DrainConfig.WorkSeconds(-1), Eps);
+            Assert.AreEqual(DrainConfig.MinWorkSeconds, DrainConfig.WorkSeconds(5), Eps, "10-02: 하한 1초(0이면 진행도 분모가 0)");
+            Assert.Greater(DrainConfig.WorkSeconds(5), 0f);
+            Assert.AreEqual(11f, DrainConfig.WorkSeconds(-1), Eps);
         }
 
         [Test]

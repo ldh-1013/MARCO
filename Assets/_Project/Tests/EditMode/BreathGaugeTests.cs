@@ -26,7 +26,7 @@ namespace Marco.Core.Tests
         [Test]
         public void Config_MatchesDesignDoc()
         {
-            Assert.AreEqual(20f, BreathConfig.TotalSeconds);   // 10-01 총량 20초(v0.4 12초 — 배수구 플레이 보고)
+            Assert.AreEqual(14f, BreathConfig.TotalSeconds);   // 10-02 총량 14초(v0.4 12초 → 10-01 20초 → 10-02 14초)
             Assert.AreEqual(1f, BreathConfig.DivePerSecond);
             Assert.AreEqual(4.5f, BreathConfig.SuppressionCost); // §5.9-1 [v0.4] "비명 억제 -4.5"
             Assert.AreEqual(2f, BreathConfig.SurfaceRecoveryPerSecond);
@@ -42,9 +42,9 @@ namespace Marco.Core.Tests
             Assert.AreEqual((int)(BreathConfig.TotalSeconds / BreathConfig.SuppressionCost),
                 BreathConfig.MaxConsecutiveSuppressions);
 
-            // 10-01: 총량만 12→20으로 올리고 억제 비용 4.5는 그대로 뒀다(지시) — 20 ÷ 4.5 = 4.44 → 4회.
-            // v0.4(12 ÷ 4.5 = 2.67 → 2회)의 "비율 고정"은 의도적으로 유지하지 않았다 — §3.5 외침의 위력이 약해진다.
-            Assert.AreEqual(4, BreathConfig.MaxConsecutiveSuppressions);
+            // 10-02: 총량 14초 · 억제 비용 4.5 그대로(지시) — 14 ÷ 4.5 = 3.11 → 3회(10-01 20초 4회, v0.4 12초 2회).
+            // v0.4의 "비율 고정"(2회)은 의도적으로 유지하지 않았다 — §3.5 외침의 위력이 약해진다.
+            Assert.AreEqual(3, BreathConfig.MaxConsecutiveSuppressions);
         }
 
         [Test]
@@ -195,14 +195,14 @@ namespace Marco.Core.Tests
         }
 
         [Test]
-        public void DocTable_FullDepletion_TakesSeven()
+        public void DocTable_FullDepletion_TakesFiveAndHalf()
         {
-            // §5.9-1: 전체 고갈(20초) 후 물 밖 → -20 / 대기 2초 / 회복 5.0초 / 총 7.0초(v0.4 12초는 5.0초였다)
+            // §5.9-1: 전체 고갈(14초) 후 물 밖 → -14 / 대기 2초 / 회복 3.5초 / 총 5.5초(10-02 — 20초 7.0초, v0.4 12초 5.0초)
             var g = new BreathGauge();
             Advance(g, BreathZone.Submerged, BreathConfig.TotalSeconds);
             Assert.AreEqual(0f, g.Current, 0.02f);
 
-            Assert.AreEqual(7.0f, SecondsToFull(g, BreathZone.OutOfWater), 0.03f);
+            Assert.AreEqual(5.5f, SecondsToFull(g, BreathZone.OutOfWater), 0.05f);
         }
 
         // ── 질식 (§5.9-1 고갈 페널티) ────────────────────────────────────
@@ -328,19 +328,18 @@ namespace Marco.Core.Tests
         // ── §5.9-1 연속 억제 최대 횟수(10-01: 4회) ─────────────────────
 
         [Test]
-        public void ConsecutiveSuppressions_MaxFourOnFullGauge()
+        public void ConsecutiveSuppressions_MaxThreeOnFullGauge()
         {
             var g = new BreathGauge();
 
-            Assert.AreEqual(SuppressionResult.Suppressed, g.TrySuppressScream(BreathZone.OutOfWater)); // 20 → 15.5
-            Assert.AreEqual(SuppressionResult.Suppressed, g.TrySuppressScream(BreathZone.OutOfWater)); // 15.5 → 11.0
-            Assert.AreEqual(SuppressionResult.Suppressed, g.TrySuppressScream(BreathZone.OutOfWater)); // 11.0 → 6.5
-            Assert.AreEqual(SuppressionResult.Suppressed, g.TrySuppressScream(BreathZone.OutOfWater)); // 6.5 → 2.0
+            Assert.AreEqual(SuppressionResult.Suppressed, g.TrySuppressScream(BreathZone.OutOfWater)); // 14 → 9.5
+            Assert.AreEqual(SuppressionResult.Suppressed, g.TrySuppressScream(BreathZone.OutOfWater)); // 9.5 → 5.0
+            Assert.AreEqual(SuppressionResult.Suppressed, g.TrySuppressScream(BreathZone.OutOfWater)); // 5.0 → 0.5
             Assert.AreEqual(SuppressionResult.NotEnoughBreath, g.TrySuppressScream(BreathZone.OutOfWater));
 
-            // 10-01 총량 20초 · 억제 비용 4.5 그대로 → 4회(v0.4 12초에서는 2회였다).
-            Assert.AreEqual(BreathConfig.MaxConsecutiveSuppressions, 4);
-            Assert.AreEqual(2f, g.Current, 0.0001f, "20 - 4.5 × 4 = 2.0 (4.5 미만이라 5회는 불가).");
+            // 10-02 총량 14초 · 억제 비용 4.5 그대로 → 3회(10-01 20초 4회, v0.4 12초 2회).
+            Assert.AreEqual(BreathConfig.MaxConsecutiveSuppressions, 3);
+            Assert.AreEqual(0.5f, g.Current, 0.0001f, "14 - 4.5 × 3 = 0.5 (4.5 미만이라 4회는 불가).");
         }
 
         [Test]
@@ -450,14 +449,14 @@ namespace Marco.Core.Tests
         /// 같은 값이 남는다(더블체크 8).
         /// </para>
         /// </summary>
-        [TestCase(0, 14f, 16f, 1)] // §6.5-2: T=14, 총 16초 → 1회 잠수(잔여 4초 · v0.4 12초에서는 2회)
-        [TestCase(1, 11f, 13f, 1)] // §6.5-2: T=11, 총 13초 → 1회 잠수(잔여 7초 · v0.4 12초에서는 2회)
-        [TestCase(2, 8f, 10f, 1)]  // §6.5-2: T= 8, 총 10초 → 1회 잠수(잔여 10초)
+        [TestCase(0, 11f, 13f, 1)] // §6.5-2(10-02): T=11, 총 13초 → 1회 잠수(잔여 1초)
+        [TestCase(1, 8f, 10f, 1)]  // §6.5-2(10-02): T= 8, 총 10초 → 1회 잠수(잔여 4초)
+        [TestCase(2, 5f, 7f, 1)]   // §6.5-2(10-02): T= 5, 총  7초 → 1회 잠수(잔여 7초)
         public void DocTable_DrainWork_ForcesDiveCount(int valvesOpen, float expectedT,
             float expectedOccupancy, int expectedDives)
         {
-            // §6.5-2 "작업 시간 T = 14 − (동시 개방 밸브 수 × 3)"
-            float t = 14f - valvesOpen * 3f;
+            // §6.5-2 "작업 시간 T = 11 − (동시 개방 밸브 수 × 3)"(10-02, 예전 14 − 3n)
+            float t = 11f - valvesOpen * 3f;
             Assert.AreEqual(expectedT, t, 0.0001f);
 
             // §6.5-2 "총 점유(진입 1 + T + 부상 1)"
@@ -475,8 +474,8 @@ namespace Marco.Core.Tests
         {
             // v0.4(12초)는 이 경계를 일부러 넘지 않았다 — "2회 잠수 필수"로 부상할 때마다 위치가 노출되게 하려고.
             // 10-01 플레이 보고로 뒤집었다: 밸브 0개에서 2회 잠수가 진행도 감쇠(−0.10/s) 때문에 실제로는 불가능했다
-            // (DrainDiveTests 참조). 총량을 최악의 총 점유 이상으로 두어 밸브 0개도 한 숨에 끝나게 한 것을 고정한다.
-            const float WorstCaseOccupancy = 16f; // 밸브 0개: 1 + 14 + 1
+            // (DrainDiveTests 참조). 10-02: 총량 14초 · 배수구 기본 작업 11초 — 최악의 총 점유 13초가 14초 안에 든다.
+            float WorstCaseOccupancy = 1f + 11f + 1f; // 밸브 0개: 진입 1 + T 11 + 부상 1
 
             Assert.GreaterOrEqual(BreathConfig.TotalSeconds, WorstCaseOccupancy,
                 "게이지가 최악의 총 점유보다 작으면 밸브 0개 배수구를 한 숨에 못 연다.");

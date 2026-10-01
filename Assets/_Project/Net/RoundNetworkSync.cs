@@ -913,7 +913,7 @@ namespace Marco.Net
             int seed = unchecked(_roundNumber.Value * 83492791 + census.TaggedOut * 2654435 + 7);
             DrainId chosen = DrainSelection.Choose(seed);
 
-            // §6.5-2 T = 14 − (동시 개방 밸브 수 × 3). **페이즈 진입 시점에 1회 확정한다 — GAP-87.**
+            // §6.5-2 T = 11 − (동시 개방 밸브 수 × 3)(10-02). **페이즈 진입 시점에 1회 확정한다 — GAP-87.**
             //   서버가 게이트 판정에 쓰는 것과 같은 셈(현재 Open 상태 밸브 수)을 쓴다.
             int openValves = CountOpenValves();
             float workSeconds = DrainConfig.WorkSeconds(openValves);

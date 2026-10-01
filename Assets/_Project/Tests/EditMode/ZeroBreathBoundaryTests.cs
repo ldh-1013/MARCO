@@ -147,9 +147,10 @@ namespace Marco.Core.Tests
         [Test]
         public void Drain_TwoOpen_StartBreathEqualsOccupancy_ExactZero_Escapes()
         {
-            // 2개 개방: 진입 1 + 작업 8 + 부상 1 = 10초. 숨 10.0으로 시작하면 부상이 끝나는 틱에 정확히 0이 된다.
-            Assert.AreEqual(10f, DrainConfig.TotalOccupancySeconds(2), Eps);
-            DrainRun r = RunDrainJob(openValves: 2, startBreath: 10f);
+            // 2개 개방: 진입 1 + 작업 T + 부상 1(10-02: 5 → 7초). 숨을 총 점유와 같게 두고 시작하면 부상이 끝나는 틱에 정확히 0이 된다.
+            float occupancy = DrainConfig.TotalOccupancySeconds(2);
+            Assert.AreEqual(7f, occupancy, Eps);
+            DrainRun r = RunDrainJob(openValves: 2, startBreath: occupancy);
 
             Assert.IsTrue(r.TransitOpened, "§5.9-1 순위 1 — 부상 완료로 통과가 열린다");
             Assert.IsFalse(r.Forced);
@@ -160,8 +161,8 @@ namespace Marco.Core.Tests
         [Test]
         public void Drain_TwoOpen_OneTickShort_ChokesAndNoTransit()
         {
-            // 숨 9.5 — 부상 마지막 틱 **전에** 0이 된다. 경계가 아니므로 기존대로 질식 · 강제 부상.
-            DrainRun r = RunDrainJob(openValves: 2, startBreath: 10f - Dt);
+            // 숨 = 총 점유 − 한 틱 — 부상 마지막 틱 **전에** 0이 된다. 경계가 아니므로 기존대로 질식 · 강제 부상.
+            DrainRun r = RunDrainJob(openValves: 2, startBreath: DrainConfig.TotalOccupancySeconds(2) - Dt);
 
             Assert.IsFalse(r.TransitOpened);
             Assert.IsTrue(r.Forced);

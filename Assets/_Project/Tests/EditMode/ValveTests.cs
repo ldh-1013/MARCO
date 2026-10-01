@@ -305,7 +305,7 @@ namespace Marco.Core.Tests
         public void ValveB_FitsWithinBreathGaugeBudget()
         {
             // §6.1 [v0.4] 밸브 B 총 점유 = 진입 1.5 + 회전 5.0 + 부상 1.5 = 8.0초.
-            // §5.9-1 숨 게이지 20초(10-01, v0.4 12초)이므로 **한 숨에 끝난다**(8.0 < 20.0).
+            // §5.9-1 숨 게이지 14초(10-02 — 10-01 20초, v0.4 12초)이므로 **한 숨에 끝난다**(8.0 < 14.0).
             float total = ValveOccupancy.TotalSeconds(ValveId.B);
 
             Assert.AreEqual(1.5f, ValveOccupancy.EntrySeconds(ValveId.B), 0.0001f);
@@ -316,11 +316,12 @@ namespace Marco.Core.Tests
             Assert.Less(total, Breath.BreathConfig.TotalSeconds,
                 "수중 밸브 B는 한 숨 안에 끝나야 §6.1-1 타임라인이 성립한다.");
 
-            // v0.4(12초)가 지목한 경계 — 8초를 다 쓰면 잔여 4.0초로 억제(4.5)가 불가능했다.
-            // 10-01 총량 20초부터 잔여 12초 → 억제 가능(수중 밸브 직후 비명 리스크가 빠졌다).
-            Assert.AreEqual(12f, Breath.BreathConfig.TotalSeconds - total, 0.0001f);
+            // v0.4(12초)가 지목한 경계 — 8초를 다 쓰면 잔여 4.0초로 억제(4.5)가 불가능했다. 10-01(20초)은 잔여 12.
+            // 10-02 총량 14초 → 잔여 6.0초: 억제는 한 번 가능, B · E를 쉬지 않고 이어서는 못 연다(UnderwaterWorkSessionTests).
+            Assert.AreEqual(6f, Breath.BreathConfig.TotalSeconds - total, 0.0001f);
             Assert.GreaterOrEqual(Breath.BreathConfig.TotalSeconds - total, Breath.BreathConfig.SuppressionCost,
-                "10-01부터 수중 밸브 직후에도 비명을 억제할 수 있다.");
+                "수중 밸브 직후 비명 억제 1회는 가능하다(6.0 ≥ 4.5).");
+            Assert.Less(Breath.BreathConfig.TotalSeconds - total, total, "잔여로 수중 밸브를 한 번 더 할 수는 없다(6.0 < 8.0).");
         }
 
         [TestCase(3f)]  // A

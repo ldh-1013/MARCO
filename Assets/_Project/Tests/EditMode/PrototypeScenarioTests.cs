@@ -370,7 +370,7 @@ namespace Marco.Core.Tests
         {
             Assert.AreEqual("탈출 ●○ / 요구 2", HudFormatter.FormatEscapeBoard(1, 2));
             Assert.AreEqual("탈출 ●●● / 요구 2", HudFormatter.FormatEscapeBoard(3, 2), "요구 초과도 표시");
-            Assert.AreEqual("숨 ■■■□□□□□□□ 7.5초", HudFormatter.FormatBreath(7.55f)); // 7.55 / 20 → 3칸(10-01 총량 20초)
+            Assert.AreEqual("숨 ■■■■■□□□□□ 7.5초", HudFormatter.FormatBreath(7.55f)); // 7.55 / 14 → 5칸(10-02 총량 14초)
             Assert.AreEqual("숨 □□□□□□□□□□ 0.0초", HudFormatter.FormatBreath(-1f));
             Assert.AreEqual("↑", HudFormatter.DirectionArrow(0f));
             Assert.AreEqual("↑", HudFormatter.DirectionArrow(22.4f));

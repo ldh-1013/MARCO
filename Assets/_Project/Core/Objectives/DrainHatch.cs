@@ -17,8 +17,17 @@ namespace Marco.Core.Objectives
         /// <summary>§6.5-1 "페이즈 제한 90초(라운드 잔여가 더 짧으면 그쪽 우선)".</summary>
         public const float PhaseSeconds = 90f;
 
-        /// <summary>§6.5-2 작업 시간 공식 <c>T = 14 − (동시 개방 밸브 수 × 3)</c>의 기본항.</summary>
-        public const float BaseWorkSeconds = 14f;
+        /// <summary>
+        /// §6.5-2 작업 시간 공식 <c>T = 11 − (동시 개방 밸브 수 × 3)</c>의 기본항. 10-02: 14 → 11 — 숨 총량을 20 → 14초로 줄이면서
+        /// 동시 개방 0개의 총 점유(진입 1 + T + 부상 1)가 14초 안에 들어오게 했다(16 → 13초, 잔여 1.0).
+        /// </summary>
+        public const float BaseWorkSeconds = 11f;
+
+        /// <summary>
+        /// 작업 시간 하한(초, 10-02). 공식이 0 이하가 되지 않게 한다 — 0이면 진행도 분모가 0이 된다. 활성 밸브 3개에서는 배수구가 켜질 때
+        /// 동시 개방이 2개 이하라 T는 11 · 8 · 5초뿐이고, 이 하한은 방어용이다.
+        /// </summary>
+        public const float MinWorkSeconds = 1f;
 
         /// <summary>§6.5-2 작업 시간 공식의 밸브 1개당 감소량.</summary>
         public const float WorkSecondsPerOpenValve = 3f;
@@ -33,7 +42,7 @@ namespace Marco.Core.Objectives
         public const float TransitSeconds = 1.5f;
 
         /// <summary>
-        /// §6.5-2 작업 시간 <c>T = 14 − (동시 개방 밸브 수 × 3)</c>.
+        /// §6.5-2 작업 시간 <c>T = 11 − (동시 개방 밸브 수 × 3)</c>(10-02, 예전 14 − 3n), 하한 <see cref="MinWorkSeconds"/>.
         ///
         /// <para>
         /// <b>기여도에 반비례한다 — 던지기 차단.</b> §6.5-2 원문: *"밸브 2개를 이미 열어놨어야
@@ -42,18 +51,18 @@ namespace Marco.Core.Objectives
         /// </para>
         ///
         /// <para>
-        /// 공식이 음수가 되지 않게 하한 0을 둔다 — 밸브 5개가 동시에 열려 있을 수는 없지만
-        /// (요구 수를 채우면 게이트가 열리고 배수구는 활성화되지 않는다) 방어적으로 막는다.
+        /// 공식이 0 이하가 되지 않게 하한(<see cref="MinWorkSeconds"/>)을 둔다 — 활성 3개를 다 열면 게이트가 열려 배수구는 활성화되지
+        /// 않으므로 실제로는 닿지 않지만 방어적으로 막는다.
         /// </para>
         /// </summary>
         public static float WorkSeconds(int openValves)
         {
-            return Mathf.Max(0f, BaseWorkSeconds - Mathf.Max(0, openValves) * WorkSecondsPerOpenValve);
+            return Mathf.Max(MinWorkSeconds, BaseWorkSeconds - Mathf.Max(0, openValves) * WorkSecondsPerOpenValve);
         }
 
         /// <summary>
         /// §6.5-2 총 점유 = 진입 1 + T + 부상 1. <b>하드코딩하지 않고 합으로 유도한다</b>
-        /// (0개 → 16초 / 1개 → 13초 / 2개 → 10초).
+        /// (10-02: 0개 → 13초 / 1개 → 10초 / 2개 → 7초).
         /// </summary>
         public static float TotalOccupancySeconds(int openValves)
         {

@@ -27,11 +27,11 @@ namespace Marco.Core.Tests
         /// <summary>
         /// 끊김 없는 작업 1회를 서버 순서대로 돌린다: 숨 판정(세션이 살아 있으면 잠수) → 밸브 틱 → 세션 틱 → 전이 반영.
         /// </summary>
-        private static JobResult RunFullJob(ValveId id)
+        private static JobResult RunFullJob(ValveId id, BreathGauge gauge = null)
         {
             var valve = new Valve(ValveOccupancy.RotateSeconds(id));
             valve.Configure(id);
-            var gauge = new BreathGauge();
+            gauge ??= new BreathGauge();
             var session = new UnderwaterWorkSession(id);
             float submerged = 0f;
 
@@ -67,15 +67,38 @@ namespace Marco.Core.Tests
 
         [TestCase(ValveId.B)]
         [TestCase(ValveId.E)]
-        public void ShoutRightAfterJob_Residual12_CanSuppress(ValveId id)
+        public void ShoutRightAfterJob_Residual6_CanSuppressOnlyOnce(ValveId id)
         {
-            // §6.1 "숨 게이지 8.0초를 소모하고 부상". v0.4(12초)에서는 잔여 4.0 → §3.5 억제 4.5 불가였다.
-            // 10-01 총량 20초부터 잔여 12 → 억제할 수 있다(수중 밸브 직후의 비명 리스크가 설계에서 빠졌다).
+            // §6.1 "숨 게이지 8.0초를 소모하고 부상". 10-02 총량 14초 → 잔여 6.0(v0.4 12초 4.0 · 10-01 20초 12.0).
+            // 억제 4.5는 한 번 가능하고 두 번째는 안 된다(6.0 − 4.5 = 1.5 < 4.5).
             JobResult r = RunFullJob(id);
-            Assert.AreEqual(12f, r.Gauge.Current, Eps, "20 − 8.0 = 12.0");
-            Assert.IsTrue(r.Gauge.CanSuppress);
+            Assert.AreEqual(6f, r.Gauge.Current, Eps, "14 − 8.0 = 6.0");
             Assert.AreEqual(SuppressionResult.Suppressed, r.Gauge.TrySuppressScream(BreathZone.Surface),
-                "부상 직후 외침 → 억제 가능(12.0 ≥ 4.5)");
+                "부상 직후 외침 → 억제 가능(6.0 ≥ 4.5)");
+            Assert.AreEqual(SuppressionResult.NotEnoughBreath, r.Gauge.TrySuppressScream(BreathZone.Surface),
+                "두 번째 외침 → 억제 불가(1.5 < 4.5)");
+        }
+
+        [Test]
+        public void AfterValveB_Residual6_CannotOpenEBackToBack_ButRecoversOnTheWay()
+        {
+            // 10-02: 총량 14초에서 B(8.0) 뒤 잔여 6.0 — E(진입 0.5 + 회전 7.0 = 7.5초 잠수가 필요)를 쉬지 않고 이어서 열 수 없다.
+            var gauge = new BreathGauge();
+            JobResult b = RunFullJob(ValveId.B, gauge);
+            Assert.IsTrue(b.Opened);
+            Assert.AreEqual(6f, gauge.Current, Eps, "B 한 번 뒤 잔여 6.0");
+
+            JobResult e = RunFullJob(ValveId.E, gauge);
+            Assert.IsFalse(e.Opened, "쉬지 않고 E — 회전 도중 숨이 다해 강제 부상(10-01 20초에서는 잔여 12로 열렸다)");
+            Assert.AreEqual(0f, gauge.Current, Eps);
+
+            // B(메인 풀)와 E(유아풀)는 다른 풀이다 — 물 밖으로 걸어가는 동안(대기 2초 + 초당 4) 숨이 차서 도착하면 열 수 있다.
+            var walked = new BreathGauge();
+            RunFullJob(ValveId.B, walked);
+            for (int i = 0; i < 10; i++)
+                walked.Tick(BreathZone.OutOfWater, 0.25f); // 2.5초: 대기 2초 + 0.5초 × 4 = +2 → 8.0
+            Assert.AreEqual(8f, walked.Current, Eps);
+            Assert.IsTrue(RunFullJob(ValveId.E, walked).Opened, "물 밖 2.5초 회복 뒤에는 E를 연다");
         }
 
         [Test]

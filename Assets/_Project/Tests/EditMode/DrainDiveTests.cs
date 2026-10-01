@@ -129,13 +129,13 @@ namespace Marco.Core.Tests
             Assert.AreEqual(1, sim.Dives);
         }
 
-        [TestCase(0, 14f, 4f)]
-        [TestCase(1, 11f, 7f)]
-        [TestCase(2, 8f, 10f)]
-        [TestCase(3, 5f, 13f)] // 공식 확인용 — 실제로는 요구 수(2 또는 3)를 채워 게이트가 열리면 배수구가 켜지지 않는다(§6.5-2)
+        [TestCase(0, 11f, 1f)]
+        [TestCase(1, 8f, 4f)]
+        [TestCase(2, 5f, 7f)]
+        [TestCase(3, 2f, 10f)] // 공식 확인용 — 실제로는 요구 수(3)를 채워 게이트가 열리면 배수구가 켜지지 않는다(§6.5-2)
         public void OneDive_WorkSecondsAndResidualBreath(int openValves, float workSeconds, float residualBreath)
         {
-            Assert.AreEqual(workSeconds, DrainConfig.WorkSeconds(openValves), Eps, "T = 14 − 동시 개방 × 3");
+            Assert.AreEqual(workSeconds, DrainConfig.WorkSeconds(openValves), Eps, "T = 11 − 동시 개방 × 3(10-02)");
 
             // 서버에 가까운 1/60초 틱. 진입 · 작업 · 부상 세 구간은 틱마다 dt를 더해 경계를 넘는지 보므로, 부동소수 누적으로
             // 구간마다 최대 한 틱씩 늦을 수 있다 — 허용 오차 세 틱(0.05초). 게임에서도 같다(서버 틱 단위).
@@ -147,7 +147,7 @@ namespace Marco.Core.Tests
             Assert.IsTrue(sim.Escaped);
             Assert.AreEqual(1, sim.Dives, "한 번 잠수");
             Assert.AreEqual(0, sim.ForcedSurfaces);
-            Assert.AreEqual(residualBreath, sim.BreathAtTransit, 3f * Dt + Eps, "20 − (진입 1 + T + 부상 1) — 부상을 마친 순간의 숨");
+            Assert.AreEqual(residualBreath, sim.BreathAtTransit, 3f * Dt + Eps, "14 − (진입 1 + T + 부상 1) — 부상을 마친 순간의 숨(10-02)");
         }
 
         [TestCase(0)]
