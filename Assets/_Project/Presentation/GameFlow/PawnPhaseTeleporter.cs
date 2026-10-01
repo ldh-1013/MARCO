@@ -24,11 +24,11 @@ namespace Marco.Presentation.GameFlow
         [SerializeField] private float _verticalOffset = 0.05f;
 
         [Header("스폰 분산 (실기 버그 수정)")]
-        [Tooltip("앵커를 중심으로 이 반경의 원 위에 플레이어를 나눠 배치한다. 0이면 전원이 앵커 한 점에 " +
-                 "모여 시작 즉시 태그가 성립한다(스프린트 18b 실기 버그).")]
+        [Tooltip("로비 임시 바닥(맵 로드 전)에서 바닥 중심을 둘러싼 원의 반경. 0이면 전원이 한 점에 모인다(스프린트 18b 실기 버그). " +
+                 "맵 스폰은 이 값을 쓰지 않는다 — 로비 남쪽 절반의 4열 × 2행 격자(MapSpawnSlots, 10-01).")]
         [SerializeField] private float _spawnRadius = SpawnRing.DefaultRadiusMeters;
 
-        [Tooltip("원 위 슬롯 수. 플레이어 인덱스가 이 수를 넘으면 되돌아온다.")]
+        [Tooltip("슬롯 수(로비 원 · 맵 격자 공통). 플레이어 인덱스가 이 수를 넘으면 되돌아온다.")]
         [SerializeField] private int _spawnSlots = SpawnRing.DefaultSlots;
 
         private bool _placedForCurrentMap;
@@ -44,8 +44,9 @@ namespace Marco.Presentation.GameFlow
         {
             // "새 코드가 도는가"를 로그 유무로 판별할 수 있게 하는 표식. 이 줄이 없으면
             // 이 컴포넌트가 씬에 없거나 어셈블리가 갱신되지 않은 것이다.
-            Debug.Log($"[SpawnDiag] PawnPhaseTeleporter 시작 — 스폰 분산 활성(반경 {_spawnRadius}m, " +
-                      $"슬롯 {_spawnSlots}, 인접 간격 {SpawnRing.AdjacentSpacing(_spawnRadius, _spawnSlots):F2}m).");
+            Debug.Log($"[SpawnDiag] PawnPhaseTeleporter 시작 — 스폰 분산 활성(슬롯 {_spawnSlots} · " +
+                      $"로비 원 반경 {_spawnRadius}m 인접 간격 {SpawnRing.AdjacentSpacing(_spawnRadius, _spawnSlots):F2}m · " +
+                      $"맵 {MapSpawnSlots.Columns}열 격자 최소 간격 {MapSpawnSlots.MinSpacing(_spawnSlots):F2}m).");
             _loggedAlive = true;
         }
 
@@ -232,7 +233,7 @@ namespace Marco.Presentation.GameFlow
 
             SpawnPose pose = SpawnPlacementRules.UsesIsolationAnchor(player.Role, IsolationAnchorRegistry.HasAnchor)
                 ? IsolationAnchorRegistry.Pose
-                : SpawnRing.GetPose(SpawnAnchorRegistry.Pose, SlotOf(player), _spawnRadius, _spawnSlots);
+                : MapSpawnSlots.GetPose(SpawnAnchorRegistry.Pose, SlotOf(player), _spawnSlots);
             feet = pose.Position + Vector3.up * _verticalOffset;
             return true;
         }
@@ -289,7 +290,7 @@ namespace Marco.Presentation.GameFlow
         private void PlaceAtAnchor(FirstPersonController player, SpawnPose anchor)
         {
             int slot = SlotOf(player);
-            SpawnPose spread = SpawnRing.GetPose(anchor, slot, _spawnRadius, _spawnSlots);
+            SpawnPose spread = MapSpawnSlots.GetPose(anchor, slot, _spawnSlots);
 
             Vector3 target = spread.Position + Vector3.up * _verticalOffset;
 
@@ -306,7 +307,7 @@ namespace Marco.Presentation.GameFlow
 
             Debug.Log($"[SpawnDiag] 맵 로드 확인 — 로컬 플레이어(PlayerId={player.PlayerId})를 " +
                       $"스폰 슬롯 {slot}/{_spawnSlots} = {target} 으로 이동(§10.1 입구 로비). " +
-                      $"인접 슬롯 간격 {SpawnRing.AdjacentSpacing(_spawnRadius, _spawnSlots):F2}m " +
+                      $"가장 가까운 슬롯 간격 {MapSpawnSlots.MinSpacing(_spawnSlots):F2}m " +
                       $"(태그 반경보다 커야 시작 즉시 태그되지 않는다).");
         }
     }

@@ -47,6 +47,9 @@ namespace Marco.EditorTools
         /// 맵 v2에서는 라커룸 안이었다. 좌표는 <see cref="MapV2Layout"/> 한 곳이 소유한다.
         /// </summary>
         private static Vector3 SpawnPosition => new Vector3(MapV2Layout.RunnerSpawn.x, 0.05f, MapV2Layout.RunnerSpawn.y);
+
+        /// <summary>맵 스폰 앵커 — 로비 남쪽 절반 중심(10-01, <see cref="MapV2Layout.RunnerSpawnAnchor"/>). 로비 임시 바닥은 위 <see cref="SpawnPosition"/>.</summary>
+        private static Vector3 AnchorPosition => new Vector3(MapV2Layout.RunnerSpawnAnchor.x, 0.05f, MapV2Layout.RunnerSpawnAnchor.y);
         private static readonly Vector3 SpawnEuler = new Vector3(0f, 180f, 0f);
 
         /// <summary>
@@ -263,9 +266,9 @@ namespace Marco.EditorTools
             if (anchor == null)
             {
                 var go = new GameObject("SpawnAnchor");
-                go.transform.SetPositionAndRotation(SpawnPosition, Quaternion.Euler(SpawnEuler));
+                go.transform.SetPositionAndRotation(AnchorPosition, Quaternion.Euler(SpawnEuler));
                 go.AddComponent<SpawnAnchor>();
-                Debug.Log($"[SceneFlow] 맵 씬에 SpawnAnchor 생성 — {SpawnPosition} (§10.1 입구 로비, 기존 플레이어 스폰 좌표)");
+                Debug.Log($"[SceneFlow] 맵 씬에 SpawnAnchor 생성 — {AnchorPosition} (§10.1 입구 로비 남쪽 절반)");
             }
             else
             {

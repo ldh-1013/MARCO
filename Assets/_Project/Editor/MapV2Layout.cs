@@ -199,8 +199,21 @@ namespace Marco.EditorTools
         /// 그 구간이라야 §6.1 밸브 E(진입 0.5초)가 성립한다.
         /// </para>
         /// </summary>
-        /// <summary>§10.1 "로비 (2,32)~(12,40) — 도망자 스폰" → 로비 중심 (7, 36).</summary>
+        /// <summary>§10.1 "로비 (2,32)~(12,40) — 도망자 스폰" → 로비 중심 (7, 36). 로비 임시 바닥(Lobby 씬)의 기준이다.</summary>
         public static Vector2 RunnerSpawn => FindZone("로비").Area.center;
+
+        /// <summary>
+        /// 맵 도망자 스폰 앵커(10-01) — <b>로비 남쪽 절반의 중심 (7, 34)</b>. 정문 출구가 로비 북벽 가운데 (7, 40)라, 로비 중심
+        /// 앵커의 스폰 링은 북쪽 슬롯이 출구 판정 반경 안이었다(슬롯 2 = 1.35m). 슬롯 배치는 <c>MapSpawnSlots</c>(4열 × 2행)가 한다.
+        /// </summary>
+        public static Vector2 RunnerSpawnAnchor
+        {
+            get
+            {
+                Rect lobby = FindZone("로비").Area;
+                return new Vector2(lobby.center.x, lobby.yMin + lobby.height * 0.25f);
+            }
+        }
 
         /// <summary>
         /// [커밋 전 수정 2 · GAP-101] 술래 격리 앵커 — <b>직원통로 중앙선 × 기계실로 이어지는 통로 문</b>.

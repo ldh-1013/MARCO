@@ -1,7 +1,9 @@
 using System.Collections.Generic;
 using System.Text;
 using Marco.Core.GameFlow;
+using Marco.Core.Objectives;
 using Marco.Presentation.GameFlow;
+using Marco.Presentation.Objectives;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEditor.SceneManagement;
@@ -11,7 +13,8 @@ using UnityEngine.SceneManagement;
 namespace Marco.Core.Tests
 {
     /// <summary>
-    /// 스폰 지점 씬 검증 — 러너 스폰 링 슬롯 전부 + 술래 격리 지점이 <b>실제 Game 씬 지오메트리 위</b>에 안전하게 놓이는가.
+    /// 스폰 지점 씬 검증 — 러너 스폰 슬롯 전부(10-01부터 로비 남쪽 절반 4열 × 2행 격자, <c>MapSpawnSlots</c>) + 술래 격리 지점이
+    /// <b>실제 Game 씬 지오메트리 위</b>에 안전하게 놓이는가, 그리고 출구 판정 반경 + 3m 밖인가.
     ///
     /// <para>
     /// <b>왜 필요한가(09-28 회귀)</b>: 스폰 링 반지름(4m, Lobby 씬 <c>PawnPhaseTeleporter</c> 직렬화)과 앵커 위치(로비 중심,
@@ -59,12 +62,12 @@ namespace Marco.Core.Tests
                 Assert.IsNotNull(anchor, "Game 씬에 SpawnAnchor가 없다");
                 Assert.IsNotNull(isolation, "Game 씬에 SeekerIsolationAnchor가 없다");
 
-                // PawnPhaseTeleporter와 같은 계산 — 러너 슬롯 = SpawnRing(앵커, PlayerId % slots), 술래 = 격리 앵커.
+                // PawnPhaseTeleporter와 같은 함수 — 러너 슬롯 = MapSpawnSlots(앵커, PlayerId % slots), 술래 = 격리 앵커.
                 var anchorPose = new SpawnPose(anchor.transform.position, anchor.transform.rotation);
                 var points = new List<(string Name, Vector3 Feet)>();
                 for (int i = 0; i < config.Slots; i++)
                 {
-                    Vector3 p = SpawnRing.GetPose(anchorPose, i, config.Radius, config.Slots).Position;
+                    Vector3 p = MapSpawnSlots.GetPose(anchorPose, i, config.Slots).Position;
                     points.Add(($"러너 슬롯 {i}/{config.Slots}", p + Vector3.up * config.VerticalOffset));
                 }
 
@@ -119,6 +122,71 @@ namespace Marco.Core.Tests
             Assert.AreEqual(SpawnRing.DefaultRadiusMeters, config.Radius, 1e-4f,
                 "Lobby.unity의 PawnPhaseTeleporter._spawnRadius와 SpawnRing.DefaultRadiusMeters가 다르다");
             Assert.AreEqual(SpawnRing.DefaultSlots, config.Slots, "슬롯 수가 코드 기본값과 다르다");
+        }
+
+        /// <summary>
+        /// 10-01 직접 탈출 규칙 — 어느 도망자 스폰 슬롯도 어느 출구에서든 (판정 반경 + 3m) 이상 떨어져 있다.
+        /// 출구 반경 안에서 시작하면 게이트가 열리는 순간 걷지 않고 탈출이 확정된다(출구 트리거 0.5초 재시도) —
+        /// 슬롯 2 (7, 0.1, 39)가 정문 1.34m였다. 거리는 탈출 판정과 같은 3D 거리(<see cref="EscapeRules.IsWithinExit"/>)로 잰다.
+        /// 출구 · 앵커는 실제 Game 씬, 슬롯 수 · 높이 오프셋은 Lobby 씬 직렬화 값, 슬롯 계산은 PawnPhaseTeleporter와 같은 함수.
+        /// 술래 격리 지점까지의 거리는 표에만 남긴다(술래는 탈출할 수 없다 — GAP-11).
+        /// </summary>
+        [Test]
+        public void EveryRunnerSpawnSlot_IsAtLeastExitRadiusPlusThreeFromEveryExit()
+        {
+            const float Margin = 3f;
+            float required = EscapeRules.ExitRadiusMeters + Margin;
+            SpawnConfig config = ReadLobbySpawnConfig();
+
+            Scene game = EditorSceneManager.OpenPreviewScene(GameScenePath);
+            try
+            {
+                SpawnAnchor anchor = SceneGeometry.FindInScene<SpawnAnchor>(game);
+                SeekerIsolationAnchor isolation = SceneGeometry.FindInScene<SeekerIsolationAnchor>(game);
+                List<EscapePointTrigger> exits = SceneGeometry.FindAllActive<EscapePointTrigger>(game);
+                Assert.IsNotNull(anchor, "Game 씬에 SpawnAnchor가 없다");
+                Assert.GreaterOrEqual(exits.Count, 2, "Game 씬 출구(EscapePointTrigger)가 2개 미만이다");
+
+                var anchorPose = new SpawnPose(anchor.transform.position, anchor.transform.rotation);
+                var points = new List<(string Name, Vector3 Feet, bool Runner)>();
+                for (int i = 0; i < config.Slots; i++)
+                    points.Add(($"러너 슬롯 {i}", MapSpawnSlots.GetPose(anchorPose, i, config.Slots).Position + Vector3.up * config.VerticalOffset, true));
+                if (isolation != null)
+                    points.Add(("술래 격리 지점", isolation.transform.position + Vector3.up * config.VerticalOffset, false));
+
+                var table = new StringBuilder();
+                table.AppendLine($"기준: 출구 판정 반경 {EscapeRules.ExitRadiusMeters}m + 여유 {Margin}m = {required}m (3D 거리, 괄호는 수평 거리)");
+                table.Append("지점 (발 좌표)");
+                foreach (EscapePointTrigger exit in exits)
+                    table.Append($" | {exit.name} {exit.transform.position}");
+                table.AppendLine();
+
+                var failures = new List<string>();
+                foreach ((string name, Vector3 feet, bool runner) in points)
+                {
+                    table.Append($"{name} ({feet.x:0.00}, {feet.y:0.00}, {feet.z:0.00})");
+                    foreach (EscapePointTrigger exit in exits)
+                    {
+                        Vector3 e = exit.transform.position;
+                        float d = Vector3.Distance(feet, e);
+                        float h = Vector2.Distance(new Vector2(feet.x, feet.z), new Vector2(e.x, e.z));
+                        string flag = d <= EscapeRules.ExitRadiusMeters ? " ★반경 안" : d < required ? " ▲여유 부족" : string.Empty;
+                        table.Append($" | {d:0.00}m ({h:0.00}){flag}");
+                        if (runner && d < required)
+                            failures.Add($"{name} ({feet.x:0.00}, {feet.z:0.00}) → {exit.name}: {d:0.00}m < {required}m");
+                    }
+
+                    table.AppendLine();
+                }
+
+                TestContext.WriteLine(table.ToString());
+                Assert.IsEmpty(failures, "출구에 너무 가까운 도망자 스폰 슬롯 — 게이트가 열리면 걷지 않고 탈출한다:\n  " +
+                                         string.Join("\n  ", failures) + "\n" + table);
+            }
+            finally
+            {
+                EditorSceneManager.ClosePreviewScene(game);
+            }
         }
 
         // ── 도우미 ────────────────────────────────────────────────────

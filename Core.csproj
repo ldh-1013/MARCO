@@ -72,6 +72,7 @@
     <Compile Include="Assets\_Project\Core\Net\IEscapeState.cs" />
     <Compile Include="Assets\_Project\Core\Util\DeterministicRandom.cs" />
     <Compile Include="Assets\_Project\Core\Voice\VoiceCalibration.cs" />
+    <Compile Include="Assets\_Project\Core\GameFlow\MapSpawnSlots.cs" />
     <Compile Include="Assets\_Project\Core\Sound\SeekerShoutConfig.cs" />
     <Compile Include="Assets\_Project\Core\Spatial\DistanceMetric.cs" />
     <Compile Include="Assets\_Project\Core\SoundPulse\PulseNetworkRegistry.cs" />

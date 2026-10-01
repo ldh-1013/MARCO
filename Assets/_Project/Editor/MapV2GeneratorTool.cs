@@ -742,10 +742,10 @@ namespace Marco.EditorTools
         /// </summary>
         private static void PlaceAnchors(StringBuilder log)
         {
-            // §10.1 도망자 스폰 — 로비 중심, 남쪽(맵 안쪽)을 본다.
-            Vector2 spawn = MapV2Layout.RunnerSpawn;
+            // §10.1 도망자 스폰 — 로비 남쪽 절반 중심(10-01 — 정문 출구 반경 밖), 남쪽(맵 안쪽)을 본다.
+            Vector2 spawn = MapV2Layout.RunnerSpawnAnchor;
             PlaceAnchor<SpawnAnchor>("SpawnAnchor", new Vector3(spawn.x, 0.05f, spawn.y),
-                Quaternion.Euler(0f, 180f, 0f), "§10.1 도망자 스폰(로비 중심)", log);
+                Quaternion.Euler(0f, 180f, 0f), "§10.1 도망자 스폰(로비 남쪽 절반)", log);
 
             // [커밋 전 수정 2 · GAP-101] 술래 격리 — 직원통로(기계실 바깥). 구 좌표 (12,17)은 v0.3 맵 기준이었다.
             Vector2 iso = MapV2Layout.SeekerIsolation;

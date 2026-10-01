@@ -10428,7 +10428,7 @@ Transform:
   m_GameObject: {fileID: 1057222291}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 1, z: 0, w: -0.00000004371139}
-  m_LocalPosition: {x: 7, y: 0.05, z: 36}
+  m_LocalPosition: {x: 7, y: 0.05, z: 34}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -12279,7 +12279,6 @@ MonoBehaviour:
   m_EditorClassIdentifier: Presentation::Marco.Presentation.Objectives.EscapePointTrigger
   _player: {fileID: 0}
   _roundCoordinator: {fileID: 0}
-  _escapeRadius: 2
   _logGateClosedHint: 1
   _logCoordinatorBinding: 1
 --- !u!1 &1287105971
@@ -20865,7 +20864,6 @@ MonoBehaviour:
   m_EditorClassIdentifier: Presentation::Marco.Presentation.Objectives.EscapePointTrigger
   _player: {fileID: 0}
   _roundCoordinator: {fileID: 0}
-  _escapeRadius: 2
   _logGateClosedHint: 1
   _logCoordinatorBinding: 1
 --- !u!1 &2096402105
@@ -28100,7 +28098,6 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   _player: {fileID: 0}
   _roundCoordinator: {fileID: 0}
-  _escapeRadius: 2
   _logGateClosedHint: 1
   _logCoordinatorBinding: 1
 --- !u!1 &850000000000000010
