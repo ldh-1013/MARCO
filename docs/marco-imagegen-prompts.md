@@ -37,7 +37,7 @@ outline style, cel-shading, anime style, bright colorful palette
 
 ## 1. 캐릭터 — §16.1 "무광 순백색 저폴리 3D + 역할별 림라이트"
 
-셋 다 **같은 저폴리 인체 실루엣**이어야 하고, 오직 림라이트 색으로만 구분된다. 별도 의상·장식 디자인은 없다(1인 개발 전략, §16.3).
+셋 다 **같은 저폴리 인체 실루엣**이어야 하고, 오직 림라이트 색으로만 구분된다. 별도 의상·장식 디자인은 없다(1인 개발 전략, §16.3). **술래는 무기·소품을 들지 않는다** — 공격은 맨손 수평 후려치기다(§16.1 · `연출.md` 15.1). 어떤 프롬프트에도 무기·막대·그물을 넣지 말 것.
 
 ### 1.1 도망자 (Runner) — 청록 `#7FE7E0`
 
@@ -51,12 +51,15 @@ neutral standing pose, full body, front three-quarter view
 
 ### 1.2 술래 (Seeker) — 적색 `#EF6A4C`
 
+두 팔을 앞으로 뻗고 허공을 더듬는 마르코폴로 자세(`연출.md` 15.7). 손에는 아무것도 들지 않는다.
+
 ```
 [공통 스타일 프리픽스]
 A single humanoid character silhouette made of matte pure-white low-poly
 geometry, standing in a black void, with a thin rim light glowing red-orange
-(#EF6A4C) tracing the edges of the body only, slightly more aggressive
-forward-leaning stance than a neutral pose, no face detail, no texture,
+(#EF6A4C) tracing the edges of the body only, both arms stretched straight
+forward at shoulder height with open hands, groping blindly like a Marco
+Polo player, empty-handed with no weapon or prop, no face detail, no texture,
 full body, front three-quarter view
 ```
 
@@ -208,6 +211,8 @@ vertigo-inducing isolation, view looking up the shaft
 ## 4. 이펙트 · 오브젝트
 
 ### 4.1 SoundPulse 파문 — 등급별 (§5.1/§16.2)
+
+**이동 소리(발소리)는 링을 그리지 않는다** — 링은 목소리 · 행동 파문에만 쓴다(기획서 §5.5-1). 발소리 링 이미지는 만들지 말 것.
 
 도망자/환경음은 **단일 테두리**, 술래는 **이중 테두리**(§16.4 형태적 구분) — 반드시 반영할 것.
 
