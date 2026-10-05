@@ -1,6 +1,6 @@
 # 마르코! (MARCO!) — 컨셉아트 AI 이미지 프롬프트 모음
 
-> `docs/마르코_상세기획서.md` §16(아트 디렉션)·§10~11(맵)·§7(아이템)·§12(UI) 기준으로 작성.
+> `docs/마르코_상세기획서.md` §16(아트 디렉션)·§10(맵 — v0.6, 좌표 정본 `docs/맵설계.md`)·§7(아이템)·§12(UI) 기준으로 작성.
 > ChatGPT(DALL·E)·Gemini(Imagen)·Midjourney 등 범용 텍스트→이미지 툴에 그대로 붙여넣도록 영어로 작성했고, 각 항목 위에 한국어로 "이게 뭔지 / 왜 이런지"를 먼저 설명한다.
 > 툴마다 결과가 다르니, 스타일이 안 맞으면 "공통 스타일 프리픽스"만 남기고 나머지를 조정할 것.
 
@@ -95,77 +95,114 @@ consistent scale
 
 ## 2. 맵 환경 — §10 심야 실내수영장 (MVP)
 
-52m×40m L자형 2층, 13구역. 아래는 핵심 구역만 뽑았다 — 그레이박스(ProBuilder 블록아웃) 단계 참고용 실루엣 컨셉이지, 완성 렌더가 아니다.
+64m × 62m 2층, 21구역(기획서 §10, 좌표 · 도면은 `docs/맵설계.md`). 실제 25m 공공 수영장의 세 동선(이용객 · 관람객 · 직원)을 뼈대로 배치한 맵이다. 아래는 핵심 8곳만 뽑았다 — 블록아웃 단계 참고용 실루엣 컨셉이지, 완성 렌더가 아니다.
 
-### 2.1 메인 풀 홀 (중앙 허브, 타일 ×1.3, 수중 밸브 B)
+### 2.1 메인 풀 홀 (맵의 중심, 타일 ×1.3, 수중 밸브 B · E, 천장 9m)
 
-```
-[공통 스타일 프리픽스]
-Interior of a large abandoned indoor swimming pool hall at night, seen from
-a first-person low angle, glowing tiled floor edges only, a dark still pool
-of water in the center with faint ripple glow lines on the surface, tall
-empty black space above, distant glowing outlines of pool-side railings,
-oppressive emptiness, no people
-```
-
-### 2.2 기계실 (밸브 A, 콘크리트, 막다른 방, 출입구 1개)
+경영풀(25 × 21m, 8레인)과 교습풀(12 × 8m)이 한 홀에 있다. 데크에는 출발대 · 레인 로프 릴 · 구조원 감시 의자 · 벤치 같은 풀 비품이 흩어져 엄폐물이 된다. 남쪽 장변 위로는 2층 관람석이 물러나 있다(풀 위에 걸치지 않는다).
 
 ```
 [공통 스타일 프리픽스]
-A small dead-end mechanical room, single doorway visible as a glowing
-rectangular outline, glowing outlines of large pipes and machinery boxes
-against pure black, claustrophobic, no other exits visible, first-person
-low angle
+Interior of a very large indoor swimming pool hall at night with a 9-meter
+high ceiling, seen from a first-person low angle on the pool deck, a long
+8-lane lap pool and a smaller shallow teaching pool side by side, dark still
+water with faint ripple glow lines, glowing outlines of starting blocks,
+lane-rope reels, tall lifeguard chairs and wall benches scattered on the
+deck, a tiered spectator stand set back behind one long side of the pool,
+vast empty black space above, oppressive emptiness, no people
 ```
 
-### 2.3 물탱크실 (밸브 C, 2층, 콘크리트)
+### 2.2 관람석 (2층, 카펫, 경영풀 남측 장변의 계단식 좌석)
 
-```
-[공통 스타일 프리픽스]
-An elevated water tank room on a second floor, large cylindrical tank
-outlined in glowing white lines, a metal grating staircase glowing amber
-(#FFB84D) leading up into the room, view looking down from the tank room
-across a railing into darkness below, isolated and high up
-```
-
-### 2.4 직원 통로 (금속 그레이팅 ×1.5, 출구 1 접근로)
+좌석 단 사이로는 걸을 수 없고 ㄷ자 통로로만 다닌다. 앞 난간이 수면에서 3m 뒤에 있어 풀을 내려다보지만 풀 위로 나와 있지 않다. 데크로 내려가는 길은 서쪽 끝 비상계단 하나뿐이다.
 
 ```
 [공통 스타일 프리픽스]
-A long narrow service corridor with a metal grating floor, floor rendered
-as a glowing grid-line texture pattern (not filled, outline only), corridor
-stretching far into black distance, faint glow at the far end suggesting an
-exit door, first-person view down the corridor
+Tiered empty spectator seating along the long side of an indoor pool,
+seen from the back aisle of the upper stand, stepped seat rows outlined in
+thin glowing lines, a narrow walkway running in front of the seats behind a
+glowing railing, the dark pool surface visible below and a few meters
+beyond the railing, a single narrow emergency staircase at the far end
+leading down to the deck, high and exposed
 ```
 
-### 2.5 로비 (스폰 지점, 카펫, 출구 2)
+### 2.3 남 · 여 탈의실 (매트 ×0.7, 벽 부착 락커 빗살 8열)
 
-```
-[공통 스타일 프리픽스]
-A quiet building lobby entrance area, soft glowing outlines of a reception
-desk and double front doors, carpeted floor suggested only by a subtly
-softer/dimmer outline than surrounding tile areas, calm but empty, faint
-glow escaping from the gap under the front doors
-```
-
-### 2.6 라커룸 (매트/카펫, 락커 미로)
+락커는 벽에 붙인 빗살형으로 늘어서 있고 가운데가 탈의 공간이다. 락커 열 사이의 좁은 틈이 숨을 자리다 — 락커는 벽처럼 소리와 태그를 막는다. 미로가 아니다.
 
 ```
 [공통 스타일 프리픽스]
-A maze of tall locker rows forming narrow blind corridors, each locker face
-outlined in a thin glowing line, repeating grid pattern creating a maze-like
-claustrophobic layout, deep black shadow between rows, first-person view
-down one locker aisle
+A changing room with rows of tall lockers attached to both side walls like
+comb teeth, each locker face outlined in a thin glowing line, narrow dark
+gaps between the locker rows, an open changing space with a low bench down
+the middle, two doorways at opposite ends, first-person view from the
+central space looking into one gap between locker rows
 ```
 
-### 2.7 관람석 (2층, 카펫, 풀 홀 내려다보는 좌석열)
+### 2.4 남 · 여 샤워실 (타일 ×1.3, 탈의실과 데크 사이 필수 통과)
+
+양쪽 벽에 샤워 부스가 늘어선 통과 공간이다. 탈의실 쪽 개구부와 데크 쪽 넓은 개구부(4m)가 서로 엇갈려 있어 데크에서 탈의실이 정면으로 보이지 않는다.
 
 ```
 [공통 스타일 프리픽스]
-Rows of empty stadium-style spectator seating on an upper floor balcony,
-seat backs outlined in thin glowing lines receding into the distance, a
-railing edge glowing at the front overlooking a dark void below (the pool
-hall), view from behind the seats looking down
+A shower room corridor with rows of open shower stalls along both walls,
+stall partitions outlined in glowing lines, wet tiled floor suggested by
+faint reflective glow, a wide open doorway at the far end offset to one
+side and opening onto a dark pool deck, the entrance from the changing room
+offset the other way, first-person view walking through
+```
+
+### 2.5 기계실 (밸브 A, 콘크리트, 막다른 방, 출입구 1개)
+
+여과기 · 배관 헤더 · 순환 펌프 · 밸런스 탱크가 들어찬 넓은 설비실이다. 문은 하나뿐이고, 기계 소음 때문에 안에서 돌리는 밸브 소리가 문 밖까지 새지 않는다.
+
+```
+[공통 스타일 프리픽스]
+A large dead-end pool filtration plant room, a single double doorway
+visible behind as a glowing rectangular outline, glowing outlines of three
+large filter tanks, a pipe header along the far wall, rows of circulation
+pumps and a concrete balance tank, a valve wheel on the pipe header,
+claustrophobic despite its size, no other exits, first-person low angle
+```
+
+### 2.6 직원 통로 (금속 그레이팅 ×1.5, 가장 빠르고 가장 시끄러운 길)
+
+직원 구역 · 직원 계단 · 약품 저장실 · 기계실 · 하역장 · 홀 비상문을 잇는 2m 폭 통로다. 중간에서 한 번 꺾여 끝까지 한 번에 보이지 않는다.
+
+```
+[공통 스타일 프리픽스]
+A narrow 2-meter-wide service corridor with a metal grating floor, floor
+rendered as a glowing grid-line pattern (outline only), several plain
+doors along the walls outlined in thin glowing lines, the corridor jogging
+sideways once in the distance so the end is hidden, first-person view down
+the corridor
+```
+
+### 2.7 하역장 · 직원 출입구 (콘크리트, 출구 1)
+
+약품 · 장비 반입구. 북쪽 벽의 하역 셔터가 출구 1이고, 홀로 들어가는 장비 반입 양개문이 함께 있다. 게이트가 열리면 출구 문짝이 약한 초록으로 빛난다.
+
+```
+[공통 스타일 프리픽스]
+A concrete loading bay at the back of a pool facility, a wide roller
+shutter door outlined in glowing lines with a faint green glow (#40A669)
+on the door panel, stacked pallets along one wall, a wide double door on
+the side leading into the dark pool hall, empty and echoing, first-person
+view
+```
+
+### 2.8 2층 관람 로비 · 학부모 대기 (카펫 ×0.7)
+
+주계단으로 올라오는 2층 허브다. 관람석 입구 두 곳과 물탱크실 · 관리 복도 문이 양끝에 있고, 매점 카운터 · 자판기 · 정수기 · 대기 벤치 · 화분이 엄폐물이 된다.
+
+```
+[공통 스타일 프리픽스]
+A long upper-floor spectator lobby and parents' waiting area, glowing
+outlines of a small snack counter, vending machines, a water dispenser,
+low waiting benches and two large potted plants, the top of a wide main
+staircase arriving in the middle, two openings into the spectator stand
+along one wall, doors at both far ends, quiet carpeted space, first-person
+view
 ```
 
 ---
@@ -302,15 +339,16 @@ space, minimalist typography placeholder area at the bottom, ominous and
 quiet
 ```
 
-### 5.2 로비 브리핑 — 맵 평면도 스타일 (§12.3, 라운드 시작 전 30초 표시)
+### 5.2 로비 브리핑 — 맵 평면도 스타일 (§12.4, 라운드 시작 전 30초 표시)
 
 ```
 [공통 스타일 프리픽스]
-A minimalist top-down architectural floor plan diagram of an indoor
-swimming pool facility, thin glowing white outlines for walls, distinct
-colored dots for three valve locations in amber (#FFB84D), two exit
-markers highlighted, clean blueprint-like schematic style, black background,
-no character positions shown
+Two side-by-side minimalist top-down architectural floor plan diagrams of
+an indoor swimming pool facility, ground floor and partial upper floor,
+thin glowing white outlines for walls, a large central pool hall with two
+pools, distinct colored dots for three valve locations in amber (#FFB84D),
+two exit markers in green (#40A669), clean blueprint-like schematic style,
+black background, no character positions shown
 ```
 
 ### 5.3 인게임 HUD 무드보드 (§12.4)
