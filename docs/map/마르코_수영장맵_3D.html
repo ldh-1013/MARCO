@@ -325,7 +325,7 @@ const SEEDS = [
   {"2층 로비":[28,20],"관람석":[28,30],"물탱크실":[5,15],"관리 복도":[52,17]}
 ];
 const ZMETA = {
-  "메인 풀 홀":{cat:"hall",tex:"tile",d:"25m 경영풀(8레인)과 교습풀이 있는 맵의 중심. 막는 벽이 없어 이 안의 소리는 모두 위치까지 보이는, 가장 노출된 곳입니다. 수중 밸브 B · E와 배수구 2곳(최후 생존자 페이즈에 1곳만 활성)이 있습니다. 수심은 경영풀 1.8m · 교습풀 1.2m이며, 기획서의 깊은 쪽 · 배수구 침강부 3.5m는 이 3D에 표현하지 않았습니다."},
+  "메인 풀 홀":{cat:"hall",tex:"tile",d:"25m 경영풀(8레인)과 교습풀이 있는 맵의 중심. 막는 벽이 없어 이 안의 소리는 모두 위치까지 보이는, 가장 노출된 곳입니다. 수중 밸브 B · E와 배수구 2곳(최후 생존자 페이즈에 1곳만 활성)이 있습니다. 수심은 경영풀 1.8m(동쪽 끝 6m 구간은 깊은 쪽 3.5m, 밸브 B가 여기 있음), 교습풀 1.2m(배수구 둘레 반지름 1.2m 침강부는 3.5m)입니다. 깊은 쪽 경계는 3D에서 단차로 단순화했습니다."},
   "로비":{cat:"guest",tex:"carpet",d:"정문과 안내데스크가 있는 입구. 도망자 출발 지점입니다. 카펫이라 발소리가 작습니다. 계단 S1로 2층 로비에 올라갑니다."},
   "탈의실 L(남)":{cat:"locker",tex:"mat",d:"로비(신발 벗는 쪽)와 샤워실(물 쪽) 사이. 락커 열이 소리와 태그를 막아 숨기 좋습니다. 문이 양쪽에 있어 막다른 길이 아닙니다."},
   "탈의실 R(여)":{cat:"locker",tex:"mat",d:"남자 탈의실과 대칭. 로비 → 탈의실 → 샤워 → 홀로 이어지는 이용객 루프의 한쪽입니다."},
@@ -550,7 +550,10 @@ function isWaterCell(f, x, y) {
   if (f === 0 && "BE@".includes(ch)) { for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) if (at(f, x + dx, y + dy) === '~') return true; }
   return false;
 }
-function poolDepth(x) { return x < 14 ? 1.2 : 1.8; }
+// 맵설계.md 5절 수심 분포: 경영풀 1.8m, 동쪽 끝 6m 구간(x 34~40) 3.5m, 교습풀 1.2m, 교습풀 배수구 침강부(중심 (7.0, 47.0), 반지름 1.2m) 3.5m
+const DEEP_X = 34, PIT = {x:7.0, y:47.0, r:1.2, d:3.5};
+function cellDepth(x, y) { return x < 14 ? 1.2 : (x >= DEEP_X ? 3.5 : 1.8); }
+const DRAIN_POS = {main:{x:36.0, y:47.5}, teach:{x:PIT.x, y:PIT.y}};
 function wallH1(x, y) {
   let hallAdj = false;
   for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) { const z = zoneAt(0, x + dx, y + dy); if (z && z === hallZone) hallAdj = true; }
@@ -587,8 +590,11 @@ function buildFloor(f) {
       headers.push({x, y, h:hh}); continue;
     }
     if (f === 0 && isWaterCell(0, x, y)) {
-      const d = poolDepth(x); water.push({x, y}); basinFloor.push({x, y, d});
-      for (const [dx, dy] of N4) if (!isWaterCell(0, x + dx, y + dy)) basin.push({x, y, dx, dy, d});
+      const d = cellDepth(x, y); water.push({x, y}); if (x >= 14) basinFloor.push({x, y, d});
+      for (const [dx, dy] of N4) {
+        if (!isWaterCell(0, x + dx, y + dy)) basin.push({x, y, dx, dy, d, top:0});
+        else { const dn = cellDepth(x + dx, y + dy); if (dn < d) basin.push({x, y, dx, dy, d, top:dn}); }
+      }
       continue;
     }
     const tex = z ? z.tex : 'carpet';
@@ -678,11 +684,26 @@ function buildFloor(f) {
     if (bf) themed(bf, basinD, basinN);
     const bw = instanced(BOX, basinD, basin, (it, d) => {
       const cx = it.x + 0.5 + it.dx * 0.5, cy = it.y + 0.5 + it.dy * 0.5;
-      d.position.set(cx, -it.d / 2, -cy); d.scale.set(it.dx ? 0.08 : 1, it.d, it.dy ? 0.08 : 1); }, g, {cast:false});
+      d.position.set(cx, -(it.d + it.top) / 2, -cy); d.scale.set(it.dx ? 0.08 : 1, it.d - it.top, it.dy ? 0.08 : 1); }, g, {cast:false});
     if (bw) themed(bw, basinD, basinN);
     for (const it of basin) { const cx = it.x + 0.5 + it.dx * 0.5, cy = it.y + 0.5 + it.dy * 0.5;
       const ax = it.dx ? cx : it.x, bx = it.dx ? cx : it.x + 1, ay = it.dy ? cy : it.y, by = it.dy ? cy : it.y + 1;
-      seg(edgeSegsWater[0], ax, 0, -ay, bx, 0, -by); seg(edgeSegsWater[0], ax, -it.d, -ay, bx, -it.d, -by); }
+      seg(edgeSegsWater[0], ax, -it.top, -ay, bx, -it.top, -by); seg(edgeSegsWater[0], ax, -it.d, -ay, bx, -it.d, -by); }
+    // 교습풀 바닥(1.2m) — 침강부 자리를 원형으로 뚫은 한 장의 판
+    const tc = water.filter(it => it.x < 14);
+    if (tc.length) {
+      const x0 = Math.min(...tc.map(c => c.x)), x1 = Math.max(...tc.map(c => c.x)) + 1, y0 = Math.min(...tc.map(c => c.y)), y1 = Math.max(...tc.map(c => c.y)) + 1;
+      const sh = new THREE.Shape(); sh.moveTo(x0, y0); sh.lineTo(x1, y0); sh.lineTo(x1, y1); sh.lineTo(x0, y1); sh.lineTo(x0, y0);
+      const hole = new THREE.Path(); hole.absarc(PIT.x, PIT.y, PIT.r, 0, Math.PI * 2, true); sh.holes.push(hole);
+      const tg = new THREE.ShapeGeometry(sh, 48); tg.rotateX(-Math.PI / 2);
+      const tf = new THREE.Mesh(tg, basinD); tf.position.y = -1.2; tf.receiveShadow = true; g.add(tf); themed(tf, basinD, basinN);
+      const pitD = basinD.clone(); pitD.side = THREE.DoubleSide; const pitN = basinN.clone(); pitN.side = THREE.DoubleSide;
+      const tube = new THREE.Mesh(new THREE.CylinderGeometry(PIT.r, PIT.r, PIT.d - 1.2, 48, 1, true), pitD);
+      tube.position.set(PIT.x, -(PIT.d + 1.2) / 2, -PIT.y); g.add(tube); themed(tube, pitD, pitN);
+      const pf = new THREE.Mesh(new THREE.CircleGeometry(PIT.r, 48), pitD); pf.rotation.x = -Math.PI / 2; pf.position.set(PIT.x, -PIT.d, -PIT.y); g.add(pf); themed(pf, pitD, pitN);
+      for (let i = 0; i < 48; i++) { const a0 = i / 48 * Math.PI * 2, a1 = (i + 1) / 48 * Math.PI * 2;
+        for (const yy of [-1.2, -PIT.d]) seg(edgeSegsWater[0], PIT.x + Math.cos(a0) * PIT.r, yy, -(PIT.y + Math.sin(a0) * PIT.r), PIT.x + Math.cos(a1) * PIT.r, yy, -(PIT.y + Math.sin(a1) * PIT.r)); }
+    }
     const wgeo = new THREE.PlaneGeometry(1, 1); wgeo.rotateX(-Math.PI / 2);
     const wm2 = instanced(wgeo, waterD, water, (it, d) => { d.position.set(it.x + 0.5, -0.22, -(it.y + 0.5)); d.scale.set(1, 1, 1); }, g, {cast:false});
     if (wm2) { themed(wm2, waterD, waterN); wm2.receiveShadow = false; wm2.renderOrder = 2;
@@ -696,7 +717,8 @@ function buildFloor(f) {
     }
     for (let k = 0; k < 8; k++) {
       const yy = 37 + (k + 0.5) * 21 / 8;
-      const ln = new THREE.Mesh(new THREE.BoxGeometry(22, 0.02, 0.25), laneD); ln.position.set(27.5, -2.0 + 0.012, -yy); g.add(ln); themed(ln, laneD, basinN);
+      const lnA = new THREE.Mesh(new THREE.BoxGeometry(DEEP_X - 16.5, 0.02, 0.25), laneD); lnA.position.set((16.5 + DEEP_X) / 2, -1.8 + 0.012, -yy); g.add(lnA); themed(lnA, laneD, basinN);
+      const lnB = new THREE.Mesh(new THREE.BoxGeometry(38.5 - DEEP_X, 0.02, 0.25), laneD); lnB.position.set((DEEP_X + 38.5) / 2, -3.5 + 0.012, -yy); g.add(lnB); themed(lnB, laneD, basinN);
     }
   }
   // stairs
@@ -752,8 +774,10 @@ const MARKERS = []; const ANIM = []; const MARKER_OBJS = [];
 for (const f of [0, 1]) for (let y = -1; y <= 62; y++) for (let x = -1; x <= 64; x++) {
   const ch = at(f, x, y); if (!MK[ch]) continue;
   const base = f ? F2 : 0, g = GROUPS[f], cx = x + 0.5, cz = -(y + 0.5);
-  const wet = f === 0 && isWaterCell(0, x, y); const floorY = wet ? -poolDepth(x) : base;
-  const obj = new THREE.Group(); obj.position.set(cx, floorY, cz); g.add(obj); MARKER_OBJS.push(obj);
+  const wet = f === 0 && isWaterCell(0, x, y); let floorY = wet ? -cellDepth(x, y) : base;
+  let px = cx, pz = cz;
+  if (ch === '@') { const dp = x < 14 ? DRAIN_POS.teach : DRAIN_POS.main; px = dp.x; pz = -dp.y; floorY = -3.5; }
+  const obj = new THREE.Group(); obj.position.set(px, floorY, pz); g.add(obj); MARKER_OBJS.push(obj);
   const col = new THREE.Color(MK[ch].c);
   let labelY = 2.4;
   if ("ABCDE".includes(ch)) {
@@ -781,9 +805,9 @@ for (const f of [0, 1]) for (let y = -1; y <= 62; y++) for (let x = -1; x <= 64;
     themed(body, body.material, new THREE.MeshBasicMaterial({color:0xffb84d})); labelY = 1.7;
   } else if (ch === '@') {
     const disc = new THREE.Mesh(new THREE.CircleGeometry(0.75, 32), new THREE.MeshBasicMaterial({map:TEX.grill})); disc.rotation.x = -Math.PI / 2; disc.position.y = 0.02; obj.add(disc);
-    labelY = poolDepth(x) + 0.9;
+    labelY = 3.5 + 0.9;
   }
-  MARKERS.push({ch, f, x:cx, y:floorY + labelY, z:cz, name:MK[ch].n, color:MK[ch].c});
+  MARKERS.push({ch, f, x:px, y:floorY + labelY, z:pz, name:MK[ch].n, color:MK[ch].c});
 }
 
 // ---------- labels ----------
